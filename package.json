@@ -1,0 +1,148 @@
+{
+  "name": "contextbranch",
+  "displayName": "ContextBranch",
+  "description": "Git-style branching and merging for AI coding chat",
+  "version": "0.3.0",
+  "publisher": "contextbranch",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other", "Machine Learning"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "contextbranch.open",
+        "title": "ContextBranch: Open Panel",
+        "icon": "$(git-branch)"
+      },
+      {
+        "command": "contextbranch.setApiKey",
+        "title": "ContextBranch: Set API Key"
+      },
+      {
+        "command": "contextbranch.exportStudyData",
+        "title": "ContextBranch: Export Study Data"
+      },
+      {
+        "command": "contextbranch.resetWorkspace",
+        "title": "ContextBranch: Reset Workspace (Danger)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "contextbranch.open",
+          "when": "view == contextbranch.sidebar",
+          "group": "navigation"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "contextbranch",
+          "title": "ContextBranch",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "contextbranch": [
+        {
+          "type": "webview",
+          "id": "contextbranch.sidebar",
+          "name": "ContextBranch"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "ContextBranch",
+      "properties": {
+        "contextbranch.provider": {
+          "type": "string",
+          "enum": ["anthropic", "openai", "gemini"],
+          "default": "anthropic",
+          "description": "LLM provider to use"
+        },
+        "contextbranch.model": {
+          "type": "string",
+          "default": "",
+          "description": "Model identifier. Leave blank to use the provider's default. Anthropic default: claude-sonnet-4-6 (also: claude-opus-4-7, claude-haiku-4-5-20251001). OpenAI default: gpt-4o. Gemini default: gemini-3-flash-preview with automatic fallback to gemini-3.1-flash-lite-preview on rate-limit. Setting a value here pins to that single model with no fallback."
+        },
+        "contextbranch.testCommand": {
+          "type": "string",
+          "default": "",
+          "description": "Command to run on merge verification (empty = auto-detect)"
+        },
+        "contextbranch.lintCommand": {
+          "type": "string",
+          "default": "",
+          "description": "Command to run for linting on merge verification"
+        },
+        "contextbranch.metaAgentEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Meta Agent suggestions"
+        },
+        "contextbranch.studyMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable study-mode telemetry logging"
+        },
+        "contextbranch.participantId": {
+          "type": "string",
+          "default": "",
+          "description": "Participant ID for study mode"
+        },
+        "contextbranch.condition": {
+          "type": "string",
+          "enum": ["linear", "branched"],
+          "default": "branched",
+          "description": "Study condition (linear disables branching UI)"
+        },
+        "contextbranch.semanticMerge": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run the MergeAnalystAgent during merge preview. The agent reads all artifacts in both branches and proposes cascading edits to UNCHANGED target files that may need updates to remain consistent with the changes. Disable to run the textual-only merge baseline (used as the ablation condition in the study)."
+        },
+        "contextbranch.autoApplyOnSwitch": {
+          "type": "boolean",
+          "default": true,
+          "description": "When switching branches, automatically write the new branch's artifacts to disk and remove files that existed only because of the previous branch. Makes branch switching feel like 'git checkout'. Disable if you want full manual control."
+        },
+        "contextbranch.captureUserEdits": {
+          "type": "boolean",
+          "default": true,
+          "description": "When you edit a file that is already an artifact in the active branch (e.g. you tweak the AI's output by hand), the watcher folds your edit back into the branch's artifact. Disable to keep AI-only authoring semantics."
+        },
+        "contextbranch.captureNewFiles": {
+          "type": "boolean",
+          "default": false,
+          "description": "When a NEW file appears in the workspace (created outside the AI conversation), claim it as an artifact in the active branch. Off by default because new-file claiming is surprising — turn on if you want full git-checkout semantics."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "node esbuild.js --production",
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "package": "vsce package",
+    "compile": "tsc -noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^2.24.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.0",
+    "openai": "^4.50.0",
+    "@google/generative-ai": "^0.21.0",
+    "diff3": "^0.0.4"
+  }
+}
