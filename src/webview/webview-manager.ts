@@ -80,6 +80,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
         activeBranchStatus: '',
         isMain: true,
         telemetry: null,
+        historyGraph: null,
         noWorkspace: true,
       });
       return;
@@ -110,6 +111,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       isMain: activeId === ws.mainBranchId,
       telemetry: ws.workspaceState.telemetry,
       noWorkspace: false,
+      historyGraph: ws.getHistoryGraph(),
     });
   }
 
