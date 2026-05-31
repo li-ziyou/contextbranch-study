@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; script-src 'nonce-{{nonce}}'; img-src {{cspSource}} https: data:; font-src {{cspSource}};" />
+  <link rel="stylesheet" href="{{cssUri}}" />
+  <title>ContextBranch</title>
+</head>
+<body>
+  <div id="app">
+
+    <!-- ─── Top bar ─────────────────────────────────────── -->
+    <header class="topbar">
+      <div class="branch-pill" id="branch-pill" title="Click to switch branch">
+        <span class="branch-icon">⎇</span>
+        <span class="branch-name" id="active-branch-name">main</span>
+        <span class="branch-caret">▾</span>
+      </div>
+      <div class="topbar-actions">
+        <button class="icon-btn" id="btn-menu" title="Branch actions">⋯</button>
+      </div>
+    </header>
+
+    <!-- ─── Banner ─────────────────────────────────────── -->
+    <div class="banner" id="banner" hidden></div>
+
+    <!-- ─── Branch switcher dropdown ───────────────────── -->
+    <div class="dropdown" id="branch-dropdown" hidden>
+      <div class="dropdown-section">
+        <div class="dropdown-label">Active branches</div>
+        <ul id="branch-list-active"></ul>
+      </div>
+      <div class="dropdown-section">
+        <div class="dropdown-label">Merged / abandoned</div>
+        <ul id="branch-list-archived"></ul>
+      </div>
+    </div>
+
+    <!-- ─── Action menu dropdown ───────────────────────── -->
+    <div class="dropdown menu-dropdown" id="action-menu" hidden>
+      <button class="menu-item" data-action="decompose">
+        <span class="menu-icon">⎇</span> Decompose task into branches
+      </button>
+      <button class="menu-item" data-action="newBranch">
+        <span class="menu-icon">+</span> New branch from here
+      </button>
+      <button class="menu-item" data-action="merge" id="menu-merge">
+        <span class="menu-icon">⤵</span> Merge into another branch
+      </button>
+      <button class="menu-item" data-action="apply" id="menu-apply">
+        <span class="menu-icon">📝</span> Apply artifacts to workspace
+      </button>
+      <div class="menu-divider"></div>
+      <button class="menu-item danger" data-action="abandon" id="menu-abandon">
+        <span class="menu-icon">✕</span> Abandon branch
+      </button>
+    </div>
+
+    <!-- ─── Conversation pane ──────────────────────────── -->
+    <main class="conversation" id="conversation">
+
+      <div class="empty-state" id="empty-state">
+        <div class="empty-icon">💬</div>
+        <h2>Start a conversation</h2>
+        <p>Type a message below. The AI's reply will appear here.</p>
+        <p class="empty-hint">Use the <strong>⋯</strong> menu to branch, decompose tasks, or merge.</p>
+      </div>
+
+      <div class="messages" id="messages"></div>
+
+      <div class="streaming-bubble" id="streaming" hidden>
+        <div class="role-label">assistant</div>
+        <div class="streaming-text" id="streaming-text"></div>
+        <div class="streaming-indicator">⋯ generating</div>
+      </div>
+
+    </main>
+
+    <!-- ─── Composer ───────────────────────────────────── -->
+    <div class="composer">
+      <textarea id="composer-input"
+                placeholder="Message..."
+                rows="3"></textarea>
+      <div class="composer-row">
+        <div class="composer-status" id="composer-status"></div>
+        <div class="composer-buttons">
+          <button class="btn-stop" id="btn-stop" hidden>Stop</button>
+          <button class="btn-send" id="btn-send">Send</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── Modals ─────────────────────────────────────── -->
+
+    <div class="modal" id="modal-decompose" hidden>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Decompose into branches</h3>
+          <button class="icon-btn close-btn" data-close="modal-decompose">×</button>
+        </div>
+        <p class="muted">Describe a task. The AI will propose sub-branches and a merge order.</p>
+        <textarea id="decompose-task" placeholder="e.g. Build an auth module with login, signup, and password reset..." rows="4"></textarea>
+        <div id="decompose-result" hidden></div>
+        <div class="modal-actions">
+          <button class="btn-secondary" data-close="modal-decompose">Cancel</button>
+          <button class="btn-primary" id="decompose-go">Decompose</button>
+          <button class="btn-primary" id="decompose-create-all" hidden>Create all branches</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="modal-branch" hidden>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>New branch</h3>
+          <button class="icon-btn close-btn" data-close="modal-branch">×</button>
+        </div>
+        <label class="field-label">Name</label>
+        <input type="text" id="branch-name" placeholder="e.g. auth-jwt" />
+        <label class="field-label">Scope (optional)</label>
+        <input type="text" id="branch-desc" placeholder="One-line description" />
+        <div class="modal-actions">
+          <button class="btn-secondary" data-close="modal-branch">Cancel</button>
+          <button class="btn-primary" id="branch-create">Create</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="modal-merge" hidden>
+      <div class="modal-content modal-wide">
+        <div class="modal-header">
+          <h3>Merge branch</h3>
+          <button class="icon-btn close-btn" data-close="modal-merge">×</button>
+        </div>
+        <div class="merge-summary">
+          <strong id="merge-source-name"></strong>
+          <span class="arrow">→</span>
+          <select id="merge-target-select"></select>
+        </div>
+        <div id="merge-preview" hidden>
+          <div class="verification-panel" id="merge-verification"></div>
+          <div class="info-block" id="merge-rebase-notes" hidden></div>
+          <div class="info-block" id="merge-artifact-changes" hidden></div>
+          <div class="info-block" id="merge-cascading" hidden>
+            <div class="info-block-header">
+              <strong>Proposed cascading edits</strong>
+              <span class="info-block-sub" id="merge-cascading-summary"></span>
+            </div>
+            <div id="merge-cascading-list"></div>
+          </div>
+          <div class="info-block" id="merge-conflicts" hidden>
+            <div class="info-block-header">
+              <strong>AI-resolved conflicts</strong>
+              <span class="info-block-sub">uncheck to fall back to conflict markers</span>
+            </div>
+            <div id="merge-conflicts-list"></div>
+          </div>
+          <div class="info-block" id="merge-synthesis" hidden></div>
+        </div>
+        <div id="merge-running" hidden>
+          <div class="spinner"></div> Running verification and cascade analysis…
+        </div>
+        <div class="modal-actions">
+          <button class="btn-secondary" data-close="modal-merge">Cancel</button>
+          <button class="btn-primary" id="merge-preview-btn">Preview merge</button>
+          <button class="btn-primary" id="merge-confirm" hidden>Finalize merge</button>
+          <button class="btn-danger" id="merge-force" hidden>Force merge</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── Status messages (persistent) ─────────────── -->
+    <div class="status-area" id="status-area"></div>
+
+  </div>
+
+  <script nonce="{{nonce}}" src="{{jsUri}}"></script>
+</body>
+</html>
