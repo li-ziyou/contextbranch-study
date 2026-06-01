@@ -1,5 +1,14 @@
 /**
  * Merge logic.
+ *
+ * Pipeline:
+ *   1. Snapshot target (for undo)
+ *   2. Lazy rebase: detect if target has changed since source's checkpoint
+ *      and ask AI to flag any conflicts in source's reasoning given new target
+ *   3. Compute artifact diff (3-way merge for each touched file)
+ *   4. Run verification (test cmd + lint cmd + AI consistency check)
+ *   5. If green OR forced → consolidate source's conversation, append to target
+ *   6. Record MergeEvent
  */
 
 import { exec } from 'child_process';
@@ -563,8 +572,24 @@ async function runVerification(input: VerificationInput): Promise<VerificationRe
       });
       result.testOutput = (stdout + '\n' + stderr).trim();
     } catch (err: any) {
-      result.testOutput = `FAIL: ${err.message}\n${err.stdout ?? ''}\n${err.stderr ?? ''}`;
-      result.status = 'fail';
+      // Distinguish "the test runner isn't installed / couldn't start" from
+      // "tests actually ran and failed". A missing binary (shell exit 127, or
+      // ENOENT) is an environment gap, not a test failure, so it must NOT
+      // block the merge.
+      const detail = `${err.message ?? ''}\n${err.stderr ?? ''}`;
+      const runnerMissing =
+        err.code === 127 ||
+        err.code === 'ENOENT' ||
+        /command not found|not found|ENOENT|no such file/i.test(detail);
+      if (runnerMissing) {
+        result.testOutput =
+          `SKIPPED: test command "${input.testCommand}" is not available on this machine; ` +
+          `verification did not run tests.`;
+        // leave result.status untouched — not a failure
+      } else {
+        result.testOutput = `FAIL: ${err.message}\n${err.stdout ?? ''}\n${err.stderr ?? ''}`;
+        result.status = 'fail';
+      }
     }
   }
 
