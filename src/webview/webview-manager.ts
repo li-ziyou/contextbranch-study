@@ -25,6 +25,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
 
   private view?: vscode.WebviewView;
   private currentAbort?: AbortController;
+  private mergeInProgress?: boolean;
 
   constructor(
     private context: vscode.ExtensionContext,
@@ -88,6 +89,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     const activeId = ws.activeBranchId;
     const active = ws.getBranch(activeId)!;
     const messages = ws.getMessages(activeId);
+    const checkpoints = ws.getCheckpoints(activeId);
     const condition = this.getCondition();
     const provider = this.getProvider();
 
@@ -97,9 +99,20 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       providerReady: !!provider,
       activeBranchId: activeId,
       mainBranchId: ws.mainBranchId,
+      activeCheckpointId: active.activeCheckpointId ?? null,
+      checkpoints: checkpoints.map(cp => ({
+        id: cp.id,
+        branchId: cp.branchId,
+        parentCheckpointId: cp.parentCheckpointId,
+        messageCount: cp.messageIds.length,
+        artifactCount: cp.artifactIds.length,
+        createdAt: cp.createdAt,
+        label: cp.label,
+      })),
       branches: branches.map(b => ({
         id: b.id, name: b.name, description: b.description,
         status: b.status, parentBranchId: b.parentBranchId,
+        activeCheckpointId: b.activeCheckpointId ?? null,
         messageCount: b.messageIds.length, tags: b.tags,
       })),
       messages: messages.map(m => ({
@@ -136,6 +149,8 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       case 'abandonBranch': return this.handleAbandonBranch(msg.branchId);
       case 'mergeBranch': return this.handleMergeBranch(msg.sourceBranchId, msg.targetBranchId, msg.force, msg.acceptedCascadePaths, msg.acceptedConflictPaths);
       case 'previewMerge': return this.handlePreviewMerge(msg.sourceBranchId, msg.targetBranchId);
+      case 'createCheckpoint': return this.handleCreateCheckpoint(msg.branchId, msg.label);
+      case 'restoreCheckpoint': return this.handleRestoreCheckpoint(msg.branchId, msg.checkpointId);
       case 'abortStream': return this.handleAbort();
       case 'decompose': return this.handleDecompose(msg.taskDescription);
       case 'requestState': return this.pushState();
@@ -182,6 +197,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
         history,
         workspaceRoot,
         signal: this.currentAbort.signal,
+        artifacts: ws.getArtifacts(branch.id),
       })) {
         if (ev.type === 'delta' && ev.text) {
           assistantText += ev.text;
@@ -262,53 +278,19 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     //   branch-A (which created predict_v2.py) to branch-B (which doesn't)
     //   leaves predict_v2.py sitting on disk — not git-like.
     const oldBranchId = ws.activeBranchId;
-    const oldPaths = new Set(ws.getArtifacts(oldBranchId).map(a => a.path));
+    const oldPaths: Set<string> = new Set<string>(ws.getArtifacts(oldBranchId).map(a => a.path));
 
     ws.switchBranch(branchId);
 
     if (autoApply && workspaceRoot && oldBranchId !== branchId) {
       const newArtifacts = ws.getArtifacts(branchId);
-      const newPaths = new Set(newArtifacts.map(a => a.path));
-      let wrote = 0, removed = 0;
+      const sync = this.syncArtifactsToWorkspace(workspaceRoot, oldPaths, newArtifacts, 3000);
 
-      // Suppress the file watcher around our own writes so it doesn't loop
-      // back and re-capture them as user edits.
-      const allTouchedAbs: string[] = [];
-      for (const a of newArtifacts) allTouchedAbs.push(path.join(workspaceRoot, a.path));
-      for (const op of oldPaths) allTouchedAbs.push(path.join(workspaceRoot, op));
-      this.getCapture()?.suppressMany(allTouchedAbs, 3000);
-
-      // Write the new branch's artifacts to disk.
-      for (const art of newArtifacts) {
-        try {
-          const full = path.join(workspaceRoot, art.path);
-          fs.mkdirSync(path.dirname(full), { recursive: true });
-          fs.writeFileSync(full, art.content, 'utf-8');
-          wrote++;
-        } catch { /* skip unwriteable */ }
-      }
-
-      // Remove orphans — files that existed only because of the old branch.
-      // Conservative: only remove files we know we wrote (old branch's
-      // artifact paths). We never touch files outside the artifact set,
-      // even if the user might want us to (that's a stronger semantic
-      // we'd add with a file watcher; see roadmap).
-      for (const orphanPath of oldPaths) {
-        if (newPaths.has(orphanPath)) continue;
-        try {
-          const full = path.join(workspaceRoot, orphanPath);
-          if (fs.existsSync(full)) {
-            fs.unlinkSync(full);
-            removed++;
-          }
-        } catch { /* skip */ }
-      }
-
-      if (wrote > 0 || removed > 0) {
+      if (sync.wrote > 0 || sync.removed > 0) {
         this.postMessage({
           type: 'switchApplied',
-          wrote,
-          removed,
+          wrote: sync.wrote,
+          removed: sync.removed,
           branchName: ws.getBranch(branchId)?.name ?? branchId,
         });
       }
@@ -323,6 +305,79 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     ws.abandonBranch(branchId);
     if (ws.activeBranchId === branchId) ws.switchBranch(ws.mainBranchId);
     this.pushState();
+  }
+
+
+  private syncArtifactsToWorkspace(workspaceRoot: string, oldPaths: Set<string>, newArtifacts: Artifact[], suppressMs = 3000): { wrote: number; removed: number } {
+    const newPaths: Set<string> = new Set<string>(newArtifacts.map(a => a.path));
+    const allTouchedAbs: string[] = [];
+    for (const a of newArtifacts) allTouchedAbs.push(path.join(workspaceRoot, a.path));
+    for (const op of oldPaths) allTouchedAbs.push(path.join(workspaceRoot, op));
+    this.getCapture()?.suppressMany(allTouchedAbs, suppressMs);
+
+    let wrote = 0, removed = 0;
+
+    for (const art of newArtifacts) {
+      try {
+        const full = path.join(workspaceRoot, art.path);
+        fs.mkdirSync(path.dirname(full), { recursive: true });
+        fs.writeFileSync(full, art.content, 'utf-8');
+        wrote++;
+      } catch { /* skip unwriteable */ }
+    }
+
+    for (const orphanPath of oldPaths) {
+      if (newPaths.has(orphanPath)) continue;
+      try {
+        const full = path.join(workspaceRoot, orphanPath);
+        if (fs.existsSync(full)) {
+          fs.unlinkSync(full);
+          removed++;
+        }
+      } catch { /* skip */ }
+    }
+
+    return { wrote, removed };
+  }
+
+  private handleCreateCheckpoint(branchId: string, label?: string): void {
+    const ws = this.requireWorkspace();
+    if (!ws) return;
+    const cp = ws.createCheckpoint(branchId, label);
+    this.pushState();
+    this.postMessage({
+      type: 'checkpointCreated',
+      checkpointId: cp.id,
+      branchId,
+      message: `Checkpoint created${cp.label ? `: ${cp.label}` : ''}.`,
+    });
+  }
+
+  private handleRestoreCheckpoint(branchId: string, checkpointId: string): void {
+    const ws = this.requireWorkspace();
+    if (!ws) return;
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const beforePaths: Set<string> = new Set<string>(ws.getArtifacts(branchId).map(a => a.path));
+    const cp = ws.restoreCheckpoint(branchId, checkpointId);
+
+    let wrote = 0;
+    let removed = 0;
+    if (workspaceRoot && ws.activeBranchId === branchId) {
+      const afterArtifacts = ws.getArtifacts(branchId);
+      const sync = this.syncArtifactsToWorkspace(workspaceRoot, beforePaths, afterArtifacts, 3000);
+      wrote = sync.wrote;
+      removed = sync.removed;
+    }
+
+    this.pushState();
+    this.postMessage({
+      type: 'checkpointRestored',
+      branchId,
+      checkpointId: cp.id,
+      wrote,
+      removed,
+      message: `Restored checkpoint${cp.label ? `: ${cp.label}` : ''}.`,
+    });
   }
 
   // ─── merging ──────────────────────────────────────────────────────────────
@@ -409,6 +464,10 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     acceptedCascadePaths?: string[],
     acceptedConflictPaths?: string[],
   ): Promise<void> {
+    if (this.mergeInProgress) {
+      this.postMessage({ type: 'error', message: 'A merge is already running.' });
+      return;
+    }
     const ws = this.requireWorkspace();
     if (!ws) return;
     const provider = this.getProvider();
@@ -437,17 +496,22 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       acceptedConflictPaths,
     };
 
-    const preview = await previewMerge(ws, opts);
-    const event = await finalizeMerge(ws, opts, preview);
+    this.mergeInProgress = true;
+    try {
+      const preview = await previewMerge(ws, opts);
+      const event = await finalizeMerge(ws, opts, preview);
 
-    if (ws.activeBranchId === sourceBranchId) ws.switchBranch(targetBranchId);
-    this.pushState();
-    this.postMessage({
-      type: 'mergeCompleted',
-      event,
-      cascadingApplied: (acceptedCascadePaths ?? []).length,
-      conflictsResolved: (acceptedConflictPaths ?? []).length,
-    });
+      if (ws.activeBranchId === sourceBranchId) ws.switchBranch(targetBranchId);
+      this.pushState();
+      this.postMessage({
+        type: 'mergeCompleted',
+        event,
+        cascadingApplied: (acceptedCascadePaths ?? []).length,
+        conflictsResolved: (acceptedConflictPaths ?? []).length,
+      });
+    } finally {
+      this.mergeInProgress = false;
+    }
   }
 
   // ─── decomposition ────────────────────────────────────────────────────────

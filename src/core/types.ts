@@ -60,7 +60,7 @@ export interface Artifact {
 export interface Checkpoint {
   id: string;            // SHA-256 of state
   branchId: string;      // branch this checkpoint was taken from
-  parentCheckpointId: string | null;
+  parentCheckpointId: string | null; // previous checkpoint in the chain
   messageIds: string[];  // ordered list of message IDs at checkpoint time
   artifactIds: string[]; // ordered list of artifact IDs at checkpoint time
   createdAt: number;
@@ -88,6 +88,7 @@ export interface Branch {
   description?: string;
   parentBranchId: string | null;     // 'main' has null
   parentCheckpointId: string | null; // checkpoint this branch forked from
+  activeCheckpointId: string | null; // checkpoint representing the branch head
   /** Count of messages inherited from parent at branch creation. */
   forkedAtMessageCount: number;
   messageIds: string[];              // ordered list of message IDs in this branch
@@ -226,4 +227,4 @@ export interface StudyExport {
     tsri?: Record<string, number>;
     notes?: string;
   };
-}
+} 

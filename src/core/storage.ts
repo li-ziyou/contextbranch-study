@@ -106,6 +106,15 @@ export class Storage {
     return this.readJson<Checkpoint>(path.join(this.root, 'objects', `c_${id}.json`));
   }
 
+  loadAllCheckpoints(): Checkpoint[] {
+    const dir = path.join(this.root, 'objects');
+    if (!fs.existsSync(dir)) return [];
+    return fs.readdirSync(dir)
+      .filter(f => f.startsWith('c_') && f.endsWith('.json') && !f.endsWith('.tmp'))
+      .map(f => this.readJson<Checkpoint>(path.join(dir, f)))
+      .filter((cp): cp is Checkpoint => cp !== null);
+  }
+
   // ─── branches ─────────────────────────────────────────────────────────────
 
   saveBranch(b: Branch): void {

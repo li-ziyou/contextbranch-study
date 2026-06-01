@@ -157,7 +157,7 @@ function isRateLimitError(err: unknown): boolean {
 
 export class GeminiProvider implements LLMProvider {
   readonly name = 'gemini';
-  readonly defaultModel = 'gemini-3-flash-preview';
+  readonly defaultModel = 'gemini-3.1-flash-lite-preview';
 
   /**
    * Models tried in order when `opts.model` is not pinned by the caller.
