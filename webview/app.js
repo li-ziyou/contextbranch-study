@@ -34,6 +34,8 @@
     historyOpen: false,
     historyGraph: null,
     selectedHistoryNodeId: null,
+    checkpoints: [],
+    activeCheckpointId: null,
   };
 
   window.__cb = {
@@ -61,6 +63,7 @@
           showStatus(msg.message, 'error');
           // Reset transient UI states so we never get stuck spinners
           $('merge-running').hidden = true;
+          setMergeUiBusy(false);
           handleStreamEnd();
           break;
         case 'success': showStatus(msg.message, 'success'); break;
@@ -74,6 +77,12 @@
           showStatus(`Switched to ${msg.branchName} — ${parts.join(', ')} files on disk.`, 'info');
           break;
         }
+        case 'checkpointCreated':
+          showStatus(msg.message || 'Checkpoint created.', 'success');
+          break;
+        case 'checkpointRestored':
+          showStatus(msg.message || 'Checkpoint restored.', 'success');
+          break;
       }
     } catch (err) {
       showStatus('UI error: ' + err.message, 'error');
@@ -134,7 +143,10 @@
   }
 
   function handleMergeCompleted(event, cascadingApplied, conflictsResolved) {
+    setMergeUiBusy(false);
     closeModal('modal-merge');
+    state.pendingMerge = null;
+    state.pendingMergePreview = null;
     const parts = [];
     if (cascadingApplied > 0) parts.push(`${cascadingApplied} cascading edit${cascadingApplied === 1 ? '' : 's'}`);
     if (conflictsResolved > 0) parts.push(`${conflictsResolved} conflict${conflictsResolved === 1 ? '' : 's'} ai-resolved`);
@@ -260,6 +272,8 @@
     merge.disabled = state.isMain || state.condition === 'linear';
     apply.disabled = false;
     abandon.disabled = state.isMain;
+
+    renderCheckpointModal();
 
     // Send button enabled state
     $('btn-send').disabled = !state.providerReady || state.isStreaming;
@@ -1061,6 +1075,76 @@ function findNextInstanceTime(branchId, instanceIdx) {
     $('decompose-go').hidden = true;
   }
 
+
+  function formatCheckpointTime(ts) {
+    try {
+      return new Date(ts).toLocaleString();
+    } catch {
+      return String(ts);
+    }
+  }
+
+  function openCheckpointModal() {
+    $('checkpoint-label').value = '';
+    renderCheckpointModal();
+    openModal('modal-checkpoint');
+    $('checkpoint-label').focus();
+  }
+
+  function renderCheckpointModal() {
+    const wrap = $('checkpoint-list');
+    const summary = $('checkpoint-summary');
+    const checkpoints = Array.isArray(state.checkpoints) ? state.checkpoints : [];
+    const activeId = state.activeCheckpointId || null;
+
+    if (summary) {
+      summary.textContent = activeId
+        ? `Current checkpoint: ${activeId.slice(0, 8)}`
+        : 'No active checkpoint recorded yet.';
+    }
+    if (!wrap) return;
+    wrap.innerHTML = '';
+
+    if (checkpoints.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'decomp-warning';
+      empty.textContent = 'No checkpoints yet. Create one to capture the current branch state.';
+      wrap.appendChild(empty);
+      return;
+    }
+
+    for (const cp of checkpoints.slice().reverse()) {
+      const item = document.createElement('div');
+      item.className = 'checkpoint-item' + (cp.id === activeId ? ' current' : '');
+
+      const head = document.createElement('div');
+      head.className = 'checkpoint-item-head';
+
+      const title = document.createElement('div');
+      title.className = 'checkpoint-item-title';
+      title.innerHTML = `<strong>${escapeHtml(cp.label || ('Checkpoint ' + cp.id.slice(0, 8)))}</strong>` +
+        (cp.id === activeId ? ' <span class="checkpoint-badge">current</span>' : '');
+      head.appendChild(title);
+
+      const restoreBtn = document.createElement('button');
+      restoreBtn.className = 'btn-secondary';
+      restoreBtn.textContent = cp.id === activeId ? 'Current' : 'Restore';
+      restoreBtn.disabled = cp.id === activeId;
+      restoreBtn.dataset.checkpointId = cp.id;
+      restoreBtn.dataset.action = 'restore-checkpoint';
+      head.appendChild(restoreBtn);
+      item.appendChild(head);
+
+      const meta = document.createElement('div');
+      meta.className = 'checkpoint-item-meta';
+      const parent = cp.parentCheckpointId ? cp.parentCheckpointId.slice(0, 8) : 'root';
+      meta.textContent = `${formatCheckpointTime(cp.createdAt)} · parent ${parent} · ${cp.messageCount ?? 0} messages · ${cp.artifactCount ?? 0} artifacts`;
+      item.appendChild(meta);
+
+      wrap.appendChild(item);
+    }
+  }
+
   function renderCascadingProposals(p) {
     const wrap = $('merge-cascading');
     const summarySpan = $('merge-cascading-summary');
@@ -1164,6 +1248,7 @@ function findNextInstanceTime(branchId, instanceIdx) {
       cb.checked = res.confidence === 'high';
       cb.dataset.conflictPath = res.path;
       cb.className = 'conflict-checkbox';
+      cb.addEventListener('change', () => updateMergeActionButtons());
       const title = document.createElement('span');
       title.className = 'cascade-title';
       const badge = `<span class="conf-badge conf-${res.confidence}">${res.confidence}</span>`;
@@ -1285,9 +1370,9 @@ function findNextInstanceTime(branchId, instanceIdx) {
       s.hidden = false;
     } else { s.hidden = true; }
 
-    $('merge-confirm').hidden = p.verification.status === 'fail';
-    $('merge-force').hidden = p.verification.status !== 'fail';
+    updateMergeActionButtons();
     $('merge-preview-btn').hidden = true;
+    setMergeUiBusy(false);
   }
 
   // ─── status / errors ─────────────────────────────────────────────────
@@ -1307,6 +1392,28 @@ function findNextInstanceTime(branchId, instanceIdx) {
     if (kind !== 'error') {
       setTimeout(() => div.remove(), 6000);
     }
+  }
+
+  function setMergeUiBusy(busy) {
+    const previewBtn = $('merge-preview-btn');
+    const confirmBtn = $('merge-confirm');
+    const forceBtn = $('merge-force');
+    if (previewBtn) previewBtn.disabled = busy;
+    if (confirmBtn) confirmBtn.disabled = busy;
+    if (forceBtn) forceBtn.disabled = busy;
+  }
+
+  function updateMergeActionButtons() {
+    const p = state.pendingMergePreview;
+    if (!p) return;
+
+    const accepted = collectAcceptedConflictResolutions();
+    const unresolved = (p.verification.artifactConflicts || []).filter((c) => !accepted.includes(c.path));
+    const testsFailed = !!(p.verification.testOutput && /FAIL:/i.test(p.verification.testOutput));
+    const canFinalize = !testsFailed && unresolved.length === 0;
+
+    $('merge-confirm').hidden = !canFinalize;
+    $('merge-force').hidden = canFinalize;
   }
 
   // ─── dropdowns ────────────────────────────────────────────────────────
@@ -1362,6 +1469,31 @@ function findNextInstanceTime(branchId, instanceIdx) {
     closeModal('modal-branch');
   });
 
+  $('checkpoint-create').addEventListener('click', () => {
+    if (!state.activeBranchId) {
+      showStatus('Open a branch first.', 'error');
+      return;
+    }
+    send({
+      type: 'createCheckpoint',
+      branchId: state.activeBranchId,
+      label: $('checkpoint-label').value.trim() || undefined,
+    });
+    $('checkpoint-label').value = '';
+    closeModal('modal-checkpoint');
+  });
+
+  $('checkpoint-list').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-checkpoint-id]');
+    if (!btn) return;
+    const checkpointId = btn.dataset.checkpointId;
+    if (!checkpointId || !state.activeBranchId) return;
+    // const ok = confirm(`Restore branch to checkpoint ${checkpointId.slice(0, 8)}?`);
+    // if (!ok) return; #sandboxed stuff, don't work!
+    send({ type: 'restoreCheckpoint', branchId: state.activeBranchId, checkpointId });
+    closeModal('modal-checkpoint');
+  });
+
   // ─── decompose modal ──────────────────────────────────────────────────
 
   function openDecomposeModal() {
@@ -1415,6 +1547,7 @@ function findNextInstanceTime(branchId, instanceIdx) {
     $('merge-preview-btn').hidden = false;
     $('merge-confirm').hidden = true;
     $('merge-force').hidden = true;
+    setMergeUiBusy(false);
     openModal('modal-merge');
   }
 
@@ -1424,6 +1557,7 @@ function findNextInstanceTime(branchId, instanceIdx) {
       showStatus('Pick a target branch first.', 'error');
       return;
     }
+    setMergeUiBusy(true);
     $('merge-running').hidden = false;
     send({
       type: 'previewMerge',
@@ -1434,6 +1568,8 @@ function findNextInstanceTime(branchId, instanceIdx) {
 
   $('merge-confirm').addEventListener('click', () => {
     if (!state.pendingMerge) return;
+    setMergeUiBusy(true);
+    $('merge-running').hidden = false;
     send({
       type: 'mergeBranch',
       sourceBranchId: state.pendingMerge.sourceBranchId,
@@ -1446,6 +1582,8 @@ function findNextInstanceTime(branchId, instanceIdx) {
 
   $('merge-force').addEventListener('click', () => {
     if (!state.pendingMerge) return;
+    setMergeUiBusy(true);
+    $('merge-running').hidden = false;
     showStatus('Force-merging…', 'info');
     send({
       type: 'mergeBranch',
@@ -1465,6 +1603,7 @@ function findNextInstanceTime(branchId, instanceIdx) {
       closeDropdown('action-menu');
       if (action === 'decompose') openDecomposeModal();
       else if (action === 'newBranch') openBranchModal();
+      else if (action === 'checkpoint') openCheckpointModal();
       else if (action === 'merge') openMergeModal();
       else if (action === 'apply') {
         send({ type: 'applyArtifactsToWorkspace', branchId: state.activeBranchId });

@@ -1236,3 +1236,67 @@ button:disabled {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+/* ─── checkpoint UI ──────────────────────────────────── */
+
+.checkpoint-controls {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0 12px;
+}
+
+#checkpoint-label {
+  flex: 1;
+}
+
+.checkpoint-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.checkpoint-item {
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px;
+  padding: 10px 12px;
+  background: var(--vscode-editor-background);
+}
+
+.checkpoint-item.current {
+  border-color: var(--vscode-textLink-foreground);
+  box-shadow: inset 0 0 0 1px var(--vscode-textLink-foreground);
+}
+
+.checkpoint-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.checkpoint-item-title {
+  min-width: 0;
+}
+
+.checkpoint-item-title strong {
+  font-weight: 600;
+}
+
+.checkpoint-item-meta {
+  margin-top: 4px;
+  font-size: 0.82em;
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.4;
+}
+
+.checkpoint-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 0.7em;
+  text-transform: uppercase;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+}

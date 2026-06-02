@@ -39,6 +39,7 @@ export class Workspace {
       description: 'Root conversation',
       parentBranchId: null,
       parentCheckpointId: null,
+      activeCheckpointId: null,
       forkedAtMessageCount: 0,
       messageIds: [],
       artifactIds: [],
@@ -76,9 +77,12 @@ export class Workspace {
 
   getBranch(id: string): Branch | null {
     const cached = this.branchCache.get(id);
-    if (cached) return cached;
+    if (cached) return this.ensureBranchCheckpointState(cached);
     const loaded = this.storage.loadBranch(id);
-    if (loaded) this.branchCache.set(id, loaded);
+    if (loaded) {
+      this.ensureBranchCheckpointState(loaded);
+      this.branchCache.set(id, loaded);
+    }
     return loaded;
   }
 
@@ -113,9 +117,19 @@ export class Workspace {
       .map(id => this.storage.loadArtifact(id))
       .filter((a): a is Artifact => a !== null);
   }
-  getAllCheckpoints(): Checkpoint[] {
-    return this.storage.loadAllCheckpoints();
+
+  getCheckpoint(id: string): Checkpoint | null {
+    return this.storage.loadCheckpoint(id);
   }
+
+  getAllCheckpoints(): Checkpoint[] {
+    return this.storage.loadAllCheckpoints().sort((a, b) => a.createdAt - b.createdAt);
+  }
+
+  getCheckpoints(branchId: string): Checkpoint[] {
+    return this.getAllCheckpoints().filter(cp => cp.branchId === branchId);
+  }
+
   // ─── persistence helpers ──────────────────────────────────────────────────
 
   private save(): void {
@@ -126,6 +140,39 @@ export class Workspace {
     b.updatedAt = Date.now();
     this.branchCache.set(b.id, b);
     this.storage.saveBranch(b);
+  }
+
+  private ensureBranchCheckpointState(branch: Branch): Branch {
+    const typed = branch as Branch & { activeCheckpointId?: string | null };
+    if (typed.activeCheckpointId === undefined) {
+      typed.activeCheckpointId = this.resolveLegacyActiveCheckpointId(branch);
+      this.saveBranch(branch);
+    }
+    return branch;
+  }
+
+  private resolveLegacyActiveCheckpointId(branch: Branch): string | null {
+    const checkpoints = this.storage.loadAllCheckpoints().filter(cp => cp.branchId === branch.id);
+    if (checkpoints.length === 0) {
+      return branch.parentCheckpointId ?? null;
+    }
+
+    const sameState = checkpoints.find(cp =>
+      this.arraysEqual(cp.messageIds, branch.messageIds) &&
+      this.arraysEqual(cp.artifactIds, branch.artifactIds)
+    );
+    if (sameState) return sameState.id;
+
+    const sorted = checkpoints.slice().sort((a, b) => a.createdAt - b.createdAt);
+    return sorted.length ? sorted[sorted.length - 1].id : (branch.parentCheckpointId ?? null);
+  }
+
+  private arraysEqual<T>(a: T[], b: T[]): boolean {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) return false;
+    }
+    return true;
   }
 
   // ─── messages ─────────────────────────────────────────────────────────────
@@ -211,23 +258,52 @@ export class Workspace {
     const b = this.getBranch(branchId);
     if (!b) throw new Error(`Branch ${branchId} not found`);
 
+    const parentCheckpointId = b.activeCheckpointId ?? b.parentCheckpointId;
     const stateString = JSON.stringify({
-      branch: b.id, msgs: b.messageIds, arts: b.artifactIds,
+      branch: b.id,
+      parentCheckpointId,
+      msgs: b.messageIds,
+      arts: b.artifactIds,
+      label: label ?? null,
     });
     const id = Storage.hash(stateString);
     const existing = this.storage.loadCheckpoint(id);
-    if (existing) return existing;
+    if (existing) {
+      b.activeCheckpointId = existing.id;
+      this.saveBranch(b);
+      this.storage.appendTelemetry({
+        type: 'checkpoint_created',
+        branchId,
+        checkpointId: existing.id,
+        parentCheckpointId,
+        label,
+        deduped: true,
+      });
+      return existing;
+    }
 
     const cp: Checkpoint = {
       id,
       branchId,
-      parentCheckpointId: b.parentCheckpointId,
+      parentCheckpointId,
       messageIds: [...b.messageIds],
       artifactIds: [...b.artifactIds],
       createdAt: Date.now(),
       label,
     };
     this.storage.saveCheckpoint(cp);
+    b.activeCheckpointId = cp.id;
+    this.saveBranch(b);
+
+    this.storage.appendTelemetry({
+      type: 'checkpoint_created',
+      branchId,
+      checkpointId: cp.id,
+      parentCheckpointId,
+      label,
+      deduped: false,
+    });
+
     return cp;
   }
 
@@ -279,6 +355,7 @@ export class Workspace {
       description: opts.description,
       parentBranchId: parentId,
       parentCheckpointId: checkpoint.id,
+      activeCheckpointId: checkpoint.id,
       forkedAtMessageCount: inheritedMessageIds.length,
       messageIds: inheritedMessageIds,
       artifactIds: inheritedArtifactIds,
@@ -308,6 +385,31 @@ export class Workspace {
     let i = 2;
     while (existing.has(`${desired}-${i}`)) i++;
     return `${desired}-${i}`;
+  }
+
+  restoreCheckpoint(branchId: string, checkpointId: string): Checkpoint {
+    const b = this.getBranch(branchId);
+    if (!b) throw new Error(`Branch ${branchId} not found`);
+
+    const cp = this.storage.loadCheckpoint(checkpointId);
+    if (!cp) throw new Error(`Checkpoint ${checkpointId} not found`);
+    if (cp.branchId !== branchId) {
+      throw new Error(`Checkpoint ${checkpointId} does not belong to branch ${branchId}`);
+    }
+
+    b.messageIds = [...cp.messageIds];
+    b.artifactIds = [...cp.artifactIds];
+    b.activeCheckpointId = cp.id;
+    if (b.status === 'draft') b.status = 'active';
+    this.saveBranch(b);
+
+    this.storage.appendTelemetry({
+      type: 'checkpoint_restored',
+      branchId,
+      checkpointId: cp.id,
+    });
+
+    return cp;
   }
 
   // ─── switching ────────────────────────────────────────────────────────────
@@ -342,6 +444,7 @@ export class Workspace {
     if (branchId === this.mainBranchId) throw new Error('Cannot abandon main');
     this.setBranchStatus(branchId, 'abandoned');
   }
+
   getCheckpointsForBranch(branchId: string): Checkpoint[] {
     return this.getAllCheckpoints()
       .filter(cp => cp.branchId === branchId)

@@ -9,7 +9,7 @@
 
 import { LLMProvider, LLMMessage, LLMStreamEvent } from '../llm/provider';
 import { codingAgentSystem } from '../llm/prompts';
-import { Branch, Message } from '../core/types';
+import { Branch, Message, Artifact } from '../core/types';
 
 export interface ArtifactCandidate {
   path: string;
@@ -28,14 +28,21 @@ export class CodingAgent {
     workspaceRoot?: string;
     signal?: AbortSignal;
     model?: string;
+    artifacts?: Artifact[];
   }): AsyncIterable<LLMStreamEvent> {
-    const system = codingAgentSystem({
+    const baseSystem = codingAgentSystem({
       branchName: opts.branch.name,
       branchDescription: opts.branch.description,
       parentBranchName: opts.parentBranchName,
       isMain: opts.isMain,
       workspaceRoot: opts.workspaceRoot,
     });
+    const recentUserText = opts.history
+      .filter(m => m.role === 'user')
+      .slice(-3)
+      .map(m => m.content)
+      .join('\n');
+    const system = baseSystem + buildArtifactContext(opts.artifacts ?? [], recentUserText);
 
     const messages: LLMMessage[] = opts.history
       .filter(m => m.role !== 'system' || m.content.startsWith('[merge]'))
@@ -51,6 +58,58 @@ export class CodingAgent {
       model: opts.model,
     });
   }
+}
+
+// ─── bounded artifact context (Task D) ───────────────────────────────────────
+const ARTIFACT_CONTEXT_BUDGET = 24_000; // chars of full file content per prompt
+
+function buildArtifactContext(artifacts: Artifact[], recentUserText: string): string {
+  if (!artifacts.length) return '';
+
+  // 1) Manifest of EVERY tracked file — cheap, so the model always knows what
+  //    exists even when we don't inline the content.
+  const manifest = artifacts
+    .slice()
+    .sort((a, b) => a.path.localeCompare(b.path))
+    .map(a => `  • ${a.path} (${a.content.length} bytes)`)
+    .join('\n');
+
+  // 2) Inline full content only for a bounded subset:
+  //    (a) files referenced by path/name in the last few user turns, then
+  //    (b) most-recently-changed files, until the byte budget runs out.
+  const lower = recentUserText.toLowerCase();
+  const referenced = new Set<string>();
+  for (const a of artifacts) {
+    const base = a.path.split('/').pop() ?? a.path;
+    if (lower.includes(a.path.toLowerCase()) || lower.includes(base.toLowerCase())) {
+      referenced.add(a.id);
+    }
+  }
+  const ordered = artifacts.slice().sort((a, b) => {
+    const ra = referenced.has(a.id) ? 1 : 0;
+    const rb = referenced.has(b.id) ? 1 : 0;
+    if (ra !== rb) return rb - ra;        // referenced first
+    return b.updatedAt - a.updatedAt;     // then most recently changed
+  });
+
+  const included: string[] = [];
+  let budget = ARTIFACT_CONTEXT_BUDGET;
+  for (const a of ordered) {
+    if (a.content.length > budget) continue;
+    budget -= a.content.length;
+    included.push(`### ${a.path}\n\`\`\`\n${a.content}\n\`\`\``);
+  }
+
+  return [
+    '',
+    'TRACKED FILES IN THIS BRANCH (authoritative — prefer these over memory):',
+    manifest,
+    '',
+    'CONTENTS OF THE MOST RELEVANT TRACKED FILES:',
+    included.length ? included.join('\n\n') : '  (none inlined this turn — ask to reference a file if needed)',
+    '',
+    'If a file is listed above but its contents are not shown, ask the user to reference it rather than guessing its contents.',
+  ].join('\n');
 }
 
 // ─── artifact extraction ─────────────────────────────────────────────────────
