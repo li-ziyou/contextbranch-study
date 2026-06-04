@@ -22,7 +22,21 @@ html, body {
   background: var(--vscode-sideBar-background);
   overflow: hidden;
 }
-
+.detail-checkpoint-item {
+      cursor: pointer;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 6px 8px;
+      border-radius: 4px;
+    }
+    .detail-checkpoint-item:hover {
+      background: var(--vscode-list-hoverBackground, rgba(255,255,255,0.07));
+    }
+    .detail-checkpoint-item:focus-visible {
+      outline: 1px solid var(--vscode-focusBorder, #4FC3F7);
+      outline-offset: -1px;
+    }
 #app {
   display: flex;
   flex-direction: column;

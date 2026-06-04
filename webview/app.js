@@ -359,7 +359,8 @@
     nodes.push({
       id: mergeNodeId,
       kind: 'merge',
-      label: `${sourceName} → ${targetName}`,
+      // label: `${sourceName} → ${targetName}`,        
+      label: `${targetName}`,
       mergeEvent: m,
       sourceBranchId: m.sourceBranchId,
       sourceBranchName: sourceName,
@@ -375,7 +376,13 @@
     edges.push({ from: targetTip, to: mergeNodeId, kind: 'mainline' });
 
     // The source branch feeds into the merge — drawn distinctly, NOT a tree edge.
-    edges.push({ from: 'br:' + m.sourceBranchId, to: mergeNodeId, kind: 'merge' });
+    edges.push({
+      from: 'br:' + m.sourceBranchId,
+      to: mergeNodeId,
+      kind: 'merge',
+      sourceName: branchMap.get(m.sourceBranchId)?.name || m.sourceBranchId,
+      targetName: branchMap.get(m.targetBranchId)?.name || m.targetBranchId,
+    });
 
     latestMergeIntoTarget.set(m.targetBranchId, mergeNodeId);
   }
@@ -383,6 +390,7 @@
   // 3. Fork edges — but re-parent onto a merge node if the branch forked
   //    AFTER a merge into its parent. This is the key change: a branch
   //    created from a post-merge state hangs off the merge node.
+
   for (const b of hg.branches) {
     if (!b.parentBranchId) continue;
     const forkTime = b.createdAt;
@@ -506,11 +514,21 @@ function layoutGraph(model) {
     const from = posById.get(e.from);
     const to = posById.get(e.to);
     if (!from || !to) continue;
-    positionedEdges.push({
+
+    const edgeObj = {
       kind: e.kind,
       type: e.kind === 'merge' ? 'merge' : 'parent',
       pathData: buildStraightEdge(from, to),
-    });
+    };
+
+    if (e.kind === 'merge') {
+      // Carry names + midpoint through to the renderer for labeling.
+      edgeObj.label = 'merged from ' + e.sourceName;
+      edgeObj.midX = (from.x + to.x) / 2;
+      edgeObj.midY = (from.y + to.y) / 2;
+    }
+
+    positionedEdges.push(edgeObj);
   }
 
   return {
@@ -697,25 +715,32 @@ function renderGraph(g) {
 
 for (const e of g.edges) {
   const path = document.createElementNS(SVG_NS, 'path');
-
-  // Your path data (now straight lines instead of bezier)
-  path.setAttribute('d', e.pathData); 
+  path.setAttribute('d', e.pathData);
   path.setAttribute('fill', 'none');
-  
-  // Dynamic styling based on the type we assigned in the layout
   if (e.type === 'merge') {
-    // Style for Merges: Different color and dashed lines
-    path.setAttribute('stroke', '#e67e22'); // Distinct color
-    path.setAttribute('stroke-dasharray', '5,5'); // Dashed for merge
+    path.setAttribute('stroke', '#e67e22');
+    path.setAttribute('stroke-dasharray', '5,5');
   } else {
-    // Style for Hierarchy: Standard color
     path.setAttribute('stroke', 'var(--vscode-descriptionForeground, #666)');
   }
-  
   path.setAttribute('stroke-width', '2');
   path.setAttribute('marker-end', 'url(#arrow)');
-
   camera.appendChild(path);
+
+  // Label merge edges at their midpoint.
+  if (e.type === 'merge' && e.label) {
+    const label = document.createElementNS(SVG_NS, 'text');
+    label.setAttribute('x', e.midX);
+    label.setAttribute('y', e.midY - 4);          // nudge above the line
+    label.setAttribute('fill', '#e67e22');
+    label.setAttribute('font-size', '11');
+    label.setAttribute('text-anchor', 'middle');
+    label.setAttribute('paint-order', 'stroke');  // halo so text stays readable over lines
+    label.setAttribute('stroke', 'var(--vscode-editor-background, #1e1e1e)');
+    label.setAttribute('stroke-width', '3');
+    label.textContent = e.label;
+    camera.appendChild(label);
+  }
 }
 
   // --------------------------------------------------
@@ -854,7 +879,7 @@ function renderBranchCard(node, title, body) {
   }
 
   // ── Checkpoints in this lifetime ──
-  renderCheckpointSection(body, b.id, windowStart, windowEnd);
+  renderCheckpointSection(body, b.id, windowStart, windowEnd); // burasi iste bir sikinti var aslinda diye dusunuyorum
 
   // ── Switch button ──
   if (!isActive && b.status !== 'merged' && b.status !== 'abandoned') {
@@ -889,8 +914,8 @@ function renderMergeCard(node, title, body) {
     : Infinity;
 
   // ── Header ──
-  title.textContent = `${sourceName} → ${targetName}`;
-
+  // title.textContent = `${sourceName} → ${targetName}`;
+  title.textContent = `${targetName}`;
   // ── Meta lines ──
   const when = new Date(thisMergeTime).toLocaleString();
   appendP(body, when, 'muted');
@@ -943,6 +968,9 @@ function renderCheckpointSection(parent, branchId, windowStart, windowEnd) {
   for (const cp of inWindow) {
     const li = document.createElement('li');
     li.className = 'detail-checkpoint-item';
+    li.setAttribute('role', 'button');
+    li.setAttribute('tabindex', '0');           // keyboard-focusable
+    li.title = 'Switch to this checkpoint';
 
     const dot = document.createElement('span');
     dot.className = 'detail-checkpoint-dot ' + (cp.kind || 'manual');
@@ -963,6 +991,17 @@ function renderCheckpointSection(parent, branchId, windowStart, windowEnd) {
     main.appendChild(meta);
 
     li.appendChild(main);
+
+    // Whole row is the switch affordance.
+    const doSwitch = () => {
+      send({ type: 'restoreCheckpoint', branchId, checkpointId: cp.id });
+      $('history-detail').hidden = true;
+    };
+    li.addEventListener('click', doSwitch);
+    li.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); doSwitch(); }
+    });
+
     ul.appendChild(li);
   }
   parent.appendChild(ul);
@@ -982,6 +1021,17 @@ function appendSwitchButton(parent, branchId) {
   btn.textContent = 'Switch to this branch';
   btn.addEventListener('click', () => {
     send({ type: 'switchBranch', branchId });
+    $('history-detail').hidden = true;
+  });
+  parent.appendChild(btn);
+}
+
+function appendSwitchButtonCheckpoint(parent, branchId, checkpointId) {
+  const btn = document.createElement('button');
+  btn.className = 'btn-primary detail-switch-btn';
+  btn.textContent = 'Switch to this checkpoint';
+  btn.addEventListener('click', () => {
+    send({ type: 'restoreCheckpoint', branchId, checkpointId });
     $('history-detail').hidden = true;
   });
   parent.appendChild(btn);

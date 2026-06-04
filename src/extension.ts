@@ -32,7 +32,7 @@ export async function activate(context: vscode.ExtensionContext) {
   //    show a clear "open a folder" message instead of failing silently.
   const config = vscode.workspace.getConfiguration('contextbranch');
   view = new ContextBranchView(
-    context,
+    context,  
     () => workspace,
     () => provider,
     () => config.get<'linear' | 'branched'>('condition') ?? 'branched',
