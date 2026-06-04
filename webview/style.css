@@ -667,7 +667,27 @@ button:disabled {
   fill: var(--vscode-editor-background);
   transition: fill 0.1s;
 }
-
+.checkpoint-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      margin-left: 8px;
+      font-size: 12px;
+      border: 1px solid var(--vscode-button-border, transparent);
+      border-radius: 4px;
+      background: var(--vscode-button-secondaryBackground, #3a3d41);
+      color: var(--vscode-button-secondaryForeground, #ccc);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.12s ease;
+    }
+    .checkpoint-btn:hover {
+      background: var(--vscode-button-secondaryHoverBackground, #45494e);
+    }
+    .checkpoint-btn:active { transform: translateY(0.5px); }
+    .checkpoint-btn:disabled { opacity: 0.5; cursor: default; }
+    .checkpoint-btn-icon { font-size: 13px; line-height: 1; }
 .graph-node:hover rect,
 .graph-node:hover circle,
 .graph-node:hover polygon {

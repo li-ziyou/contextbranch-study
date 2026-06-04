@@ -1700,6 +1700,10 @@ function findNextInstanceTime(branchId, instanceIdx) {
       e.stopPropagation();
       toggleDropdown('action-menu');
     });
+  $('btn-checkpoint').addEventListener('click', (e) => {
+    e.stopPropagation();
+    openCheckpointModal();
+  });
    $('btn-toggle-history').addEventListener('click', (e) => {
     e.stopPropagation();
     state.historyOpen = !state.historyOpen;
