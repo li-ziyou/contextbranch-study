@@ -186,6 +186,43 @@
             <p class="muted">No history yet.</p>
             <p class="muted">Create a branch or save a checkpoint to see it here.</p>
           </div>
+
+          <!-- Navigation controls (bottom-left) -->
+          <div class="graph-controls" id="graph-controls">
+            <div class="graph-controls-zoom">
+              <button class="gc-btn" id="gc-zoom-in"  title="Zoom in">+</button>
+              <button class="gc-btn gc-btn-reset" id="gc-reset" title="Reset view">⊙</button>
+              <button class="gc-btn" id="gc-zoom-out" title="Zoom out">−</button>
+            </div>
+            <div class="graph-controls-pan">
+              <button class="gc-btn gc-btn-wide" id="gc-pan-up"    title="Pan up">↑</button>
+              <div class="graph-controls-pan-mid">
+                <button class="gc-btn" id="gc-pan-left"  title="Pan left">←</button>
+                <button class="gc-btn" id="gc-pan-right" title="Pan right">→</button>
+              </div>
+              <button class="gc-btn gc-btn-wide" id="gc-pan-down"  title="Pan down">↓</button>
+            </div>
+          </div>
+
+          <!-- Legend (bottom-right) -->
+          <div class="graph-legend" id="graph-legend">
+            <div class="legend-item">
+              <span class="legend-dot" style="background:#4FC3F7;"></span>
+              <span>Current branch</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-dot" style="background:#2d2d30; border:1px solid #888;"></span>
+              <span>Other branch</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-dot" style="background:#e67e22;"></span>
+              <span>Merge event</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-line-orange"></span>
+              <span>Merge direction</span>
+            </div>
+          </div>
         </div>
 
         <aside class="history-detail" id="history-detail" hidden>

@@ -1324,6 +1324,135 @@ button:disabled {
   line-height: 1.4;
 }
 
+/* ─── graph controls overlay (bottom-left of history pane) ── */
+
+#history-graph-container {
+  position: relative;
+}
+
+.graph-controls {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 20;
+  background: var(--vscode-editorWidget-background, rgba(30,30,30,0.88));
+  border: 1px solid var(--vscode-editorWidget-border, #454545);
+  border-radius: 8px;
+  padding: 6px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  user-select: none;
+}
+
+.graph-controls-zoom,
+.graph-controls-pan {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.graph-controls-zoom {
+  border-bottom: 1px solid var(--vscode-editorWidget-border, #454545);
+  padding-bottom: 4px;
+  margin-bottom: 2px;
+}
+
+.graph-controls-pan-mid {
+  display: flex;
+  gap: 2px;
+}
+
+.gc-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: 4px;
+  background: var(--vscode-button-secondaryBackground, #3a3a3a);
+  color: var(--vscode-button-secondaryForeground, #ccc);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.1s;
+}
+
+.gc-btn:hover {
+  background: var(--vscode-button-secondaryHoverBackground, #4a4a4a);
+  color: var(--vscode-foreground);
+}
+
+.gc-btn-wide {
+  width: 56px;
+}
+
+.gc-btn-reset {
+  font-size: 12px;
+}
+
+/* ─── graph legend overlay (bottom-right of history pane) ─── */
+
+.graph-legend {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  z-index: 20;
+  background: var(--vscode-editorWidget-background, rgba(30,30,30,0.88));
+  border: 1px solid var(--vscode-editorWidget-border, #454545);
+  border-radius: 8px;
+  padding: 8px 10px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  font-size: 0.78em;
+  color: var(--vscode-descriptionForeground);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  pointer-events: none;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.legend-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.legend-line-orange {
+  display: inline-block;
+  width: 22px;
+  height: 2px;
+  flex-shrink: 0;
+  background: #e67e22;
+  position: relative;
+}
+
+.legend-line-orange::after {
+  content: '';
+  position: absolute;
+  right: -1px;
+  top: -3px;
+  width: 0;
+  height: 0;
+  border-left: 6px solid #e67e22;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+}
+
+/* ─── checkpoint badge ──────────────────────────────────── */
+
 .checkpoint-badge {
   display: inline-block;
   margin-left: 6px;
