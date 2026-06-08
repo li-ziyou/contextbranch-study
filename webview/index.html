@@ -57,11 +57,11 @@
     #history-graph-container {
       flex: 1 1 auto !important;
       min-height: 0 !important;
-      overflow: auto !important;
+      overflow: hidden !important;   /* camera handles pan/zoom; no scrollbars */
       position: relative !important;
     }
 
-    #history-svg { display: block; }
+    #history-svg { display: block; width: 100%; height: 100%; }
   </style>
   <title>ContextBranch</title>
 </head>
@@ -80,6 +80,10 @@
       <span class="checkpoint-btn-label">Checkpoint</span>
     </button>
     <div class="topbar-actions">
+      <div class="api-counter" id="api-counter" title="Total API calls across all branches in this project" hidden>
+        <span class="api-counter-icon">⚡</span>
+        <span class="api-counter-value" id="api-counter-value">0</span>
+      </div>
       <button class="icon-btn" id="btn-toggle-history" title="Show history graph">⎇</button>
       <button class="icon-btn" id="btn-menu" title="Branch actions">⋯</button>
     </div>
@@ -187,40 +191,37 @@
             <p class="muted">Create a branch or save a checkpoint to see it here.</p>
           </div>
 
-          <!-- Navigation controls (bottom-left) -->
-          <div class="graph-controls" id="graph-controls">
-            <div class="graph-controls-zoom">
-              <button class="gc-btn" id="gc-zoom-in"  title="Zoom in">+</button>
-              <button class="gc-btn gc-btn-reset" id="gc-reset" title="Reset view">⊙</button>
-              <button class="gc-btn" id="gc-zoom-out" title="Zoom out">−</button>
-            </div>
-            <div class="graph-controls-pan">
-              <button class="gc-btn gc-btn-wide" id="gc-pan-up"    title="Pan up">↑</button>
-              <div class="graph-controls-pan-mid">
-                <button class="gc-btn" id="gc-pan-left"  title="Pan left">←</button>
-                <button class="gc-btn" id="gc-pan-right" title="Pan right">→</button>
-              </div>
-              <button class="gc-btn gc-btn-wide" id="gc-pan-down"  title="Pan down">↓</button>
-            </div>
+          <!-- Navigation controls (bottom-left) — compact. Pan by dragging. -->
+          <div class="graph-controls" id="graph-controls" title="Drag the canvas to pan · scroll to zoom">
+            <button class="gc-btn" id="gc-zoom-in"  title="Zoom in">+</button>
+            <button class="gc-btn gc-btn-reset" id="gc-reset" title="Fit to view">⊙</button>
+            <button class="gc-btn" id="gc-zoom-out" title="Zoom out">−</button>
           </div>
 
-          <!-- Legend (bottom-right) -->
+          <!-- Legend (bottom-right) — compact, collapses to a chip; hover/tap to expand -->
           <div class="graph-legend" id="graph-legend">
-            <div class="legend-item">
-              <span class="legend-dot" style="background:#4FC3F7;"></span>
-              <span>Current branch</span>
-            </div>
-            <div class="legend-item">
-              <span class="legend-dot" style="background:#2d2d30; border:1px solid #888;"></span>
-              <span>Other branch</span>
-            </div>
-            <div class="legend-item">
-              <span class="legend-dot" style="background:#e67e22;"></span>
-              <span>Merge event</span>
-            </div>
-            <div class="legend-item">
-              <span class="legend-line-orange"></span>
-              <span>Merge direction</span>
+            <div class="legend-chip">Legend</div>
+            <div class="legend-items">
+              <div class="legend-item">
+                <span class="legend-glyph legend-circle" style="background:#4FC3F7;"></span>
+                <span>Branch (active)</span>
+              </div>
+              <div class="legend-item">
+                <span class="legend-glyph legend-circle" style="background:#566179; border:1px solid #aeb7c9;"></span>
+                <span>Branch</span>
+              </div>
+              <div class="legend-item">
+                <span class="legend-glyph legend-tri legend-tri-orange"></span>
+                <span>Checkpoint</span>
+              </div>
+              <div class="legend-item">
+                <span class="legend-glyph legend-tri legend-tri-blue"></span>
+                <span>Fork point</span>
+              </div>
+              <div class="legend-item">
+                <span class="legend-glyph legend-diamond"></span>
+                <span>Merge</span>
+              </div>
             </div>
           </div>
         </div>

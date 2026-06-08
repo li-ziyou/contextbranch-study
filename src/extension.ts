@@ -52,6 +52,25 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(statusBar);
   updateStatusBar();
 
+  // Imports pre-existing files exactly once per project (guarded by a sentinel
+  // file), so re-activations / reloads don't re-add files you've since deleted.
+  function runInitialIngest(cbRoot: string): void {
+    try {
+      const marker = path.join(cbRoot, '.ingested');
+      if (fs.existsSync(marker)) return;
+      const n = capture?.ingestExisting() ?? 0;
+      fs.mkdirSync(cbRoot, { recursive: true });
+      fs.writeFileSync(marker, String(Date.now()));
+      if (n > 0) {
+        view?.pushState();
+        updateStatusBar();
+        vscode.window.showInformationMessage(
+          `ContextBranch: imported ${n} existing file${n === 1 ? '' : 's'} into main.`
+        );
+      }
+    } catch { /* non-fatal */ }
+  }
+
   // 2. Initialize storage in workspace (if a folder is open)
   const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   let storage: Storage | null = null;
@@ -67,6 +86,11 @@ export async function activate(context: vscode.ExtensionContext) {
     });
     capture.start();
     context.subscriptions.push(capture);
+
+    // 2c. One-time import: if the folder already had files when ContextBranch
+    //     was first initialized here, fold them into main so the starting state
+    //     is captured (otherwise only files you later touch get captured).
+    runInitialIngest(cbRoot);
   } else {
     vscode.window.showWarningMessage(
       'ContextBranch: open a folder first, then reload the window.'
@@ -95,6 +119,7 @@ export async function activate(context: vscode.ExtensionContext) {
         capture.start();
         view?.pushState();
         updateStatusBar();
+        runInitialIngest(cbRoot);
         vscode.window.showInformationMessage('ContextBranch: workspace ready.');
       }
     })

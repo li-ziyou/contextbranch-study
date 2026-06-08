@@ -19,6 +19,11 @@ export class Workspace {
     const existing = storage.loadWorkspace();
     if (existing) {
       this.state = existing;
+      // Back-compat: older workspaces predate the merge-call counters.
+      const t = this.state.telemetry as any;
+      if (t.totalMergeApiCalls === undefined) t.totalMergeApiCalls = 0;
+      if (t.totalMergeInputTokens === undefined) t.totalMergeInputTokens = 0;
+      if (t.totalMergeOutputTokens === undefined) t.totalMergeOutputTokens = 0;
       // warm cache
       for (const id of this.state.branchIds) {
         const b = this.storage.loadBranch(id);
@@ -63,6 +68,9 @@ export class Workspace {
         totalApiCalls: 0,
         totalInputTokens: 0,
         totalOutputTokens: 0,
+        totalMergeApiCalls: 0,
+        totalMergeInputTokens: 0,
+        totalMergeOutputTokens: 0,
       },
     };
     this.storage.saveWorkspace(state);
@@ -250,6 +258,52 @@ export class Workspace {
     });
 
     return art;
+  }
+
+  /**
+   * Remove a file artifact (or a whole folder's worth of artifacts) from a
+   * branch. Passing a folder path removes every artifact whose path is inside
+   * it. Returns the relative paths that were removed.
+   *
+   * Note: this only detaches the artifacts from the branch's list — the
+   * content-addressed blobs stay in storage, so other branches/checkpoints
+   * that still reference them are unaffected.
+   */
+  removeArtifactsByPath(branchId: string, targetPath: string): string[] {
+    const b = this.getBranch(branchId);
+    if (!b) return [];
+    const prefix = targetPath.endsWith('/') ? targetPath : targetPath + '/';
+    const removed: string[] = [];
+    b.artifactIds = b.artifactIds.filter(aid => {
+      const a = this.storage.loadArtifact(aid);
+      if (!a) return true; // can't resolve — keep the reference
+      const hit = a.path === targetPath || a.path.startsWith(prefix);
+      if (hit) {
+        removed.push(a.path);
+        return false; // drop it
+      }
+      return true;
+    });
+    if (removed.length) {
+      this.saveBranch(b);
+      for (const p of removed) {
+        this.storage.appendTelemetry({ type: 'artifact_removed', branchId, path: p });
+      }
+    }
+    return removed;
+  }
+
+  /** Tally an LLM call made by the merge engine itself (analyst / resolver). */
+  recordMergeApiUsage(inputTokens = 0, outputTokens = 0): void {
+    const t = this.state.telemetry as any;
+    t.totalMergeApiCalls = (t.totalMergeApiCalls || 0) + 1;
+    t.totalMergeInputTokens = (t.totalMergeInputTokens || 0) + (inputTokens || 0);
+    t.totalMergeOutputTokens = (t.totalMergeOutputTokens || 0) + (outputTokens || 0);
+    this.save();
+    this.storage.appendTelemetry({
+      type: 'merge_api_call', branchId: this.state.activeBranchId,
+      inputTokens, outputTokens,
+    });
   }
 
   // ─── checkpoints ──────────────────────────────────────────────────────────

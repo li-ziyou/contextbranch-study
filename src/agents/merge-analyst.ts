@@ -37,7 +37,10 @@ interface ChangedFileView {
 }
 
 export class MergeAnalystAgent {
-  constructor(private provider: LLMProvider) {}
+  constructor(
+    private provider: LLMProvider,
+    private onUsage?: (inputTokens: number, outputTokens: number) => void,
+  ) {}
 
   async analyze(opts: {
     sourceArtifacts: ArtifactView[];
@@ -79,6 +82,7 @@ export class MergeAnalystAgent {
         signal: opts.signal,
       })) {
         if (ev.type === 'delta') raw += ev.text;
+        if (ev.type === 'usage') this.onUsage?.(ev.inputTokens ?? 0, ev.outputTokens ?? 0);
         if (ev.type === 'error') {
           return { summary: '', proposals: [], error: ev.error };
         }

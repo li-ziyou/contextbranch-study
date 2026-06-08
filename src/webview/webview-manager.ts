@@ -183,6 +183,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     const history = ws.getMessages(branch.id);
     const isMain = branch.id === ws.mainBranchId;
 
+    const cfg = vscode.workspace.getConfiguration('contextbranch');
     let assistantText = '';
     let inputTokens = 0, outputTokens = 0;
     let model: string | undefined;
@@ -200,6 +201,9 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
         workspaceRoot,
         signal: this.currentAbort.signal,
         artifacts: ws.getArtifacts(branch.id),
+        hotContextChars: cfg.get<number>('hotContextChars') ?? undefined,
+        coldContextChars: cfg.get<number>('coldContextChars') ?? undefined,
+        maxHistory: cfg.get<number>('maxHistoryMessages') ?? undefined,
       })) {
         if (ev.type === 'delta' && ev.text) {
           assistantText += ev.text;
@@ -392,7 +396,10 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
   private buildAnalyzeCascadeHook(): NonNullable<Parameters<typeof previewMerge>[1]['analyzeCascade']> | null {
     const provider = this.getProvider();
     if (!provider) return null;
-    const analyst = new MergeAnalystAgent(provider);
+    const analyst = new MergeAnalystAgent(
+      provider,
+      (i, o) => this.getWorkspace()?.recordMergeApiUsage(i, o),
+    );
     return async (
       _source: Branch,
       _target: Branch,
@@ -414,7 +421,10 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
   private buildResolveConflictHook(): NonNullable<Parameters<typeof previewMerge>[1]['resolveConflict']> | null {
     const provider = this.getProvider();
     if (!provider) return null;
-    const resolver = new ConflictResolverAgent(provider);
+    const resolver = new ConflictResolverAgent(
+      provider,
+      (i, o) => this.getWorkspace()?.recordMergeApiUsage(i, o),
+    );
     return async (opts) => {
       return await resolver.resolve({
         path: opts.path,

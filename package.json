@@ -121,6 +121,21 @@
           "type": "boolean",
           "default": true,
           "description": "When a NEW file appears in the workspace (created outside the AI conversation), claim it as an artifact in the active branch. Off by default because new-file claiming is surprising — turn on if you want full git-checkout semantics."
+        },
+        "contextbranch.hotContextChars": {
+          "type": "number",
+          "default": 14000,
+          "description": "Max characters of file content inlined into the coding prompt when your message references specific files. Lower = cheaper, but the model sees less."
+        },
+        "contextbranch.coldContextChars": {
+          "type": "number",
+          "default": 6000,
+          "description": "Max characters of file content inlined when your message references NO specific file (only the most recently changed files are sent). Lower = cheaper."
+        },
+        "contextbranch.maxHistoryMessages": {
+          "type": "number",
+          "default": 16,
+          "description": "How many of the most recent chat messages to send to the coding agent each turn. The full file state is sent separately, so older turns mostly just cost tokens."
         }
       }
     }

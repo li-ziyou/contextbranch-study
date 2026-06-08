@@ -20,7 +20,10 @@ export interface ConflictResolution {
 }
 
 export class ConflictResolverAgent {
-  constructor(private provider: LLMProvider) {}
+  constructor(
+    private provider: LLMProvider,
+    private onUsage?: (inputTokens: number, outputTokens: number) => void,
+  ) {}
 
   async resolve(opts: {
     path: string;
@@ -43,6 +46,7 @@ export class ConflictResolverAgent {
         signal: opts.signal,
       })) {
         if (ev.type === 'delta') raw += ev.text;
+        if (ev.type === 'usage') this.onUsage?.(ev.inputTokens ?? 0, ev.outputTokens ?? 0);
         if (ev.type === 'error') {
           return this.errorResult(opts.path, opts.theirs, ev.error ?? 'unknown error');
         }

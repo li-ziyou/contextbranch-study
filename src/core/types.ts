@@ -201,6 +201,10 @@ export interface WorkspaceState {
     totalApiCalls: number;
     totalInputTokens: number;
     totalOutputTokens: number;
+    /** Calls the merge engine makes on its own (analyst + conflict resolver). */
+    totalMergeApiCalls: number;
+    totalMergeInputTokens: number;
+    totalMergeOutputTokens: number;
   };
 }
 
