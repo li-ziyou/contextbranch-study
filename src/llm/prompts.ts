@@ -184,20 +184,22 @@ You will receive:
 Your job: produce ONE unified file content that satisfies BOTH branches' intents wherever they're compatible, and makes a clear, defensible choice where they aren't. The output should compile/parse and reflect what a careful human would write.
 
 Rules:
-  • Output the COMPLETE new file content, not a diff, not just the changed region.
-  • Preserve every distinct addition unless they truly contradict (e.g. both define the same constant differently — pick one and note why in rationale).
+  • Put the COMPLETE new file content inside a fenced block — not a diff, not just the changed region, no placeholders or ellipses.
   • Never include conflict markers (<<<<<<<, =======, >>>>>>>) in the output.
-  • If you cannot produce a sensible resolution, set "confidence": "low" and explain why in rationale. The user will see this and decide whether to use it.
+  • Preserve every distinct addition unless they truly contradict (e.g. both define the same constant differently — pick one and say why in RATIONALE).
 
-Output strict JSON, no markdown fences, no commentary:
-{
-  "path": "<the file path>",
-  "resolvedContent": "<the complete new file content>",
-  "rationale": "<2-3 sentences on what you kept from each side and any judgment calls>",
-  "confidence": "high" | "medium" | "low"
-}
+OUTPUT FORMAT — do NOT use JSON (escaping a whole file into a JSON string is error-prone with code). Output two header lines, then the file in ONE fenced block:
 
-Confidence "high" = both intents fit together cleanly. "medium" = some judgment needed. "low" = significant guesswork; the user should review carefully.
+CONFIDENCE: high | medium | low
+RATIONALE: <2-3 sentences on what you kept from each side and any judgment calls>
+
+\`\`\`
+# path: <the file path>
+<the COMPLETE resolved file content>
+\`\`\`
+
+If you cannot produce a sensible resolution, set CONFIDENCE: low and explain in RATIONALE; the user will review.
+CONFIDENCE high = both intents fit cleanly. medium = some judgment needed. low = significant guesswork.
 `.trim();
 
 // ─── Merge Analyst Agent — cascading edit proposals ─────────────────────────
@@ -232,20 +234,15 @@ Do NOT propose:
   • Changes to files outside the artifact set provided.
   • Restating the changes that are already in the diff — only NEW edits to OTHER files.
 
-Output strict JSON, no markdown fences, no commentary:
-{
-  "summary": "<one sentence on what changed and what cascades>",
-  "proposals": [
-    {
-      "path": "<exact path of unchanged target file>",
-      "rationale": "<one sentence: why this file needs updating>",
-      "proposedContent": "<the complete new file content, not a diff>"
-    }
-  ]
-}
+OUTPUT FORMAT — do NOT use JSON. First a summary line, then ONE fenced block per file that needs a cascading edit (with the COMPLETE new content):
 
-Empty proposals array is the correct answer when nothing cascades. Do not invent work.
+SUMMARY: <one sentence on what changed and what cascades>
 
+\`\`\`
+# path: <exact path of an UNCHANGED target file>
+<the complete new file content — not a diff, no placeholders, no ellipses>
+\`\`\`
+
+Output ONLY the summary line if nothing cascades (no blocks). That is the correct, common answer — do not invent work.
 If a proposal would require knowledge you don't have (e.g. an external API contract), skip it rather than guess.
 `.trim();
-

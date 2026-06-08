@@ -235,9 +235,13 @@ export async function previewMerge(
           });
           conflictResolutions.push(resolution);
         } catch (err: any) {
+          // Fall back to a marker merge (NOT target-only, which would drop the
+          // source branch's work).
+          const base = forkBaseContent(ws, source, cp) ?? sa.baseContent ?? '';
+          const merged = merge3(base, ta.content, sa.content, { ours: 'target', theirs: 'source' });
           conflictResolutions.push({
             path: cp,
-            resolvedContent: ta.content,
+            resolvedContent: merged.text,
             rationale: '',
             confidence: 'low',
             originalContent: ta.content,

@@ -119,9 +119,27 @@
 
     const head = document.createElement('div');
     head.className = 'edit-review-head';
-    const totalFiles = files.length;
-    head.textContent = `Proposed changes to ${totalFiles} file${totalFiles === 1 ? '' : 's'} — review before applying`;
+    head.textContent = 'Proposed changes — review, then apply';
     panel.appendChild(head);
+
+    const body = document.createElement('div');
+    body.className = 'edit-review-body';
+    panel.appendChild(body);
+
+    const addLines = (container, arr, type, more) => {
+      for (const t of arr) {
+        const line = document.createElement('div');
+        line.className = 'dl dl-' + type;
+        line.textContent = (type === 'add' ? '+ ' : type === 'del' ? '- ' : '  ') + t;
+        container.appendChild(line);
+      }
+      if (more) {
+        const m = document.createElement('div');
+        m.className = 'dl dl-ctx';
+        m.textContent = '  … +' + more + ' more line' + (more === 1 ? '' : 's');
+        container.appendChild(m);
+      }
+    };
 
     for (const f of files) {
       const card = document.createElement('div');
@@ -134,20 +152,14 @@
       name.className = 'edit-file-path';
       name.textContent = f.path + (f.isNew ? '  (new file)' : '');
       title.appendChild(name);
-      if (f.failedCount) {
-        const warn = document.createElement('span');
-        warn.className = 'edit-file-warn';
-        warn.textContent = `⚠ ${f.failedCount} change(s) couldn't be located`;
-        title.appendChild(warn);
-      }
       card.appendChild(title);
 
-      // Per-change accept checkboxes (replace ops). New-file/create shows once.
-      const opWrap = document.createElement('div');
-      opWrap.className = 'edit-ops';
       f.ops.forEach(op => {
+        const opBox = document.createElement('div');
+        opBox.className = 'edit-op-box' + (op.ok ? '' : ' edit-op-failed');
+
         const row = document.createElement('label');
-        row.className = 'edit-op' + (op.ok ? '' : ' edit-op-failed');
+        row.className = 'edit-op-row';
         const cb = document.createElement('input');
         cb.type = 'checkbox';
         cb.checked = op.ok;
@@ -155,40 +167,39 @@
         cb.dataset.index = String(op.index);
         row.appendChild(cb);
         const lbl = document.createElement('span');
+        lbl.className = 'edit-op-label';
         lbl.textContent = op.ok
-          ? (op.kind === 'create' ? 'Write file contents' : `Change ${op.index + 1}`)
-          : `Change ${op.index + 1} — skipped (${op.reason || 'could not apply'})`;
+          ? (op.kind === 'create' ? (f.isNew ? 'Create this file' : 'Replace file contents')
+                                  : 'Change ' + (op.index + 1))
+          : 'Change ' + (op.index + 1) + ' — skipped';
         row.appendChild(lbl);
-        opWrap.appendChild(row);
-      });
-      card.appendChild(opWrap);
+        opBox.appendChild(row);
 
-      // Diff
-      const diff = document.createElement('pre');
-      diff.className = 'edit-diff';
-      if (!f.hunks.length) {
-        const em = document.createElement('div');
-        em.className = 'edit-diff-empty';
-        em.textContent = '(no textual change)';
-        diff.appendChild(em);
-      }
-      for (const h of f.hunks) {
-        for (const ln of h.lines) {
-          const line = document.createElement('div');
-          line.className = 'dl dl-' + ln.type;
-          line.textContent = (ln.type === 'add' ? '+ ' : ln.type === 'del' ? '- ' : '  ') + ln.text;
-          diff.appendChild(line);
+        if (!op.ok && op.reason) {
+          const why = document.createElement('div');
+          why.className = 'edit-op-reason';
+          why.textContent = op.reason;
+          opBox.appendChild(why);
         }
-        const sep = document.createElement('div');
-        sep.className = 'dl-sep';
-        diff.appendChild(sep);
-      }
-      card.appendChild(diff);
-      panel.appendChild(card);
+
+        const diff = document.createElement('div');
+        diff.className = 'edit-op-diff';
+        addLines(diff, op.del.lines, 'del', op.del.more);
+        addLines(diff, op.add.lines, 'add', op.add.more);
+        if (op.del.lines.length || op.add.lines.length) opBox.appendChild(diff);
+
+        card.appendChild(opBox);
+      });
+
+      body.appendChild(card);
     }
 
     const actions = document.createElement('div');
     actions.className = 'edit-review-actions';
+    const discard = document.createElement('button');
+    discard.className = 'btn-secondary';
+    discard.textContent = 'Discard';
+    discard.addEventListener('click', () => send({ type: 'discardProposedEdits' }));
     const apply = document.createElement('button');
     apply.className = 'btn-primary';
     apply.textContent = 'Apply selected';
@@ -197,17 +208,13 @@
       panel.querySelectorAll('.edit-file').forEach(card => {
         const p = card.dataset.path;
         const idxs = [];
-        card.querySelectorAll('.edit-op input[type=checkbox]').forEach(cb => {
+        card.querySelectorAll('input[type=checkbox]').forEach(cb => {
           if (cb.checked && !cb.disabled) idxs.push(Number(cb.dataset.index));
         });
         accepted[p] = idxs;
       });
       send({ type: 'applyProposedEdits', accepted });
     });
-    const discard = document.createElement('button');
-    discard.className = 'btn-secondary';
-    discard.textContent = 'Discard';
-    discard.addEventListener('click', () => send({ type: 'discardProposedEdits' }));
     actions.appendChild(discard);
     actions.appendChild(apply);
     panel.appendChild(actions);

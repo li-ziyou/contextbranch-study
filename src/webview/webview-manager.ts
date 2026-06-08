@@ -297,12 +297,10 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
         if (art) this.syncArtifactsToWorkspace(workspaceRoot, new Set(), [art], 3000);
       }
     }
-    if (applied || failures.length) {
-      this.postMessage({
-        type: 'editsApplied', applied,
-        failures: failures.length ? failures : undefined,
-      });
-    }
+    this.postMessage({
+      type: 'editsApplied', applied,
+      failures: failures.length ? failures : undefined,
+    });
     this.pushState();
   }
 
@@ -697,15 +695,22 @@ function readWorkspaceFile(root: string | undefined, p: string): string | null {
   } catch { return null; }
 }
 
-/** Shrink an AppliedFile into a compact payload for the webview review panel. */
+/** Shrink an AppliedFile into a compact payload for the webview review panel.
+ *  Each op carries its OWN before/after lines so the UI can render the diff
+ *  right next to that change's checkbox. */
 function serializeProposal(f: AppliedFile) {
+  const cap = (s?: string) => {
+    const arr = (s ?? '').length ? (s as string).split('\n') : [];
+    return arr.length > 60 ? { lines: arr.slice(0, 60), more: arr.length - 60 } : { lines: arr, more: 0 };
+  };
   return {
     path: f.path,
     isNew: f.isNew,
     failedCount: f.failedCount,
-    ops: f.ops.map(o => ({ index: o.index, kind: o.kind, ok: o.ok, reason: o.reason })),
-    hunks: f.hunks.map(h => ({
-      lines: h.lines.map(l => ({ type: l.type, text: l.text })),
-    })),
+    ops: f.ops.map(o => o.kind === 'create'
+      ? { index: o.index, kind: o.kind, ok: o.ok, reason: o.reason,
+          del: { lines: [] as string[], more: 0 }, add: cap(o.ok ? f.after : '') }
+      : { index: o.index, kind: o.kind, ok: o.ok, reason: o.reason,
+          del: cap(o.search), add: cap(o.ok ? o.replace : '') }),
   };
 }
