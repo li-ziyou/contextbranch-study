@@ -149,7 +149,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
   private async handleMessage(msg: any): Promise<void> {
     switch (msg.type) {
       case 'send': return this.handleSend(msg.content);
-      case 'createBranch': return this.handleCreateBranch(msg.name, msg.description, msg.fromMessageId);
+      case 'createBranch': return this.handleCreateBranch(msg.name, msg.description, msg.fromMessageId, msg.parentBranchId, msg.select);
       case 'switchBranch': return this.handleSwitchBranch(msg.branchId);
       case 'abandonBranch': return this.handleAbandonBranch(msg.branchId);
       case 'mergeBranch': return this.handleMergeBranch(msg.sourceBranchId, msg.targetBranchId, msg.force, msg.acceptedCascadePaths, msg.acceptedConflictPaths);
@@ -336,15 +336,18 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
 
   // ─── branching ────────────────────────────────────────────────────────────
 
-  private handleCreateBranch(name: string, description?: string, fromMessageId?: string): void {
+  private handleCreateBranch(name: string, description?: string, fromMessageId?: string,
+                             parentBranchId?: string, select: boolean = true): void {
     if (this.getCondition() === 'linear') {
       this.postMessage({ type: 'error', message: 'Branching disabled in linear condition.' });
       return;
     }
     const ws = this.requireWorkspace();
     if (!ws) return;
-    const branch = ws.createBranch({ name, description, fromMessageId });
-    ws.switchBranch(branch.id);
+    // parentBranchId is explicit for bulk (decompose) creation so every branch
+    // forks from the SAME base instead of chaining off the previous new branch.
+    const branch = ws.createBranch({ name, description, fromMessageId, parentBranchId });
+    if (select) ws.switchBranch(branch.id);
     this.pushState();
   }
 

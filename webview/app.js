@@ -2077,10 +2077,15 @@ function findNextInstanceTime(branchId, instanceIdx) {
   $('decompose-create-all').addEventListener('click', () => {
     const r = state.decompositionResult;
     if (!r) return;
-    for (const b of r.branches) {
-      send({ type: 'createBranch', name: b.name, description: b.scope });
-    }
-    showStatus(`Created ${r.branches.length} branches.`, 'success');
+    // All suggested branches must fork from the SAME base (the branch we're on
+    // now) — not chain off each previous new branch. Pin the parent explicitly
+    // and only switch to the first one.
+    const base = state.activeBranchId;
+    r.branches.forEach((b, i) => {
+      send({ type: 'createBranch', name: b.name, description: b.scope,
+             parentBranchId: base, select: i === 0 });
+    });
+    showStatus(`Created ${r.branches.length} branches from the current branch.`, 'success');
     closeModal('modal-decompose');
   });
 

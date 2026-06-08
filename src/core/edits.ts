@@ -46,50 +46,93 @@ export interface AppliedFile {
 export interface DiffLine { type: 'ctx' | 'add' | 'del'; text: string; }
 export interface DiffHunk { beforeStart: number; afterStart: number; lines: DiffLine[]; }
 
-// ─── parsing ──────────────────────────────────────────────────────────────
-
-const FENCE_RE = /```[^\n]*\n([\s\S]*?)```/g;
+const FENCE_BLOCK_RE = /```[^\n]*\n([\s\S]*?)```/g;
+const ANY_FENCE_RE = /```[\s\S]*?```/g;
 const PATH_RE = /^(?:#|\/\/)\s*path:\s*(.+)$/;
 const SR_BLOCK_RE =
   /<{5,}\s*SEARCH\s*\n([\s\S]*?)\n={5,}\s*\n([\s\S]*?)\n>{5,}\s*REPLACE/g;
 
+function stripTrailingNewline(s: string): string {
+  return s.endsWith('\n') ? s.slice(0, -1) : s;
+}
+
+function parseFileBody(path: string, body: string): EditOp[] {
+  const ops: EditOp[] = [];
+  let m: RegExpExecArray | null;
+
+  SR_BLOCK_RE.lastIndex = 0;
+  while ((m = SR_BLOCK_RE.exec(body)) !== null) {
+    ops.push({ path, kind: 'replace', search: m[1], replace: m[2] });
+  }
+
+  if (ops.length > 0) return ops;
+
+  return [{ path, kind: 'create', content: stripTrailingNewline(body) }];
+}
+
+function parseBareBlocks(text: string): EditOp[] {
+  const ops: EditOp[] = [];
+  const lines = text.split('\n');
+
+  let currentPath: string | null = null;
+  let body: string[] = [];
+
+  const flush = () => {
+    if (currentPath !== null) {
+      ops.push(...parseFileBody(currentPath, body.join('\n')));
+    }
+    currentPath = null;
+    body = [];
+  };
+
+  for (const line of lines) {
+    const pathMatch = line.trim().match(PATH_RE);
+    if (pathMatch) {
+      flush();
+      currentPath = pathMatch[1].trim();
+      continue;
+    }
+
+    if (currentPath !== null) {
+      body.push(line);
+    }
+  }
+
+  flush();
+  return ops;
+}
+
 /**
  * Parse assistant text into edit operations.
- *   - A fenced block whose first line is `# path: X` / `// path: X`:
- *       · if it contains SEARCH/REPLACE markers → one 'replace' op per marker
- *       · otherwise → a single 'create' op (whole file)
+ * Supports:
+ *   - fenced blocks with a first-line `# path:` / `// path:`
+ *   - bare blocks that start with `# path:` / `// path:`
+ *   - multiple files in one response
+ *   - multiple SEARCH/REPLACE hunks per file
+ *   - whole-file creates when no SEARCH/REPLACE is present
  */
 export function parseEdits(text: string): EditOp[] {
   const ops: EditOp[] = [];
   let m: RegExpExecArray | null;
-  FENCE_RE.lastIndex = 0;
-  while ((m = FENCE_RE.exec(text)) !== null) {
+
+  // 1) fenced blocks
+  FENCE_BLOCK_RE.lastIndex = 0;
+  while ((m = FENCE_BLOCK_RE.exec(text)) !== null) {
     const body = m[1];
     const lines = body.split('\n');
-    const pm = lines[0].trim().match(PATH_RE);
-    if (!pm) continue;
-    const path = pm[1].trim();
+    const pathMatch = lines[0]?.trim().match(PATH_RE);
+    if (!pathMatch) continue;
+
+    const path = pathMatch[1].trim();
     const rest = lines.slice(1).join('\n');
-
-    const srOps: EditOp[] = [];
-    let sr: RegExpExecArray | null;
-    SR_BLOCK_RE.lastIndex = 0;
-    while ((sr = SR_BLOCK_RE.exec(rest)) !== null) {
-      srOps.push({ path, kind: 'replace', search: sr[1], replace: sr[2] });
-    }
-
-    if (srOps.length) {
-      ops.push(...srOps);
-    } else {
-      // whole-file create/replace
-      ops.push({ path, kind: 'create', content: stripTrailingNewline(rest) });
-    }
+    ops.push(...parseFileBody(path, rest));
   }
-  return ops;
-}
 
-function stripTrailingNewline(s: string): string {
-  return s.endsWith('\n') ? s.slice(0, -1) : s;
+  // 2) bare blocks
+  const bareText = text.replace(ANY_FENCE_RE, fence => '\n'.repeat(fence.split('\n').length));
+  ops.push(...parseBareBlocks(bareText));
+
+  return ops;
 }
 
 // ─── applying (fail-safe) ───────────────────────────────────────────────────
