@@ -11,7 +11,8 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { Workspace } from '../core/workspace';
 import { WorkspaceCapture } from '../core/file-watcher';
-import { CodingAgent, extractArtifacts } from '../agents/coding';
+import { CodingAgent } from '../agents/coding';
+import { parseEdits, applyEdits, applySelected, EditOp, AppliedFile } from '../core/edits';
 import { DecompositionAgent } from '../agents/decomposition';
 import { MetaAgent } from '../agents/meta';
 import { MergeAnalystAgent } from '../agents/merge-analyst';
@@ -25,6 +26,8 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
 
   private view?: vscode.WebviewView;
   private currentAbort?: AbortController;
+  /** Edits proposed by the last assistant turn, awaiting user accept/reject. */
+  private pendingEdits?: { branchId: string; ops: EditOp[] };
   private mergeInProgress?: boolean;
 
   constructor(
@@ -157,6 +160,8 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       case 'decompose': return this.handleDecompose(msg.taskDescription);
       case 'requestState': return this.pushState();
       case 'applyArtifactsToWorkspace': return this.handleApplyArtifacts(msg.branchId);
+      case 'applyProposedEdits': return this.handleApplyProposedEdits(msg.accepted);
+      case 'discardProposedEdits': return this.handleDiscardProposedEdits();
     }
   }
 
@@ -229,18 +234,33 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
 
     // Persist assistant message (even if interrupted partway)
     if (assistantText) {
-      const artifacts = extractArtifacts(assistantText);
+      const ops = aborted ? [] : parseEdits(assistantText);
       ws.appendMessage(branch.id, 'assistant', assistantText, {
         inputTokens, outputTokens, model,
         interrupted: aborted ? true : undefined,
-        artifactIds: artifacts.length ? artifacts.map(a => a.path) : undefined,
+        artifactIds: ops.length ? [...new Set(ops.map(o => o.path))] : undefined,
       });
 
-      // Save extracted artifacts (skip if aborted — partial code is unsafe)
-      if (!aborted) {
-        for (const a of artifacts) {
-          const baseContent = readWorkspaceFile(workspaceRoot, a.path);
-          ws.upsertArtifact(branch.id, a.path, a.content, baseContent);
+      if (!aborted && ops.length) {
+        const cfg = vscode.workspace.getConfiguration('contextbranch');
+        const review = cfg.get<boolean>('reviewEdits') ?? true;
+        // Build the current-content map for the touched paths.
+        const currentByPath = new Map<string, string>();
+        for (const p of new Set(ops.map(o => o.path))) {
+          const onDisk = readWorkspaceFile(workspaceRoot, p);
+          const art = ws.getArtifacts(branch.id).find(a => a.path === p);
+          if (onDisk != null) currentByPath.set(p, onDisk);
+          else if (art) currentByPath.set(p, art.content);
+          // else: new file → leave absent
+        }
+        const proposed = applyEdits(ops, currentByPath);
+
+        if (review) {
+          // Stage; user accepts/rejects in the UI. Nothing is written yet.
+          this.pendingEdits = { branchId: branch.id, ops };
+          this.postMessage({ type: 'proposedEdits', files: proposed.map(serializeProposal) });
+        } else {
+          this.commitProposedFiles(branch.id, proposed);
         }
       }
     }
@@ -251,6 +271,67 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
 
   private handleAbort(): void {
     this.currentAbort?.abort();
+  }
+
+  /** Write a set of resolved files to artifacts + disk (the OK ones only). */
+  private commitProposedFiles(branchId: string, files: AppliedFile[]): void {
+    const ws = this.requireWorkspace();
+    if (!ws) return;
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    let applied = 0;
+    const failures: string[] = [];
+    for (const f of files) {
+      const okOps = f.ops.filter(o => o.ok).length;
+      if (okOps === 0) {
+        // nothing applied for this file → report any failures
+        for (const o of f.ops.filter(x => !x.ok)) failures.push(`${f.path}: ${o.reason}`);
+        continue;
+      }
+      // baseContent stays the pre-edit content (fork base is handled at merge time)
+      ws.upsertArtifact(branchId, f.path, f.after, f.before === '' ? null : f.before);
+      applied++;
+      for (const o of f.ops.filter(x => !x.ok)) failures.push(`${f.path}: ${o.reason}`);
+      // write to disk (suppressed) if this is the active branch
+      if (workspaceRoot && branchId === ws.activeBranchId) {
+        const art = ws.getArtifacts(branchId).find(a => a.path === f.path);
+        if (art) this.syncArtifactsToWorkspace(workspaceRoot, new Set(), [art], 3000);
+      }
+    }
+    if (applied || failures.length) {
+      this.postMessage({
+        type: 'editsApplied', applied,
+        failures: failures.length ? failures : undefined,
+      });
+    }
+    this.pushState();
+  }
+
+  private handleApplyProposedEdits(accepted?: Record<string, number[]>): void {
+    const pending = this.pendingEdits;
+    if (!pending) return;
+    const ws = this.requireWorkspace();
+    if (!ws) { this.pendingEdits = undefined; return; }
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+    // Re-read CURRENT content (the user may have hand-edited since the proposal).
+    const currentByPath = new Map<string, string>();
+    for (const p of new Set(pending.ops.map(o => o.path))) {
+      const onDisk = readWorkspaceFile(workspaceRoot, p);
+      const art = ws.getArtifacts(pending.branchId).find(a => a.path === p);
+      if (onDisk != null) currentByPath.set(p, onDisk);
+      else if (art) currentByPath.set(p, art.content);
+    }
+    const acceptedMap = new Map<string, Set<number>>();
+    if (accepted) for (const [p, idxs] of Object.entries(accepted)) acceptedMap.set(p, new Set(idxs));
+
+    const resolved = applySelected(pending.ops, currentByPath, acceptedMap);
+    this.pendingEdits = undefined;
+    this.commitProposedFiles(pending.branchId, resolved);
+  }
+
+  private handleDiscardProposedEdits(): void {
+    this.pendingEdits = undefined;
+    this.postMessage({ type: 'editsDiscarded' });
   }
 
   // ─── branching ────────────────────────────────────────────────────────────
@@ -611,4 +692,17 @@ function readWorkspaceFile(root: string | undefined, p: string): string | null {
   try {
     return fs.readFileSync(path.join(root, p), 'utf-8');
   } catch { return null; }
+}
+
+/** Shrink an AppliedFile into a compact payload for the webview review panel. */
+function serializeProposal(f: AppliedFile) {
+  return {
+    path: f.path,
+    isNew: f.isNew,
+    failedCount: f.failedCount,
+    ops: f.ops.map(o => ({ index: o.index, kind: o.kind, ok: o.ok, reason: o.reason })),
+    hunks: f.hunks.map(h => ({
+      lines: h.lines.map(l => ({ type: l.type, text: l.text })),
+    })),
+  };
 }

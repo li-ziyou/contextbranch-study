@@ -136,6 +136,11 @@
           "type": "number",
           "default": 16,
           "description": "How many of the most recent chat messages to send to the coding agent each turn. The full file state is sent separately, so older turns mostly just cost tokens."
+        },
+        "contextbranch.reviewEdits": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show proposed file edits for review (accept/reject per change) before they are written. Turn off to auto-apply edits (still fail-safe: edits that can't be located are skipped, never guessed)."
         }
       }
     }

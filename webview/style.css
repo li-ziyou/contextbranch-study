@@ -1509,3 +1509,65 @@ button:disabled {
   background: var(--vscode-badge-background);
   color: var(--vscode-badge-foreground);
 }
+/* ── Proposed-edits review panel ───────────────────────────────────────── */
+.edit-review {
+  border-top: 1px solid var(--vscode-panel-border, #3a3a3a);
+  max-height: 42vh;
+  overflow-y: auto;
+  padding: 8px 10px;
+  background: var(--vscode-editor-background);
+}
+.edit-review-head {
+  font-size: 0.82em;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--vscode-foreground);
+}
+.edit-file {
+  border: 1px solid var(--vscode-panel-border, #3a3a3a);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+.edit-file-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+  background: var(--vscode-list-hoverBackground, rgba(255,255,255,0.04));
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.8em;
+}
+.edit-file-path { font-weight: 600; }
+.edit-file-warn { color: var(--vscode-errorForeground, #f48771); font-size: 0.92em; }
+.edit-ops { padding: 4px 8px; display: flex; flex-direction: column; gap: 2px; }
+.edit-op { display: flex; align-items: center; gap: 6px; font-size: 0.8em; cursor: pointer; }
+.edit-op-failed { color: var(--vscode-descriptionForeground); opacity: 0.8; }
+.edit-diff {
+  margin: 0;
+  padding: 6px 8px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.78em;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-top: 1px solid var(--vscode-panel-border, #3a3a3a);
+  max-height: 240px;
+  overflow-y: auto;
+}
+.dl { display: block; padding: 0 2px; border-radius: 2px; }
+.dl-add { background: rgba(70, 160, 70, 0.18); color: #b5e8b5; }
+.dl-del { background: rgba(190, 70, 70, 0.18); color: #f0b0b0; }
+.dl-ctx { color: var(--vscode-descriptionForeground); }
+.dl-sep { height: 4px; }
+.dl-empty, .edit-diff-empty { color: var(--vscode-descriptionForeground); font-style: italic; }
+.edit-review-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+  position: sticky;
+  bottom: 0;
+  background: var(--vscode-editor-background);
+}

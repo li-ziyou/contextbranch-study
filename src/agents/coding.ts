@@ -88,6 +88,37 @@ const DEFAULT_COLD_BUDGET = 6_000;  // chars when the request names no file
 const DEFAULT_MAX_HISTORY = 16;     // most recent messages to send
 const MAX_MANIFEST_ENTRIES = 200;   // cap the cheap file list for huge repos
 
+// Stopwords so common English/instruction words don't match every file.
+const REF_STOPWORDS = new Set([
+  'please','update','change','make','file','code','using','where','which','that',
+  'this','with','from','into','your','have','should','would','could','about',
+  'style','styles','styling','color','colour','button','buttons','these','those',
+  'their','there','here','when','what','then','than','also','like','need','want',
+  'function','const','class','return','import','export','value','values','consistent',
+]);
+
+/**
+ * Pull distinctive tokens out of the user's text for content-based file routing:
+ *   • CSS-ish selectors: ".move-btn", "#sidebar"
+ *   • code-like identifiers: snake_case, kebab-case, camelCase, dotted members
+ * Plain English words are dropped (stopwords / not code-like) so we don't end up
+ * matching every file.
+ */
+function extractRefTokens(text: string): string[] {
+  const out = new Set<string>();
+  // selectors / dotted members like .move-btn, #app, obj.method
+  for (const m of text.matchAll(/[.#]([A-Za-z][\w-]{2,})/g)) out.add(m[1].toLowerCase());
+  // bare identifiers
+  for (const m of text.matchAll(/\b([A-Za-z_][\w-]{3,})\b/g)) {
+    const tok = m[1];
+    const low = tok.toLowerCase();
+    if (REF_STOPWORDS.has(low)) continue;
+    const codey = /[_-]/.test(tok) || /[a-z][A-Z]/.test(tok); // snake/kebab/camel
+    if (codey || tok.length >= 5) out.add(low);
+  }
+  return [...out].filter(t => t.length >= 3);
+}
+
 function fileBlock(a: Artifact): string {
   return `### ${a.path}\n\`\`\`\n${a.content}\n\`\`\``;
 }
@@ -110,13 +141,22 @@ function buildArtifactContext(
     ? `${manifestList}\n  • …and ${sorted.length - MAX_MANIFEST_ENTRIES} more`
     : manifestList;
 
-  // 2) Which files did the user actually reference this turn?
+  // 2) Which files did the user actually reference this turn? Match by path,
+  //    by basename, AND by distinctive code tokens (CSS selectors, identifiers,
+  //    function names) found in file CONTENTS — so ".move-btn" pulls in the
+  //    file that defines/uses it even if the path was never typed.
   const lower = recentUserText.toLowerCase();
+  const tokens = extractRefTokens(recentUserText);
   const referenced = new Set<string>();
   for (const a of artifacts) {
-    const base = a.path.split('/').pop() ?? a.path;
-    if (lower.includes(a.path.toLowerCase()) || lower.includes(base.toLowerCase())) {
+    const base = (a.path.split('/').pop() ?? a.path).toLowerCase();
+    if (lower.includes(a.path.toLowerCase()) || lower.includes(base)) {
       referenced.add(a.id);
+      continue;
+    }
+    const hay = a.content.toLowerCase();
+    for (const tok of tokens) {
+      if (hay.includes(tok)) { referenced.add(a.id); break; }
     }
   }
 

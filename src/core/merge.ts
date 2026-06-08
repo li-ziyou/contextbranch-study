@@ -23,6 +23,7 @@ import {
 } from './types';
 import { CascadingEditProposal } from '../agents/merge-analyst';
 import { ConflictResolution } from '../agents/conflict-resolver';
+import { merge3 } from './edits';
 
 const execAsync = promisify(exec);
 
@@ -226,7 +227,7 @@ export async function previewMerge(
         try {
           const resolution = await opts.resolveConflict({
             path: cp,
-            base: sa.baseContent ?? '',
+            base: forkBaseContent(ws, source, cp) ?? sa.baseContent ?? '',
             theirs: ta.content,
             ours: sa.content,
             theirContext: targetMessagesForCtx.slice(-4),
@@ -398,6 +399,22 @@ export async function finalizeMerge(
 
 // ─── 3-way artifact merge ────────────────────────────────────────────────────
 
+/**
+ * The content of `path` at the point `source` forked from its parent — read
+ * from the immutable fork checkpoint. This is the correct common-ancestor for
+ * a 3-way merge. Returns null if not recoverable (caller falls back).
+ */
+function forkBaseContent(ws: Workspace, source: Branch, path: string): string | null {
+  if (!source.parentCheckpointId) return null;
+  const cp = ws.storage.loadCheckpoint(source.parentCheckpointId);
+  if (!cp) return null;
+  for (const aid of cp.artifactIds) {
+    const a = ws.storage.loadArtifact(aid);
+    if (a && a.path === path) return a.content;
+  }
+  return null;
+}
+
 function computeArtifactDiff(
   ws: Workspace,
   source: Branch,
@@ -422,9 +439,11 @@ function computeArtifactDiff(
     }
     if (ta.content === sa.content) continue; // identical, nothing to do
 
-    // 3-way merge: base = sa.baseContent (state at fork), ours = ta.content,
-    // theirs = sa.content
-    const base = sa.baseContent ?? '';
+    // 3-way merge: base = the file's content at the FORK POINT (immutable
+    // checkpoint), ours = ta.content, theirs = sa.content. We read base from
+    // the fork checkpoint rather than sa.baseContent because the latter drifts
+    // (the watcher rewrites it to the previous version on every edit).
+    const base = forkBaseContent(ws, source, sa.path) ?? sa.baseContent ?? '';
     if (base === ta.content) {
       // Target unchanged since fork; source is the only change.
       changes.push({ path: sa.path, status: 'modify' });
@@ -507,36 +526,14 @@ function applyArtifactChanges(
 }
 
 /**
- * Simple line-level 3-way merge with conflict markers.
- * For real production use, replace with the `diff3` npm package.
+ * Line-level 3-way merge. Delegates to the shared engine (edits.ts merge3),
+ * which combines non-overlapping changes from both sides and emits localized
+ * conflict markers only where they truly overlap.
  */
 function tryAutoMerge(base: string, ours: string, theirs: string):
   { success: boolean; text: string } {
-  if (ours === theirs) return { success: true, text: ours };
-  if (ours === base) return { success: true, text: theirs };
-  if (theirs === base) return { success: true, text: ours };
-
-  // Naive line-based merge: if no overlapping changes, concatenate cleanly.
-  const baseLines = base.split('\n');
-  const ourLines = ours.split('\n');
-  const theirLines = theirs.split('\n');
-
-  // If both are pure additions to the base, append ours then theirs.
-  if (
-    ours.startsWith(base) && theirs.startsWith(base) &&
-    ourLines.length >= baseLines.length && theirLines.length >= baseLines.length
-  ) {
-    const ourAdd = ourLines.slice(baseLines.length).join('\n');
-    const theirAdd = theirLines.slice(baseLines.length).join('\n');
-    return { success: true, text: base + '\n' + ourAdd + '\n' + theirAdd };
-  }
-
-  // Otherwise, mark as conflict.
-  return {
-    success: false,
-    text:
-      `<<<<<<< target\n${ours}\n=======\n${theirs}\n>>>>>>> source\n`,
-  };
+  const r = merge3(base, ours, theirs, { ours: 'target', theirs: 'source' });
+  return { success: r.ok, text: r.text };
 }
 
 // ─── verification ────────────────────────────────────────────────────────────
