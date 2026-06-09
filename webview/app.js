@@ -96,6 +96,19 @@
           clearEditReview();
           showStatus('Proposed edits discarded.', 'info');
           break;
+        case 'artifactsPreviewed': {
+          if (msg.filesWithChanges > 0) {
+            showPreviewBar(msg.filesWithChanges, msg.branchName);
+          } else {
+            hidePreviewBar();
+            showStatus('No changes to preview — workspace already matches this branch.', 'info');
+          }
+          break;
+        }
+        case 'artifactsPreviewDismissed':
+          hidePreviewBar();
+          showStatus('Preview dismissed — files reverted.', 'info');
+          break;
       }
     } catch (err) {
       showStatus('UI error: ' + err.message, 'error');
@@ -221,7 +234,13 @@
   }
 
   function handleState(s) {
+    const prevBranch = state.activeBranchId;
     state = Object.assign({}, state, s);
+    // A branch switch supersedes any in-flight preview on the extension side,
+    // so drop the bar to stay in sync.
+    if (s.activeBranchId !== undefined && s.activeBranchId !== prevBranch) {
+      hidePreviewBar();
+    }
     render();
     if (state.historyOpen && state.historyGraph) {
       renderHistoryView();
@@ -1945,6 +1964,28 @@ function findNextInstanceTime(branchId, instanceIdx) {
 
   // ─── status / errors ─────────────────────────────────────────────────
 
+  function showPreviewBar(fileCount, branchName) {
+    const bar = $('preview-bar');
+    const text = $('preview-bar-text');
+    if (!bar) return;
+    if (text) {
+      const n = fileCount === 1 ? '1 file' : `${fileCount} files`;
+      text.textContent = `Previewing changes to ${n}` +
+        (branchName ? ` from "${branchName}"` : '') +
+        '. Click a highlighted line to drop it.';
+    }
+    const apply = $('preview-apply');
+    const dismiss = $('preview-dismiss');
+    if (apply) apply.disabled = false;
+    if (dismiss) dismiss.disabled = false;
+    bar.hidden = false;
+  }
+
+  function hidePreviewBar() {
+    const bar = $('preview-bar');
+    if (bar) bar.hidden = true;
+  }
+
   function showStatus(message, kind) {
     const div = document.createElement('div');
     div.className = 'status-msg ' + (kind || '');
@@ -2168,6 +2209,27 @@ function findNextInstanceTime(branchId, instanceIdx) {
     });
   });
 
+  // ─── preview Apply / Dismiss ───────────────────────────────────────────
+  {
+    const applyBtn = $('preview-apply');
+    const dismissBtn = $('preview-dismiss');
+    if (applyBtn) {
+      applyBtn.addEventListener('click', () => {
+        applyBtn.disabled = true;
+        if (dismissBtn) dismissBtn.disabled = true;
+        send({ type: 'applyArtifactsToWorkspace', branchId: state.activeBranchId });
+        hidePreviewBar();
+      });
+    }
+    if (dismissBtn) {
+      dismissBtn.addEventListener('click', () => {
+        applyBtn && (applyBtn.disabled = true);
+        dismissBtn.disabled = true;
+        send({ type: 'dismissArtifactsPreview', branchId: state.activeBranchId });
+      });
+    }
+  }
+
   // ─── action menu ──────────────────────────────────────────────────────
 
   document.querySelectorAll('.menu-item').forEach((item) => {
@@ -2180,6 +2242,9 @@ function findNextInstanceTime(branchId, instanceIdx) {
       else if (action === 'merge') openMergeModal();
       else if (action === 'apply') {
         send({ type: 'applyArtifactsToWorkspace', branchId: state.activeBranchId });
+      } else if (action === 'preview') {
+        send({ type: 'previewArtifactsInWorkspace', branchId: state.activeBranchId });
+        showStatus('Loading preview…', 'info');
       } else if (action === 'abandon') {
         if (confirm(`Abandon branch "${state.activeBranchName}"?`)) {
           send({ type: 'abandonBranch', branchId: state.activeBranchId });
