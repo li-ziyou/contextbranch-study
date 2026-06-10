@@ -41,7 +41,7 @@ export class AnthropicProvider implements LLMProvider {
   readonly name = 'anthropic';
   readonly defaultModel = 'claude-sonnet-4-6';
 
-  constructor(private apiKey: string) {}
+  constructor(private apiKey: string, private pinnedModel?: string) {}
 
   async *stream(opts: LLMRequestOptions): AsyncIterable<LLMStreamEvent> {
     const { default: Anthropic } = await import('@anthropic-ai/sdk');
@@ -57,7 +57,7 @@ export class AnthropicProvider implements LLMProvider {
 
     try {
       const stream = await client.messages.stream({
-        model: opts.model ?? this.defaultModel,
+        model: opts.model ?? this.pinnedModel ?? this.defaultModel,
         max_tokens: opts.maxTokens ?? 4096,
         temperature: opts.temperature ?? 0.7,
         system,
@@ -89,14 +89,30 @@ export class AnthropicProvider implements LLMProvider {
 // ─── OpenAI ──────────────────────────────────────────────────────────────────
 
 export class OpenAIProvider implements LLMProvider {
-  readonly name = 'openai';
-  readonly defaultModel = 'gpt-4o';
+  readonly name: string;
+  readonly defaultModel: string;
+  private baseURL?: string;
+  private headers?: Record<string, string>;
+  private pinnedModel?: string;
 
-  constructor(private apiKey: string) {}
+  constructor(private apiKey: string, opts: {
+    name?: string; baseURL?: string; defaultModel?: string;
+    headers?: Record<string, string>; pinnedModel?: string;
+  } = {}) {
+    this.name = opts.name ?? 'openai';
+    this.defaultModel = opts.defaultModel ?? 'gpt-4o';
+    this.baseURL = opts.baseURL;
+    this.headers = opts.headers;
+    this.pinnedModel = opts.pinnedModel;
+  }
 
   async *stream(opts: LLMRequestOptions): AsyncIterable<LLMStreamEvent> {
     const { default: OpenAI } = await import('openai');
-    const client = new OpenAI({ apiKey: this.apiKey });
+    const client = new OpenAI({
+      apiKey: this.apiKey,
+      ...(this.baseURL ? { baseURL: this.baseURL } : {}),
+      ...(this.headers ? { defaultHeaders: this.headers } : {}),
+    });
 
     const messages: any[] = [];
     if (opts.system) messages.push({ role: 'system', content: opts.system });
@@ -109,7 +125,7 @@ export class OpenAIProvider implements LLMProvider {
 
     try {
       const stream = await client.chat.completions.create({
-        model: opts.model ?? this.defaultModel,
+        model: opts.model ?? this.pinnedModel ?? this.defaultModel,
         messages,
         max_tokens: opts.maxTokens ?? 4096,
         temperature: opts.temperature ?? 0.7,
@@ -171,7 +187,7 @@ export class GeminiProvider implements LLMProvider {
     'gemini-3.1-flash-lite-preview',
   ];
 
-  constructor(private apiKey: string) {}
+  constructor(private apiKey: string, private pinnedModel?: string) {}
 
   /**
    * Dynamically import the Google SDK. Extracted as a method so tests can
@@ -185,7 +201,8 @@ export class GeminiProvider implements LLMProvider {
     const { GoogleGenerativeAI } = await this.loadSdk();
     const client = new GoogleGenerativeAI(this.apiKey);
 
-    const candidates = opts.model ? [opts.model] : this.fallbackModels;
+    const candidates = opts.model ? [opts.model]
+      : (this.pinnedModel ? [this.pinnedModel] : this.fallbackModels);
 
     const contents = opts.messages
       .filter(m => m.role !== 'system')
@@ -261,11 +278,22 @@ export class GeminiProvider implements LLMProvider {
 
 // ─── factory ─────────────────────────────────────────────────────────────────
 
-export function createProvider(name: string, apiKey: string): LLMProvider {
+export function createProvider(name: string, apiKey: string, model?: string): LLMProvider {
+  const pinned = model && model.trim() ? model.trim() : undefined;
   switch (name) {
-    case 'anthropic': return new AnthropicProvider(apiKey);
-    case 'openai': return new OpenAIProvider(apiKey);
-    case 'gemini': return new GeminiProvider(apiKey);
+    case 'anthropic': return new AnthropicProvider(apiKey, pinned);
+    case 'openai': return new OpenAIProvider(apiKey, { pinnedModel: pinned });
+    case 'openrouter': return new OpenAIProvider(apiKey, {
+      name: 'openrouter',
+      baseURL: 'https://openrouter.ai/api/v1',
+      // OpenRouter exposes models from every vendor; pick a cheap, reliable
+      // default and let `contextbranch.model` override it (e.g.
+      // "anthropic/claude-3.5-sonnet", "google/gemini-2.0-flash-001").
+      defaultModel: 'openai/gpt-4o-mini',
+      headers: { 'HTTP-Referer': 'https://github.com/contextbranch', 'X-Title': 'ContextBranch' },
+      pinnedModel: pinned,
+    });
+    case 'gemini': return new GeminiProvider(apiKey, pinned);
     default: throw new Error(`Unknown provider: ${name}`);
   }
 }

@@ -50,7 +50,9 @@ export interface MergeOptions {
    * Hook to ask the LLM to consolidate the branch into a synthesis turn.
    * Provided by the caller (extension wires up the agent).
    */
-  consolidate?: (branch: Branch, messages: Message[], targetBranch: Branch) => Promise<string>;
+  consolidate?: (branch: Branch, messages: Message[],
+                 changedFiles: { path: string; status: string; before: string; after: string }[],
+                 targetBranch: Branch) => Promise<string>;
   /** Hook for AI-based rebase consistency check. */
   rebaseCheck?: (source: Branch, target: Branch,
                  sourceMessages: Message[], targetMessages: Message[]) => Promise<string[]>;
@@ -256,7 +258,19 @@ export async function previewMerge(
   let synthesisDraft: string | undefined;
   if (opts.generateSynthesis && opts.consolidate) {
     try {
-      synthesisDraft = await opts.consolidate(source, sourceMessages, target);
+      // Build the ACTUAL diffs this branch introduces (target current vs source
+      // current), so the summary reflects real files — not rejected proposals.
+      const srcArts = ws.getArtifacts(source.id);
+      const tgtArts = ws.getArtifacts(target.id);
+      const tgtByPath = new Map(tgtArts.map(a => [a.path, a.content]));
+      const srcByPath = new Map(srcArts.map(a => [a.path, a.content]));
+      const changedFiles = changes.map(c => ({
+        path: c.path,
+        status: c.status,
+        before: tgtByPath.get(c.path) ?? '',
+        after: srcByPath.get(c.path) ?? '',
+      }));
+      synthesisDraft = await opts.consolidate(source, sourceMessages, changedFiles, target);
     } catch (err: any) {
       synthesisDraft = `(Synthesis unavailable: ${err.message})`;
     }

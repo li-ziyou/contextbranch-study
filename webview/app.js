@@ -29,6 +29,7 @@
     isStreaming: false,
     streamingText: '',
     decompositionResult: null,
+    decomposing: false,
     pendingMergePreview: null,
     pendingMerge: null,
     historyOpen: false,
@@ -65,6 +66,7 @@
           // Reset transient UI states so we never get stuck spinners
           $('merge-running').hidden = true;
           setMergeUiBusy(false);
+          setDecomposeBusy(false);
           handleStreamEnd();
           break;
         case 'success': showStatus(msg.message, 'success'); break;
@@ -279,6 +281,7 @@
   }
 
   function handleDecompositionResult(result) {
+    setDecomposeBusy(false);
     state.decompositionResult = result;
     renderDecompositionResult();
   }
@@ -2109,22 +2112,35 @@ function findNextInstanceTime(branchId, instanceIdx) {
     $('decompose-task').value = '';
     $('decompose-result').hidden = true;
     $('decompose-create-all').hidden = true;
+    $('decompose-create-all').disabled = false;
     $('decompose-go').hidden = false;
+    setDecomposeBusy(false);
     state.decompositionResult = null;
     openModal('modal-decompose');
     $('decompose-task').focus();
   }
 
+  function setDecomposeBusy(busy) {
+    state.decomposing = busy;
+    const go = $('decompose-go');
+    if (go) { go.disabled = busy; go.textContent = busy ? 'Decomposing…' : 'Decompose'; }
+  }
+
   $('decompose-go').addEventListener('click', () => {
+    if (state.decomposing) return;                 // ignore double-clicks while running
     const t = $('decompose-task').value.trim();
     if (!t) { showStatus('Describe the task first', 'error'); return; }
+    setDecomposeBusy(true);
     showStatus('Decomposing... (this can take ~10s)', 'info');
     send({ type: 'decompose', taskDescription: t });
   });
 
-  $('decompose-create-all').addEventListener('click', () => {
+  $('decompose-create-all').addEventListener('click', (e) => {
     const r = state.decompositionResult;
     if (!r) return;
+    const btn = e.currentTarget;
+    if (btn.disabled) return;                       // guard double-click
+    btn.disabled = true;
     // All suggested branches must fork from the SAME base (the branch we're on
     // now) — not chain off each previous new branch. Pin the parent explicitly
     // and only switch to the first one.

@@ -294,22 +294,34 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     let applied = 0;
     const failures: string[] = [];
+    const notes: string[] = [];
     for (const f of files) {
+      const total = f.ops.length;
       const okOps = f.ops.filter(o => o.ok).length;
+      const skipped = total - okOps;
       if (okOps === 0) {
         // nothing applied for this file → report any failures
         for (const o of f.ops.filter(x => !x.ok)) failures.push(`${f.path}: ${o.reason}`);
+        if (total) notes.push(`${f.path} — 0/${total} applied (all skipped)`);
         continue;
       }
       // baseContent stays the pre-edit content (fork base is handled at merge time)
       ws.upsertArtifact(branchId, f.path, f.after, f.before === '' ? null : f.before);
       applied++;
+      notes.push(f.isNew
+        ? `${f.path} — created`
+        : `${f.path} — ${okOps}/${total} change(s) applied${skipped ? ` (${skipped} skipped)` : ''}`);
       for (const o of f.ops.filter(x => !x.ok)) failures.push(`${f.path}: ${o.reason}`);
       // write to disk (suppressed) if this is the active branch
       if (workspaceRoot && branchId === ws.activeBranchId) {
         const art = ws.getArtifacts(branchId).find(a => a.path === f.path);
         if (art) this.syncArtifactsToWorkspace(workspaceRoot, new Set(), [art], 3000);
       }
+    }
+    // Record what was ACTUALLY applied vs skipped, so later turns and the merge
+    // summary reflect reality instead of assuming every proposal landed.
+    if (notes.length) {
+      ws.appendMessage(branchId, 'system', `[edit-log] ${notes.join('; ')}`);
     }
     this.postMessage({
       type: 'editsApplied', applied,
@@ -612,7 +624,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       workspaceRoot,
       testCommand: testCmd ?? undefined,
       lintCommand: lintCmd ?? undefined,
-      consolidate: meta ? (b: Branch, msgs: Message[]) => meta.consolidate(b, msgs) : undefined,
+      consolidate: meta ? (b: Branch, msgs: Message[], changed: any) => meta.consolidate(b, msgs, changed) : undefined,
       rebaseCheck: meta ? (s: Branch, t: Branch, sm: Message[], tm: Message[]) => meta.rebaseCheck(s, t, sm, tm) : undefined,
       consistencyCheck: meta ? (t: Branch, mm: Message[]) => meta.consistencyCheck(t, mm) : undefined,
       analyzeCascade: analyzeCascade ?? undefined,

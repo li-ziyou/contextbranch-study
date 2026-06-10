@@ -8,6 +8,7 @@ import {
   REBASE_CHECK_SYSTEM, CONSISTENCY_CHECK_SYSTEM
 } from '../llm/prompts';
 import { Branch, Message } from '../core/types';
+import { diffLines } from '../core/edits';
 
 export type MetaTrigger =
   | 'branch_created'
@@ -69,16 +70,44 @@ export class MetaAgent {
   // at merge
 
   async consolidate(branch: Branch, messages: Message[],
+                    changedFiles?: { path: string; status: string; before: string; after: string }[],
                     signal?: AbortSignal): Promise<string> {
+    // Primary, authoritative input: the actual file diffs this branch introduces.
+    // Conversation is secondary (intent only) so the summary can't claim a
+    // proposed-but-rejected edit happened.
+    let diffSection: string;
+    if (changedFiles && changedFiles.length) {
+      const blocks: string[] = [];
+      for (const f of changedFiles) {
+        const lines: string[] = [];
+        for (const h of diffLines(f.before, f.after, 2)) {
+          for (const ln of h.lines) {
+            lines.push((ln.type === 'add' ? '+ ' : ln.type === 'del' ? '- ' : '  ') + ln.text);
+          }
+          lines.push('  …');
+        }
+        let body = lines.join('\n');
+        if (body.length > 2500) body = body.slice(0, 2500) + '\n  …(diff truncated)';
+        blocks.push(`--- ${f.path} (${f.status}) ---\n${body || '(no textual diff)'}`);
+      }
+      diffSection = `FILE CHANGES THIS BRANCH INTRODUCES (authoritative — summarize THESE):\n${blocks.join('\n\n')}\n\n`;
+    } else {
+      diffSection = 'FILE CHANGES: (none detected)\n\n';
+    }
+
     const transcript = messages
       .filter(m => m.role !== 'system')
-      .map(m => `${m.role.toUpperCase()}: ${m.content}`)
+      .map(m => {
+        const c = m.content.length > 500 ? m.content.slice(0, 500) + '…' : m.content;
+        return `${m.role.toUpperCase()}: ${c}`;
+      })
       .join('\n\n');
 
     const userContent =
       `Branch: ${branch.name}\n` +
       `Description: ${branch.description ?? '(none)'}\n\n` +
-      `Conversation:\n${transcript}`;
+      diffSection +
+      `Conversation (intent only — do NOT assume anything here was applied unless it appears in the diffs above):\n${transcript}`;
 
     let raw = '';
     for await (const ev of this.provider.stream({
