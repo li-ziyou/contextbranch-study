@@ -195,19 +195,82 @@ this.onCaptured();
   }
 
   private handleDelete(uri: vscode.Uri): void {
-    // We don't remove artifacts on disk-delete by default — too dangerous,
-    // many editors create-and-delete tmp files. The artifact stays in the
-    // branch's history. A future "Reconcile workspace" command could prune.
+    // shouldCapture also rejects suppressed paths — so our OWN orphan-deletes
+    // during branch switch / checkpoint restore (which suppressMany the touched
+    // paths) never reach here. Only genuine user deletes do.
     if (!this.shouldCapture(uri)) return;
-    // No-op for now. Recorded only.
     const ws = this.getWorkspace();
     if (!ws) return;
     const relPath = this.relativize(uri.fsPath);
     if (!relPath) return;
+
     ws.storage.appendTelemetry({
       type: 'workspace_delete_observed',
       branchId: ws.activeBranchId, path: relPath,
     });
+
+    const config = vscode.workspace.getConfiguration('contextbranch');
+    if (!(config.get<boolean>('captureUserEdits') ?? true)) return;
+
+    // Only act when this path is actually an artifact (file) or contains
+    // artifacts (folder). Stray temp-file deletes that were never artifacts
+    // become harmless no-ops — that's why this is safe to enable.
+    const prefix = relPath + '/';
+    const arts = ws.getArtifacts(ws.activeBranchId);
+    const affected = arts.some(a => a.path === relPath || a.path.startsWith(prefix));
+    if (!affected) return;
+
+    const removed = ws.removeArtifactsByPath(ws.activeBranchId, relPath);
+    if (removed.length) {
+      ws.storage.appendTelemetry({
+        type: 'workspace_delete_applied',
+        branchId: ws.activeBranchId, path: relPath,
+      });
+      this.onCaptured();
+    }
+  }
+
+  /**
+   * One-time import of files that already exist in the workspace when the
+   * project is first initialized, so the starting state of an existing folder
+   * becomes artifacts on the active branch. Idempotent: skips paths that are
+   * already artifacts. Returns the number of files imported.
+   */
+  ingestExisting(): number {
+    const ws = this.getWorkspace();
+    if (!ws) return 0;
+    let count = 0;
+    const existingPaths = new Set(ws.getArtifacts(ws.activeBranchId).map(a => a.path));
+
+    const walk = (dir: string): void => {
+      let entries: fs.Dirent[];
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+      catch { return; }
+      for (const ent of entries) {
+        const abs = path.join(dir, ent.name);
+        if (ent.isDirectory()) {
+          if (IGNORED_DIR_SEGMENTS.has(ent.name)) continue;
+          walk(abs);
+        } else if (ent.isFile()) {
+          const uri = vscode.Uri.file(abs);
+          if (!this.shouldCapture(uri)) continue;       // ext / ignore filters
+          const rel = this.relativize(abs);
+          if (!rel || existingPaths.has(rel)) continue;
+          const content = this.readSafe(abs);
+          if (content === null) continue;               // binary / too big
+          ws.upsertArtifact(ws.activeBranchId, rel, content, null, 'merge');
+          ws.storage.appendTelemetry({
+            type: 'project_ingested',
+            branchId: ws.activeBranchId, path: rel, bytes: content.length,
+          });
+          existingPaths.add(rel);
+          count++;
+        }
+      }
+    };
+    walk(this.workspaceRoot);
+    if (count) this.onCaptured();
+    return count;
   }
 
   // ─── filters ───────────────────────────────────────────────────────────

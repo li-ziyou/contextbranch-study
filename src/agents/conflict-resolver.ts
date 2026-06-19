@@ -7,6 +7,7 @@
 
 import { LLMProvider } from '../llm/provider';
 import { CONFLICT_RESOLVER_SYSTEM } from '../llm/prompts';
+import { parseEdits, looksElided, merge3 } from '../core/edits';
 
 export interface ConflictResolution {
   path: string;
@@ -20,7 +21,10 @@ export interface ConflictResolution {
 }
 
 export class ConflictResolverAgent {
-  constructor(private provider: LLMProvider) {}
+  constructor(
+    private provider: LLMProvider,
+    private onUsage?: (inputTokens: number, outputTokens: number) => void,
+  ) {}
 
   async resolve(opts: {
     path: string;
@@ -38,20 +42,21 @@ export class ConflictResolverAgent {
       for await (const ev of this.provider.stream({
         system: CONFLICT_RESOLVER_SYSTEM,
         messages: [{ role: 'user', content: userContent }],
-        maxTokens: 4096,
+        maxTokens: 8192,
         temperature: 0.1, // low to be more deterministic 
         signal: opts.signal,
       })) {
         if (ev.type === 'delta') raw += ev.text;
+        if (ev.type === 'usage') this.onUsage?.(ev.inputTokens ?? 0, ev.outputTokens ?? 0);
         if (ev.type === 'error') {
-          return this.errorResult(opts.path, opts.theirs, ev.error ?? 'unknown error');
+          return this.fallback(opts, ev.error ?? 'unknown error');
         }
       }
     } catch (err: any) {
-      return this.errorResult(opts.path, opts.theirs, err.message ?? String(err));
+      return this.fallback(opts, err.message ?? String(err));
     }
 
-    return this.parse(raw, opts.path, opts.theirs);
+    return this.parse(raw, opts);
   }
 
   // prompt generation
@@ -94,73 +99,55 @@ export class ConflictResolverAgent {
 
     parts.push(
       '\n=== TASK ===',
-      'Produce a unified resolution as strict JSON. No markdown, no commentary.',
+      'Resolve the conflict and output the result in the CONFIDENCE/RATIONALE + fenced-block format from your instructions. No JSON.',
     );
 
     return parts.join('\n');
   }
 
-  private parse(raw: string, path: string, theirs: string): ConflictResolution {
-    const json = extractJson(raw);
-    if (!json || typeof json.resolvedContent !== 'string') {
-      return this.errorResult(path, theirs, 'Resolver response was not parseable JSON. Raw start: ' + raw.slice(0, 200));
+  private parse(raw: string, opts: { path: string; base: string; theirs: string; ours: string }): ConflictResolution {
+    // The resolved file comes back as a fenced `# path:` block — parse it with
+    // the same robust engine the coding agent uses (no JSON escaping of code).
+    const ops = parseEdits(raw);
+    const match = ops.find(o => o.kind === 'create' && o.path === opts.path && typeof o.content === 'string');
+    const anyCreate = ops.find(o => o.kind === 'create' && typeof o.content === 'string');
+    const content = (match ?? anyCreate)?.content;
+
+    const confRaw = (raw.match(/CONFIDENCE:\s*(high|medium|low)/i)?.[1] ?? 'medium').toLowerCase();
+    const confidence = (confRaw === 'high' || confRaw === 'low') ? confRaw as 'high' | 'low' : 'medium';
+    const rationale = raw.match(/RATIONALE:\s*(.+)/i)?.[1]?.trim() ?? '';
+
+    if (typeof content !== 'string' || content.trim() === '') {
+      return this.fallback(opts, 'Resolver did not return a usable file block. Raw start: ' + raw.slice(0, 160));
+    }
+    // Safety: refuse a resolution that still has conflict markers or looks elided.
+    if (/<{5,}|>{5,}/.test(content) || looksElided(content, opts.theirs)) {
+      return this.fallback(opts, 'Resolved content looked incomplete; keeping conflict markers for manual review.');
     }
 
-    const conf = json.confidence;
-    const confidence: 'high' | 'medium' | 'low' =
-      conf === 'high' || conf === 'medium' || conf === 'low' ? conf : 'medium';
-
     return {
-      path,
-      resolvedContent: json.resolvedContent,
-      rationale: typeof json.rationale === 'string' ? json.rationale : '',
+      path: opts.path,
+      resolvedContent: content,
+      rationale,
       confidence,
-      originalContent: theirs,
+      originalContent: opts.theirs,
     };
   }
 
-  private errorResult(path: string, theirs: string, error: string): ConflictResolution {
+  /**
+   * On ANY failure, fall back to a real 3-way merge with conflict markers — NOT
+   * to "theirs" (which would silently drop the source branch's work). The user
+   * sees a normally-conflicted file they can resolve by hand.
+   */
+  private fallback(opts: { path: string; base: string; theirs: string; ours: string }, error: string): ConflictResolution {
+    const merged = merge3(opts.base, opts.theirs, opts.ours, { ours: 'target', theirs: 'source' });
     return {
-      path,
-      resolvedContent: theirs, // fallback leave target unchanged
+      path: opts.path,
+      resolvedContent: merged.text,
       rationale: '',
       confidence: 'low',
-      originalContent: theirs,
+      originalContent: opts.theirs,
       error,
     };
   }
-}
-
-// duplicated from merge-analyst to avoid a dependency between agents
-
-function extractJson(raw: string): any | null {
-  const trimmed = raw.trim();
-  try { return JSON.parse(trimmed); } catch {}
-
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]+?)\s*```/);
-  if (fenced) {
-    try { return JSON.parse(fenced[1]); } catch {}
-  }
-
-  const start = trimmed.indexOf('{');
-  if (start === -1) return null;
-  let depth = 0;
-  let inString = false;
-  let escape = false;
-  for (let i = start; i < trimmed.length; i++) {
-    const c = trimmed[i];
-    if (escape) { escape = false; continue; }
-    if (c === '\\') { escape = true; continue; }
-    if (c === '"') { inString = !inString; continue; }
-    if (inString) continue;
-    if (c === '{') depth++;
-    else if (c === '}') {
-      depth--;
-      if (depth === 0) {
-        const candidate = trimmed.slice(start, i + 1);
-        try { return JSON.parse(candidate); } catch { return null; }
-      }
-    }
-  }
-  return null;
 }

@@ -8,6 +8,7 @@
 
 import { LLMProvider } from '../llm/provider';
 import { MERGE_ANALYST_SYSTEM } from '../llm/prompts';
+import { parseEdits, looksElided } from '../core/edits';
 
 export interface CascadingEditProposal {
   path: string;
@@ -37,7 +38,10 @@ interface ChangedFileView {
 }
 
 export class MergeAnalystAgent {
-  constructor(private provider: LLMProvider) {}
+  constructor(
+    private provider: LLMProvider,
+    private onUsage?: (inputTokens: number, outputTokens: number) => void,
+  ) {}
 
   async analyze(opts: {
     sourceArtifacts: ArtifactView[];
@@ -79,6 +83,7 @@ export class MergeAnalystAgent {
         signal: opts.signal,
       })) {
         if (ev.type === 'delta') raw += ev.text;
+        if (ev.type === 'usage') this.onUsage?.(ev.inputTokens ?? 0, ev.outputTokens ?? 0);
         if (ev.type === 'error') {
           return { summary: '', proposals: [], error: ev.error };
         }
@@ -133,85 +138,35 @@ export class MergeAnalystAgent {
     parts.push(
       '\n=== TASK ===',
       'Identify which UNCHANGED TARGET FILES need updates to remain consistent with the CHANGED FILES.',
-      'For each, return the complete new file content. Be concrete — no placeholders, no ellipses.',
-      'Output the JSON described in your system prompt and nothing else.',
+      'For each, output a fenced block with its complete new content, in the SUMMARY + fenced-block format from your instructions. Be concrete — no placeholders, no ellipses. No JSON.',
     );
 
     return parts.join('\n');
   }
 
   private parse(raw: string, targetArtifacts: ArtifactView[]): AnalystResult {
-    const json = extractJson(raw);
-    if (!json) {
-      return {
-        summary: '',
-        proposals: [],
-        error: 'Analyst response was not parseable JSON. Raw start: ' + raw.slice(0, 200),
-      };
-    }
+    // Proposals come back as fenced `# path:` blocks (full file content),
+    // parsed by the robust edit engine — no JSON escaping of code.
+    const summary = raw.match(/SUMMARY:\s*(.+)/i)?.[1]?.trim() ?? '';
+    const ops = parseEdits(raw);
 
-    const summary = typeof json.summary === 'string' ? json.summary : '';
-    const proposalsRaw = Array.isArray(json.proposals) ? json.proposals : [];
-
-    // look up current content from the target so the UI can render a diff
     const targetByPath = new Map<string, string>();
     for (const a of targetArtifacts) targetByPath.set(a.path, a.content);
 
     const proposals: CascadingEditProposal[] = [];
-    for (const p of proposalsRaw) {
-      if (!p || typeof p.path !== 'string' || typeof p.proposedContent !== 'string') continue;
-      const currentContent = targetByPath.get(p.path) ?? '';
-      if (p.proposedContent.trim() === currentContent.trim()) continue;
+    for (const op of ops) {
+      if (op.kind !== 'create' || typeof op.content !== 'string') continue;
+      const currentContent = targetByPath.get(op.path) ?? '';
+      if (op.content.trim() === currentContent.trim()) continue;        // no-op
+      if (currentContent && looksElided(op.content, currentContent)) continue; // truncated → skip
       proposals.push({
-        path: p.path,
-        rationale: typeof p.rationale === 'string' ? p.rationale : '',
-        proposedContent: p.proposedContent,
+        path: op.path,
+        rationale: '',
+        proposedContent: op.content,
         currentContent,
       });
     }
 
     return { summary, proposals };
   }
-}
-
-// ─── helpers ────────────────────────────────────────────────────────────────
-
-/**
- * Pulls a JSON object out of LLM output, tolerant of markdown fences and
- * surrounding prose. We ask for strict JSON in the prompt but providers don't
- * always comply, especially the smaller free-tier models.
- */
-function extractJson(raw: string): any | null {
-  const trimmed = raw.trim();
-  // Try direct parse first.
-  try { return JSON.parse(trimmed); } catch {}
-
-  // Strip markdown code fences if present.
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]+?)\s*```/);
-  if (fenced) {
-    try { return JSON.parse(fenced[1]); } catch {}
-  }
-
-  // Fall back to grabbing the first top-level {...} block.
-  const start = trimmed.indexOf('{');
-  if (start === -1) return null;
-  let depth = 0;
-  let inString = false;
-  let escape = false;
-  for (let i = start; i < trimmed.length; i++) {
-    const c = trimmed[i];
-    if (escape) { escape = false; continue; }
-    if (c === '\\') { escape = true; continue; }
-    if (c === '"') { inString = !inString; continue; }
-    if (inString) continue;
-    if (c === '{') depth++;
-    else if (c === '}') {
-      depth--;
-      if (depth === 0) {
-        const candidate = trimmed.slice(start, i + 1);
-        try { return JSON.parse(candidate); } catch { return null; }
-      }
-    }
-  }
-  return null;
 }
