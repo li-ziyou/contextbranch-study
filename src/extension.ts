@@ -132,7 +132,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }),
     vscode.commands.registerCommand('contextbranch.setApiKey', async () => {
       const providerName = await vscode.window.showQuickPick(
-        ['anthropic', 'openai', 'gemini'],
+        ['anthropic', 'openai', 'openrouter', 'gemini'],
         { placeHolder: 'Select provider' }
       );
       if (!providerName) return;
@@ -240,7 +240,8 @@ async function setupProvider(context: vscode.ExtensionContext): Promise<void> {
   }
   try {
     const { provider: name, key } = JSON.parse(stored);
-    provider = createProvider(name, key);
+    const model = vscode.workspace.getConfiguration('contextbranch').get<string>('model');
+    provider = createProvider(name, key, model || undefined);
   } catch (err: any) {
     provider = null;
     vscode.window.showErrorMessage(`Failed to load provider: ${err.message}`);

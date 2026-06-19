@@ -20,6 +20,9 @@ export interface EditOp {
   replace?: string;
   /** For 'create' (whole-file). */
   content?: string;
+  /** Set when the body looked like a botched SEARCH/REPLACE (bad markers),
+   *  so the applier reports that instead of mislabeling it as elided. */
+  malformed?: boolean;
 }
 
 export interface AppliedOp {
@@ -67,6 +70,16 @@ function parseFileBody(path: string, body: string): EditOp[] {
 
   if (ops.length > 0) return ops;
 
+  // No VALID search/replace parsed. If the body still carries edit markers, the
+  // edit was malformed or TRUNCATED (e.g. a `<<<<<<< SEARCH` with no closing
+  // `>>>>>>> REPLACE`). Flag it so the applier refuses with a clear reason
+  // instead of writing a file that contains stray markers / fences.
+  const hasSearchMarker = /[<>=]{3,}\s*SEARCH\b/.test(body);
+  const hasReplaceMarker = /[<>=]{3,}\s*REPLACE\b/.test(body);
+  if (hasSearchMarker || hasReplaceMarker) {
+    return [{ path, kind: 'create', content: stripTrailingNewline(body), malformed: true }];
+  }
+
   return [{ path, kind: 'create', content: stripTrailingNewline(body) }];
 }
 
@@ -112,6 +125,16 @@ function parseBareBlocks(text: string): EditOp[] {
  *   - whole-file creates when no SEARCH/REPLACE is present
  */
 export function parseEdits(text: string): EditOp[] {
+  // Normalize: a bare "# path:" line immediately followed by a fenced code block
+  // means the fence holds that file's body. Pull the path INSIDE the fence so the
+  // fenced handler captures it — otherwise fence-stripping blanks the body and
+  // the path is left with empty content (which looks like a tiny whole-file
+  // "create" and gets wrongly refused as a shrink).
+  text = text.replace(
+    /^[ \t]*((?:#|\/\/)\s*path:\s*.+?)(?:\r?\n)+[ \t]*(```[^\n]*\r?\n)/gm,
+    (_m, pathLine, fenceOpen) => `${fenceOpen}${pathLine}\n`
+  );
+
   const ops: EditOp[] = [];
   let m: RegExpExecArray | null;
 
@@ -146,15 +169,36 @@ function normalize(s: string): string {
  * Find `search` inside `content`. Tries exact first, then a whitespace-tolerant
  * line match. Returns the [start,end) char range in `content`, or null.
  */
-function locate(content: string, search: string): { start: number; end: number; how: 'exact' | 'whitespace' } | null {
-  if (search.length === 0) return null;
-  const exact = content.indexOf(search);
-  if (exact !== -1) return { start: exact, end: exact + search.length, how: 'exact' };
+type LocateResult =
+  | { status: 'found'; start: number; end: number; how: 'exact' | 'whitespace' }
+  | { status: 'missing' }
+  | { status: 'ambiguous'; count: number };
 
-  // whitespace-tolerant: match the sequence of normalized lines
+function locate(content: string, search: string): LocateResult {
+  if (search.length === 0) return { status: 'missing' };
+
+  // Count ALL exact matches — an anchor that appears more than once is
+  // ambiguous and must be refused (taking the first match silently inserts in
+  // the wrong place, e.g. after a function's `return`).
+  const exactStarts: number[] = [];
+  for (let from = 0; ; ) {
+    const i = content.indexOf(search, from);
+    if (i === -1) break;
+    exactStarts.push(i);
+    from = i + Math.max(1, search.length); // non-overlapping
+  }
+  if (exactStarts.length === 1) {
+    return { status: 'found', start: exactStarts[0], end: exactStarts[0] + search.length, how: 'exact' };
+  }
+  if (exactStarts.length > 1) return { status: 'ambiguous', count: exactStarts.length };
+
+  // whitespace-tolerant: match the sequence of normalized lines (count all)
   const cLines = content.split('\n');
   const sLines = search.split('\n').filter((_, i, a) => !(i === a.length - 1 && a[i] === ''));
   const sNorm = sLines.map(l => l.replace(/\s+/g, ' ').trim());
+  if (sNorm.length === 0) return { status: 'missing' };
+
+  const wsMatches: { start: number; end: number }[] = [];
   for (let i = 0; i + sNorm.length <= cLines.length; i++) {
     let ok = true;
     for (let j = 0; j < sNorm.length; j++) {
@@ -163,10 +207,12 @@ function locate(content: string, search: string): { start: number; end: number; 
     if (ok) {
       const start = cLines.slice(0, i).join('\n').length + (i > 0 ? 1 : 0);
       const matchedText = cLines.slice(i, i + sNorm.length).join('\n');
-      return { start, end: start + matchedText.length, how: 'whitespace' };
+      wsMatches.push({ start, end: start + matchedText.length });
     }
   }
-  return null;
+  if (wsMatches.length === 1) return { status: 'found', ...wsMatches[0], how: 'whitespace' };
+  if (wsMatches.length > 1) return { status: 'ambiguous', count: wsMatches.length };
+  return { status: 'missing' };
 }
 
 /**
@@ -196,9 +242,13 @@ export function applyEdits(ops: EditOp[], currentByPath: Map<string, string>): A
         // Whole-file. Allowed for NEW files always; for EXISTING files only if
         // it doesn't look elided (guard against the placeholder bug).
         const content = op.content ?? '';
-        if (!isNew && looksElided(content, before)) {
-          applied.push({ index: idx, kind: 'create', ok: false,
-            reason: 'whole-file replacement looks truncated/elided — refused to avoid data loss' });
+        const elide = isNew ? null : elisionReason(content, before);
+        if (op.malformed && !isNew) {
+          applied.push({ index: idx, kind: 'replace', ok: false,
+            reason: 'edit was malformed or truncated (stray SEARCH/REPLACE marker). Use exactly `<<<<<<< SEARCH` / `=======` / `>>>>>>> REPLACE`, and resend if it was cut off. Not applied.' });
+          failed++;
+        } else if (elide) {
+          applied.push({ index: idx, kind: 'create', ok: false, reason: elide });
           failed++;
         } else {
           working = content;
@@ -208,10 +258,11 @@ export function applyEdits(ops: EditOp[], currentByPath: Map<string, string>): A
         const search = op.search ?? '';
         const replace = op.replace ?? '';
         const loc = locate(working, search);
-        if (!loc) {
-          applied.push({ index: idx, kind: 'replace', ok: false,
-            reason: 'could not locate the SEARCH anchor in the current file',
-            search, replace });
+        if (loc.status !== 'found') {
+          const reason = loc.status === 'ambiguous'
+            ? `SEARCH anchor matches ${loc.count} places — too ambiguous to place safely; include more surrounding context so it identifies exactly one location`
+            : 'could not locate the SEARCH anchor in the current file';
+          applied.push({ index: idx, kind: 'replace', ok: false, reason, search, replace });
           failed++;
         } else {
           working = working.slice(0, loc.start) + replace + working.slice(loc.end);
@@ -255,12 +306,20 @@ export function applySelected(
  * the original (placeholders, or suspiciously shorter than what it replaces)?
  */
 export function looksElided(proposed: string, current: string): boolean {
+  return elisionReason(proposed, current) !== null;
+}
+
+/** Like looksElided, but returns WHY (for an actionable message) or null. */
+export function elisionReason(proposed: string, current: string): string | null {
   const placeholderRe =
     /(\/\*|#|\/\/|<!--)\s*\.{2,}\s*(existing|rest|unchanged|previous|original|same as before|your)|(\bexisting (code|styles|content)\b)|(\brest of (the )?(file|code)\b)|(\.\.\.\s*(rest|existing|unchanged))/i;
-  if (placeholderRe.test(proposed)) return true;
-  // Big shrink against a non-trivial original is suspicious.
-  if (current.length > 400 && proposed.length < current.length * 0.5) return true;
-  return false;
+  if (placeholderRe.test(proposed)) {
+    return 'whole-file content has a placeholder like "...existing..." — provide the COMPLETE file, or (better) use small search/replace edits';
+  }
+  if (current.length > 400 && proposed.length < current.length * 0.5) {
+    return 'the new version is much smaller than the current file (likely truncated or dropping code) — refused to avoid losing work. Ask for targeted search/replace edits instead of a whole-file rewrite';
+  }
+  return null;
 }
 
 // ─── line diff (for review display) ─────────────────────────────────────────

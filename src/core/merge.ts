@@ -50,7 +50,9 @@ export interface MergeOptions {
    * Hook to ask the LLM to consolidate the branch into a synthesis turn.
    * Provided by the caller (extension wires up the agent).
    */
-  consolidate?: (branch: Branch, messages: Message[], targetBranch: Branch) => Promise<string>;
+  consolidate?: (branch: Branch, messages: Message[],
+                 changedFiles: { path: string; status: string; before: string; after: string }[],
+                 targetBranch: Branch) => Promise<string>;
   /** Hook for AI-based rebase consistency check. */
   rebaseCheck?: (source: Branch, target: Branch,
                  sourceMessages: Message[], targetMessages: Message[]) => Promise<string[]>;
@@ -256,7 +258,23 @@ export async function previewMerge(
   let synthesisDraft: string | undefined;
   if (opts.generateSynthesis && opts.consolidate) {
     try {
-      synthesisDraft = await opts.consolidate(source, sourceMessages, target);
+      // Build the ACTUAL diffs this branch introduces (target current vs source
+      // current), so the summary reflects real files — not rejected proposals.
+      const tgtArts = ws.getArtifacts(target.id);
+      const tgtByPath = new Map(tgtArts.map(a => [a.path, a.content]));
+      const resByPath = new Map((conflictResolutions ?? []).map(r => [r.path, r.resolvedContent]));
+      const changedFiles = changes.map(c => ({
+        path: c.path,
+        status: c.status,
+        before: tgtByPath.get(c.path) ?? '',
+        // The ACTUAL merged result — NOT the source branch's raw file. Using raw
+        // source made the summary claim a merge "removed" things that the merge
+        // actually kept. For a resolved conflict, use the resolution.
+        after: (c.status === 'conflict' && resByPath.has(c.path))
+          ? resByPath.get(c.path)!
+          : mergedContentFor(ws, source, target, c),
+      }));
+      synthesisDraft = await opts.consolidate(source, sourceMessages, changedFiles, target);
     } catch (err: any) {
       synthesisDraft = `(Synthesis unavailable: ${err.message})`;
     }
@@ -419,6 +437,26 @@ function forkBaseContent(ws: Workspace, source: Branch, path: string): string | 
   return null;
 }
 
+/**
+ * The ACTUAL content a merge will write for one path — the single source of
+ * truth used by BOTH the apply step and the summary, so they can never
+ * disagree. Uses the immutable fork base (not the drifting sa.baseContent) and
+ * never silently falls back to "source", which would drop target's work.
+ */
+function mergedContentFor(
+  ws: Workspace, source: Branch, target: Branch,
+  change: { path: string; status: 'add' | 'modify' | 'conflict' },
+): string {
+  const sa = ws.getArtifacts(source.id).find(a => a.path === change.path);
+  const ta = ws.getArtifacts(target.id).find(a => a.path === change.path);
+  if (!sa) return ta?.content ?? '';
+  if (!ta || change.status === 'add') return sa.content;
+  const base = forkBaseContent(ws, source, change.path) ?? sa.baseContent ?? '';
+  if (base === ta.content) return sa.content;   // target untouched since fork → take source
+  if (base === sa.content) return ta.content;   // source untouched → keep target
+  return tryAutoMerge(base, ta.content, sa.content).text; // both changed → 3-way merge
+}
+
 function computeArtifactDiff(
   ws: Workspace,
   source: Branch,
@@ -501,14 +539,8 @@ function applyArtifactChanges(
     if (change.status === 'add' || !ta) {
       ws.upsertArtifact(target.id, sa.path, sa.content, sa.baseContent, 'merge');
     } else if (change.status === 'modify') {
-      const base = sa.baseContent ?? '';
-      let finalContent = sa.content;
-      if (base !== ta.content && base !== sa.content) {
-        // both changed; use auto-merge result
-        const merged = tryAutoMerge(base, ta.content, sa.content);
-        if (merged.success) finalContent = merged.text;
-      }
-      ws.upsertArtifact(target.id, sa.path, finalContent, ta.content, 'merge');
+      ws.upsertArtifact(target.id, sa.path,
+        mergedContentFor(ws, source, target, change), ta.content, 'merge');
     } else {
       // conflict — if the user accepted the AI resolution for this path, use
       // that as the final content. Otherwise fall back to the markered

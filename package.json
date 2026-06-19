@@ -7,8 +7,13 @@
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Other", "Machine Learning"],
-  "activationEvents": ["onStartupFinished"],
+  "categories": [
+    "Other",
+    "Machine Learning"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
@@ -62,14 +67,25 @@
       "properties": {
         "contextbranch.provider": {
           "type": "string",
-          "enum": ["anthropic", "openai", "gemini"],
+          "enum": [
+            "anthropic",
+            "openai",
+            "openrouter",
+            "gemini"
+          ],
           "default": "anthropic",
-          "description": "LLM provider to use"
+          "description": "LLM provider. For OpenRouter, set contextbranch.model to a routed model id (e.g. openai/gpt-4o-mini).",
+          "enumDescriptions": [
+            "Anthropic (Claude). Key from console.anthropic.com",
+            "OpenAI. Key from platform.openai.com",
+            "OpenRouter \u2014 one key, many vendors' models (openai/*, anthropic/*, google/*). Key from openrouter.ai/keys",
+            "Google Gemini. Free tier with flash fallback. Key from aistudio.google.com"
+          ]
         },
         "contextbranch.model": {
           "type": "string",
           "default": "",
-          "description": "Model identifier. Leave blank to use the provider's default. Anthropic default: claude-sonnet-4-6 (also: claude-opus-4-7, claude-haiku-4-5-20251001). OpenAI default: gpt-4o. Gemini default: gemini-3-flash-preview with automatic fallback to gemini-3.1-flash-lite-preview on rate-limit. Setting a value here pins to that single model with no fallback."
+          "description": "Model id. Blank = provider default (and Gemini auto-fallback). Setting a value pins to that single model. OpenRouter examples: openai/gpt-4o-mini, anthropic/claude-3.5-sonnet, google/gemini-2.0-flash-001. Anthropic: claude-sonnet-4-6. OpenAI: gpt-4o."
         },
         "contextbranch.testCommand": {
           "type": "string",
@@ -98,7 +114,10 @@
         },
         "contextbranch.condition": {
           "type": "string",
-          "enum": ["linear", "branched"],
+          "enum": [
+            "linear",
+            "branched"
+          ],
           "default": "branched",
           "description": "Study condition (linear disables branching UI)"
         },
@@ -120,7 +139,7 @@
         "contextbranch.captureNewFiles": {
           "type": "boolean",
           "default": true,
-          "description": "When a NEW file appears in the workspace (created outside the AI conversation), claim it as an artifact in the active branch. Off by default because new-file claiming is surprising — turn on if you want full git-checkout semantics."
+          "description": "When a NEW file appears in the workspace (created outside the AI conversation), claim it as an artifact in the active branch. Off by default because new-file claiming is surprising \u2014 turn on if you want full git-checkout semantics."
         },
         "contextbranch.hotContextChars": {
           "type": "number",

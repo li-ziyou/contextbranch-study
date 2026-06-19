@@ -20,6 +20,7 @@ import { ConflictResolverAgent } from '../agents/conflict-resolver';
 import { LLMProvider } from '../llm/provider';
 import { previewMerge, finalizeMerge, detectTestCommand, detectLintCommand } from '../core/merge';
 import { Branch, Artifact, Message } from '../core/types';
+import { ChangeDecorations } from '../core/change-decorations';
 
 export class ContextBranchView implements vscode.WebviewViewProvider {
   public static readonly viewType = 'contextbranch.sidebar';
@@ -29,6 +30,17 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
   /** Edits proposed by the last assistant turn, awaiting user accept/reject. */
   private pendingEdits?: { branchId: string; ops: EditOp[] };
   private mergeInProgress?: boolean;
+
+  /** Git-style highlights for lines added/changed by the last artifact apply. */
+  private decorations?: ChangeDecorations;
+
+  private getDecorations(): ChangeDecorations {
+    if (!this.decorations) {
+      this.decorations = new ChangeDecorations();
+      this.context.subscriptions.push(this.decorations);
+    }
+    return this.decorations;
+  }
 
   constructor(
     private context: vscode.ExtensionContext,
@@ -160,6 +172,8 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       case 'decompose': return this.handleDecompose(msg.taskDescription);
       case 'requestState': return this.pushState();
       case 'applyArtifactsToWorkspace': return this.handleApplyArtifacts(msg.branchId);
+      case 'previewArtifactsInWorkspace': return this.handlePreviewArtifacts(msg.branchId);
+      case 'dismissArtifactsPreview': return this.handleDismissPreview(msg.branchId);
       case 'applyProposedEdits': return this.handleApplyProposedEdits(msg.accepted);
       case 'discardProposedEdits': return this.handleDiscardProposedEdits();
     }
@@ -280,22 +294,34 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     let applied = 0;
     const failures: string[] = [];
+    const notes: string[] = [];
     for (const f of files) {
+      const total = f.ops.length;
       const okOps = f.ops.filter(o => o.ok).length;
+      const skipped = total - okOps;
       if (okOps === 0) {
         // nothing applied for this file → report any failures
         for (const o of f.ops.filter(x => !x.ok)) failures.push(`${f.path}: ${o.reason}`);
+        if (total) notes.push(`${f.path} — 0/${total} applied (all skipped)`);
         continue;
       }
       // baseContent stays the pre-edit content (fork base is handled at merge time)
       ws.upsertArtifact(branchId, f.path, f.after, f.before === '' ? null : f.before);
       applied++;
+      notes.push(f.isNew
+        ? `${f.path} — created`
+        : `${f.path} — ${okOps}/${total} change(s) applied${skipped ? ` (${skipped} skipped)` : ''}`);
       for (const o of f.ops.filter(x => !x.ok)) failures.push(`${f.path}: ${o.reason}`);
       // write to disk (suppressed) if this is the active branch
       if (workspaceRoot && branchId === ws.activeBranchId) {
         const art = ws.getArtifacts(branchId).find(a => a.path === f.path);
         if (art) this.syncArtifactsToWorkspace(workspaceRoot, new Set(), [art], 3000);
       }
+    }
+    // Record what was ACTUALLY applied vs skipped, so later turns and the merge
+    // summary reflect reality instead of assuming every proposal landed.
+    if (notes.length) {
+      ws.appendMessage(branchId, 'system', `[edit-log] ${notes.join('; ')}`);
     }
     this.postMessage({
       type: 'editsApplied', applied,
@@ -356,6 +382,10 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     const ws = this.requireWorkspace();
     if (!ws) return;
 
+    // Any in-file preview belongs to the branch we're leaving — revert those
+    // unsaved buffers before we write the new branch's files.
+    await this.getDecorations().dismissAllPreviews();
+
     const config = vscode.workspace.getConfiguration('contextbranch');
     const autoApply = config.get<boolean>('autoApplyOnSwitch') ?? true;
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -405,11 +435,17 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
 
     let wrote = 0, removed = 0;
 
+    const deco = this.getDecorations();
+    const marked: { full: string; content: string }[] = [];
+
     for (const art of newArtifacts) {
       try {
         const full = path.join(workspaceRoot, art.path);
+        deco.snapshotBefore(full);
+        deco.noteSelfWrite(full, 4000);
         fs.mkdirSync(path.dirname(full), { recursive: true });
         fs.writeFileSync(full, art.content, 'utf-8');
+        marked.push({ full, content: art.content });
         wrote++;
       } catch { /* skip unwriteable */ }
     }
@@ -418,11 +454,18 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       if (newPaths.has(orphanPath)) continue;
       try {
         const full = path.join(workspaceRoot, orphanPath);
+        deco.clearFile(full);
         if (fs.existsSync(full)) {
           fs.unlinkSync(full);
           removed++;
         }
       } catch { /* skip */ }
+    }
+
+    // Paint git-style highlights on whatever changed (no forced reveal here —
+    // a branch switch shouldn't steal focus, but any already-open file updates).
+    for (const m of marked) {
+      void deco.markChanges(m.full, m.content);
     }
 
     return { wrote, removed };
@@ -581,7 +624,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       workspaceRoot,
       testCommand: testCmd ?? undefined,
       lintCommand: lintCmd ?? undefined,
-      consolidate: meta ? (b: Branch, msgs: Message[]) => meta.consolidate(b, msgs) : undefined,
+      consolidate: meta ? (b: Branch, msgs: Message[], changed: any) => meta.consolidate(b, msgs, changed) : undefined,
       rebaseCheck: meta ? (s: Branch, t: Branch, sm: Message[], tm: Message[]) => meta.rebaseCheck(s, t, sm, tm) : undefined,
       consistencyCheck: meta ? (t: Branch, mm: Message[]) => meta.consistencyCheck(t, mm) : undefined,
       analyzeCascade: analyzeCascade ?? undefined,
@@ -627,6 +670,56 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
 
   // ─── apply artifacts ──────────────────────────────────────────────────────
 
+  /**
+   * Preview-before-apply: loads the proposed content into each file's editor as
+   * an UNSAVED edit and highlights the added/changed lines in green at their
+   * correct positions. Nothing is written to disk yet — Apply saves, Dismiss
+   * reverts, and clicking a previewed line drops just that line.
+   */
+  private async handlePreviewArtifacts(branchId: string): Promise<void> {
+    const ws = this.requireWorkspace();
+    if (!ws) return;
+    const branch = ws.getBranch(branchId);
+    if (!branch) {
+      this.postMessage({ type: 'error', message: 'Branch not found' });
+      return;
+    }
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!root) {
+      this.postMessage({ type: 'error', message: 'No workspace folder open' });
+      return;
+    }
+
+    const artifacts = ws.getArtifacts(branchId);
+    const deco = this.getDecorations();
+    let changed = 0;
+    for (let i = 0; i < artifacts.length; i++) {
+      const full = path.join(root, artifacts[i].path);
+      const had = await deco.previewChanges(full, artifacts[i].content, { reveal: changed === 0 });
+      if (had) changed++;
+    }
+    this.postMessage({
+      type: 'artifactsPreviewed',
+      branchId,
+      filesWithChanges: changed,
+      branchName: branch.name,
+    });
+  }
+
+  /** Revert all active previews for this branch back to their saved state. */
+  private async handleDismissPreview(branchId: string): Promise<void> {
+    const ws = this.requireWorkspace();
+    if (!ws) return;
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!root) return;
+    const deco = this.getDecorations();
+    for (const art of ws.getArtifacts(branchId)) {
+      const full = path.join(root, art.path);
+      if (deco.hasPreview(full)) await deco.dismissPreview(full);
+    }
+    this.postMessage({ type: 'artifactsPreviewDismissed', branchId });
+  }
+
   private async handleApplyArtifacts(branchId: string): Promise<void> {
     const ws = this.requireWorkspace();
     if (!ws) return;
@@ -650,14 +743,38 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     // Suppress watcher around our writes
     const allAbs = artifacts.map(a => path.join(root, a.path));
     this.getCapture()?.suppressMany(allAbs, 3000);
+    const deco = this.getDecorations();
     let count = 0;
+    const written: { full: string; content: string }[] = [];
     for (const art of artifacts) {
       const full = path.join(root, art.path);
+
+      // If this file is currently being previewed, the proposed content is
+      // already loaded (unsaved) in its editor — just save it. This keeps any
+      // per-line dismissals the user made during preview.
+      if (deco.hasPreview(full)) {
+        deco.noteSelfWrite(full, 4000);
+        const ok = await deco.commitPreview(full);
+        if (ok) count++;
+        continue;
+      }
+
+      // Snapshot current on-disk content BEFORE overwriting, for the diff.
+      deco.snapshotBefore(full);
+      // Guard the document-reload event our own write triggers, so the
+      // highlights we paint next don't get cleared (the "1-second flash").
+      deco.noteSelfWrite(full, 4000);
       fs.mkdirSync(path.dirname(full), { recursive: true });
       fs.writeFileSync(full, art.content, 'utf-8');
+      written.push({ full, content: art.content });
       count++;
     }
-    vscode.window.showInformationMessage(`Wrote ${count} artifacts to workspace.`);
+    // For files written directly (no active preview), highlight added/changed
+    // lines. Reveal the first so the user sees the green markers immediately.
+    for (let i = 0; i < written.length; i++) {
+      await deco.markChanges(written[i].full, written[i].content, { reveal: i === 0 });
+    }
+    vscode.window.showInformationMessage(`Applied ${count} file(s) to workspace.`);
   }
 
   // ─── HTML scaffolding ─────────────────────────────────────────────────────

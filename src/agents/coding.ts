@@ -78,6 +78,7 @@ export class CodingAgent {
       messages,
       signal: opts.signal,
       model: opts.model,
+      maxTokens: 8192, // headroom: multi-block edits were truncating at the 4096 default
     });
   }
 }

@@ -41,7 +41,7 @@ export class AnthropicProvider implements LLMProvider {
   readonly name = 'anthropic';
   readonly defaultModel = 'claude-sonnet-4-6';
 
-  constructor(private apiKey: string) {}
+  constructor(private apiKey: string, private pinnedModel?: string) {}
 
   async *stream(opts: LLMRequestOptions): AsyncIterable<LLMStreamEvent> {
     const { default: Anthropic } = await import('@anthropic-ai/sdk');
@@ -57,7 +57,7 @@ export class AnthropicProvider implements LLMProvider {
 
     try {
       const stream = await client.messages.stream({
-        model: opts.model ?? this.defaultModel,
+        model: opts.model ?? this.pinnedModel ?? this.defaultModel,
         max_tokens: opts.maxTokens ?? 4096,
         temperature: opts.temperature ?? 0.7,
         system,
@@ -89,14 +89,30 @@ export class AnthropicProvider implements LLMProvider {
 // ─── OpenAI ──────────────────────────────────────────────────────────────────
 
 export class OpenAIProvider implements LLMProvider {
-  readonly name = 'openai';
-  readonly defaultModel = 'gpt-4o';
+  readonly name: string;
+  readonly defaultModel: string;
+  private baseURL?: string;
+  private headers?: Record<string, string>;
+  private pinnedModel?: string;
 
-  constructor(private apiKey: string) {}
+  constructor(private apiKey: string, opts: {
+    name?: string; baseURL?: string; defaultModel?: string;
+    headers?: Record<string, string>; pinnedModel?: string;
+  } = {}) {
+    this.name = opts.name ?? 'openai';
+    this.defaultModel = opts.defaultModel ?? 'gpt-4o';
+    this.baseURL = opts.baseURL;
+    this.headers = opts.headers;
+    this.pinnedModel = opts.pinnedModel;
+  }
 
   async *stream(opts: LLMRequestOptions): AsyncIterable<LLMStreamEvent> {
     const { default: OpenAI } = await import('openai');
-    const client = new OpenAI({ apiKey: this.apiKey });
+    const client = new OpenAI({
+      apiKey: this.apiKey,
+      ...(this.baseURL ? { baseURL: this.baseURL } : {}),
+      ...(this.headers ? { defaultHeaders: this.headers } : {}),
+    });
 
     const messages: any[] = [];
     if (opts.system) messages.push({ role: 'system', content: opts.system });
@@ -105,35 +121,51 @@ export class OpenAIProvider implements LLMProvider {
       messages.push({ role: m.role, content: m.content });
     }
 
-    let inputTokens = 0, outputTokens = 0;
+    // Transient upstream errors (503 overloaded, 502/429, dropped sockets) are
+    // common on routed providers like OpenRouter. Retry a few times — but ONLY
+    // before any text has streamed, so we never stitch two partial replies into
+    // a Frankenstein answer.
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      let sawDelta = false;
+      let inputTokens = 0, outputTokens = 0;
+      try {
+        const stream = await client.chat.completions.create({
+          model: opts.model ?? this.pinnedModel ?? this.defaultModel,
+          messages,
+          max_tokens: opts.maxTokens ?? 4096,
+          temperature: opts.temperature ?? 0.7,
+          stream: true,
+          stream_options: { include_usage: true },
+        });
 
-    try {
-      const stream = await client.chat.completions.create({
-        model: opts.model ?? this.defaultModel,
-        messages,
-        max_tokens: opts.maxTokens ?? 4096,
-        temperature: opts.temperature ?? 0.7,
-        stream: true,
-        stream_options: { include_usage: true },
-      });
+        for await (const chunk of stream) {
+          if (opts.signal?.aborted) {
+            yield { type: 'error', error: 'aborted' };
+            return;
+          }
+          const delta = chunk.choices[0]?.delta?.content;
+          if (delta) { sawDelta = true; yield { type: 'delta', text: delta }; }
+          if (chunk.usage) {
+            inputTokens = chunk.usage.prompt_tokens ?? 0;
+            outputTokens = chunk.usage.completion_tokens ?? 0;
+          }
+        }
 
-      for await (const chunk of stream) {
-        if (opts.signal?.aborted) {
-          yield { type: 'error', error: 'aborted' };
+        yield { type: 'usage', inputTokens, outputTokens };
+        yield { type: 'done' };
+        return;
+      } catch (err: any) {
+        const canRetry = !sawDelta && attempt < maxAttempts && isTransientError(err);
+        if (!canRetry) {
+          const hint = isTransientError(err)
+            ? ' (the provider was overloaded/dropped the stream — try again, or switch contextbranch.model to a more reliable route)'
+            : '';
+          yield { type: 'error', error: `${err.message ?? String(err)}${hint}` };
           return;
         }
-        const delta = chunk.choices[0]?.delta?.content;
-        if (delta) yield { type: 'delta', text: delta };
-        if (chunk.usage) {
-          inputTokens = chunk.usage.prompt_tokens ?? 0;
-          outputTokens = chunk.usage.completion_tokens ?? 0;
-        }
+        await new Promise(r => setTimeout(r, 500 * attempt)); // 0.5s, 1s backoff
       }
-
-      yield { type: 'usage', inputTokens, outputTokens };
-      yield { type: 'done' };
-    } catch (err: any) {
-      yield { type: 'error', error: err.message ?? String(err) };
     }
   }
 }
@@ -155,6 +187,22 @@ function isRateLimitError(err: unknown): boolean {
     || /rate.?limit/i.test(msg);
 }
 
+/**
+ * Transient = worth retrying: rate limits PLUS server-side overloads (502/503/
+ * 500/529), "overloaded", and dropped connections. These are common on routed
+ * providers (OpenRouter) when an upstream is busy.
+ */
+function isTransientError(err: unknown): boolean {
+  if (isRateLimitError(err)) return true;
+  const status = (err as any)?.status ?? (err as any)?.statusCode;
+  if (status === 500 || status === 502 || status === 503 || status === 529) return true;
+  const msg = String((err as any)?.message ?? err);
+  return /\b(500|502|503|529)\b/.test(msg)
+    || /overloaded/i.test(msg)
+    || /service unavailable|temporarily unavailable|bad gateway/i.test(msg)
+    || /ECONNRESET|ETIMEDOUT|socket hang up|fetch failed|terminated|stream (?:ended|closed)/i.test(msg);
+}
+
 export class GeminiProvider implements LLMProvider {
   readonly name = 'gemini';
   readonly defaultModel = 'gemini-3.1-flash-lite-preview';
@@ -171,7 +219,7 @@ export class GeminiProvider implements LLMProvider {
     'gemini-3.1-flash-lite-preview',
   ];
 
-  constructor(private apiKey: string) {}
+  constructor(private apiKey: string, private pinnedModel?: string) {}
 
   /**
    * Dynamically import the Google SDK. Extracted as a method so tests can
@@ -185,7 +233,8 @@ export class GeminiProvider implements LLMProvider {
     const { GoogleGenerativeAI } = await this.loadSdk();
     const client = new GoogleGenerativeAI(this.apiKey);
 
-    const candidates = opts.model ? [opts.model] : this.fallbackModels;
+    const candidates = opts.model ? [opts.model]
+      : (this.pinnedModel ? [this.pinnedModel] : this.fallbackModels);
 
     const contents = opts.messages
       .filter(m => m.role !== 'system')
@@ -261,11 +310,22 @@ export class GeminiProvider implements LLMProvider {
 
 // ─── factory ─────────────────────────────────────────────────────────────────
 
-export function createProvider(name: string, apiKey: string): LLMProvider {
+export function createProvider(name: string, apiKey: string, model?: string): LLMProvider {
+  const pinned = model && model.trim() ? model.trim() : undefined;
   switch (name) {
-    case 'anthropic': return new AnthropicProvider(apiKey);
-    case 'openai': return new OpenAIProvider(apiKey);
-    case 'gemini': return new GeminiProvider(apiKey);
+    case 'anthropic': return new AnthropicProvider(apiKey, pinned);
+    case 'openai': return new OpenAIProvider(apiKey, { pinnedModel: pinned });
+    case 'openrouter': return new OpenAIProvider(apiKey, {
+      name: 'openrouter',
+      baseURL: 'https://openrouter.ai/api/v1',
+      // Cheap, reliable, and strong at following the exact edit format. Override
+      // via `contextbranch.model` (e.g. "deepseek/deepseek-chat" for cheapest,
+      // "anthropic/claude-sonnet-4.6" for top quality).
+      defaultModel: 'anthropic/claude-haiku-4.5',
+      headers: { 'HTTP-Referer': 'https://github.com/contextbranch', 'X-Title': 'ContextBranch' },
+      pinnedModel: pinned,
+    });
+    case 'gemini': return new GeminiProvider(apiKey, pinned);
     default: throw new Error(`Unknown provider: ${name}`);
   }
 }

@@ -29,6 +29,7 @@
     isStreaming: false,
     streamingText: '',
     decompositionResult: null,
+    decomposing: false,
     pendingMergePreview: null,
     pendingMerge: null,
     historyOpen: false,
@@ -65,6 +66,7 @@
           // Reset transient UI states so we never get stuck spinners
           $('merge-running').hidden = true;
           setMergeUiBusy(false);
+          setDecomposeBusy(false);
           handleStreamEnd();
           break;
         case 'success': showStatus(msg.message, 'success'); break;
@@ -95,6 +97,19 @@
         case 'editsDiscarded':
           clearEditReview();
           showStatus('Proposed edits discarded.', 'info');
+          break;
+        case 'artifactsPreviewed': {
+          if (msg.filesWithChanges > 0) {
+            showPreviewBar(msg.filesWithChanges, msg.branchName);
+          } else {
+            hidePreviewBar();
+            showStatus('No changes to preview — workspace already matches this branch.', 'info');
+          }
+          break;
+        }
+        case 'artifactsPreviewDismissed':
+          hidePreviewBar();
+          showStatus('Preview dismissed — files reverted.', 'info');
           break;
       }
     } catch (err) {
@@ -221,7 +236,13 @@
   }
 
   function handleState(s) {
+    const prevBranch = state.activeBranchId;
     state = Object.assign({}, state, s);
+    // A branch switch supersedes any in-flight preview on the extension side,
+    // so drop the bar to stay in sync.
+    if (s.activeBranchId !== undefined && s.activeBranchId !== prevBranch) {
+      hidePreviewBar();
+    }
     render();
     if (state.historyOpen && state.historyGraph) {
       renderHistoryView();
@@ -260,6 +281,7 @@
   }
 
   function handleDecompositionResult(result) {
+    setDecomposeBusy(false);
     state.decompositionResult = result;
     renderDecompositionResult();
   }
@@ -1945,6 +1967,28 @@ function findNextInstanceTime(branchId, instanceIdx) {
 
   // ─── status / errors ─────────────────────────────────────────────────
 
+  function showPreviewBar(fileCount, branchName) {
+    const bar = $('preview-bar');
+    const text = $('preview-bar-text');
+    if (!bar) return;
+    if (text) {
+      const n = fileCount === 1 ? '1 file' : `${fileCount} files`;
+      text.textContent = `Previewing changes to ${n}` +
+        (branchName ? ` from "${branchName}"` : '') +
+        '. Click a highlighted line to drop it.';
+    }
+    const apply = $('preview-apply');
+    const dismiss = $('preview-dismiss');
+    if (apply) apply.disabled = false;
+    if (dismiss) dismiss.disabled = false;
+    bar.hidden = false;
+  }
+
+  function hidePreviewBar() {
+    const bar = $('preview-bar');
+    if (bar) bar.hidden = true;
+  }
+
   function showStatus(message, kind) {
     const div = document.createElement('div');
     div.className = 'status-msg ' + (kind || '');
@@ -2068,22 +2112,35 @@ function findNextInstanceTime(branchId, instanceIdx) {
     $('decompose-task').value = '';
     $('decompose-result').hidden = true;
     $('decompose-create-all').hidden = true;
+    $('decompose-create-all').disabled = false;
     $('decompose-go').hidden = false;
+    setDecomposeBusy(false);
     state.decompositionResult = null;
     openModal('modal-decompose');
     $('decompose-task').focus();
   }
 
+  function setDecomposeBusy(busy) {
+    state.decomposing = busy;
+    const go = $('decompose-go');
+    if (go) { go.disabled = busy; go.textContent = busy ? 'Decomposing…' : 'Decompose'; }
+  }
+
   $('decompose-go').addEventListener('click', () => {
+    if (state.decomposing) return;                 // ignore double-clicks while running
     const t = $('decompose-task').value.trim();
     if (!t) { showStatus('Describe the task first', 'error'); return; }
+    setDecomposeBusy(true);
     showStatus('Decomposing... (this can take ~10s)', 'info');
     send({ type: 'decompose', taskDescription: t });
   });
 
-  $('decompose-create-all').addEventListener('click', () => {
+  $('decompose-create-all').addEventListener('click', (e) => {
     const r = state.decompositionResult;
     if (!r) return;
+    const btn = e.currentTarget;
+    if (btn.disabled) return;                       // guard double-click
+    btn.disabled = true;
     // All suggested branches must fork from the SAME base (the branch we're on
     // now) — not chain off each previous new branch. Pin the parent explicitly
     // and only switch to the first one.
@@ -2168,6 +2225,27 @@ function findNextInstanceTime(branchId, instanceIdx) {
     });
   });
 
+  // ─── preview Apply / Dismiss ───────────────────────────────────────────
+  {
+    const applyBtn = $('preview-apply');
+    const dismissBtn = $('preview-dismiss');
+    if (applyBtn) {
+      applyBtn.addEventListener('click', () => {
+        applyBtn.disabled = true;
+        if (dismissBtn) dismissBtn.disabled = true;
+        send({ type: 'applyArtifactsToWorkspace', branchId: state.activeBranchId });
+        hidePreviewBar();
+      });
+    }
+    if (dismissBtn) {
+      dismissBtn.addEventListener('click', () => {
+        applyBtn && (applyBtn.disabled = true);
+        dismissBtn.disabled = true;
+        send({ type: 'dismissArtifactsPreview', branchId: state.activeBranchId });
+      });
+    }
+  }
+
   // ─── action menu ──────────────────────────────────────────────────────
 
   document.querySelectorAll('.menu-item').forEach((item) => {
@@ -2180,6 +2258,9 @@ function findNextInstanceTime(branchId, instanceIdx) {
       else if (action === 'merge') openMergeModal();
       else if (action === 'apply') {
         send({ type: 'applyArtifactsToWorkspace', branchId: state.activeBranchId });
+      } else if (action === 'preview') {
+        send({ type: 'previewArtifactsInWorkspace', branchId: state.activeBranchId });
+        showStatus('Loading preview…', 'info');
       } else if (action === 'abandon') {
         if (confirm(`Abandon branch "${state.activeBranchName}"?`)) {
           send({ type: 'abandonBranch', branchId: state.activeBranchId });

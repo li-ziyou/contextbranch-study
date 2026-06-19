@@ -50,7 +50,21 @@ export function codingAgentSystem(opts: {
     '   <<<<<<< SEARCH / print("hello") / ======= / print("hello") / print("hi") / >>>>>>> REPLACE',
     '',
     'CRITICAL RULES:',
-    '  • For edits, ALWAYS use search/replace. NEVER reprint an entire existing file.',
+    '  • Use the markers EXACTLY: a line `<<<<<<< SEARCH`, then the search text, then',
+    '    a line that is only `=======`, then the replacement, then `>>>>>>> REPLACE`.',
+    '    Do NOT reuse `<<<<<<< SEARCH` as the divider, and the closer is `>>>>>>> REPLACE`',
+    '    (with `>`), never `<<<<<<< REPLACE`. One SEARCH, one `=======`, one REPLACE per block.',
+    '  • For edits, ALWAYS use search/replace. NEVER reprint an entire existing file —',
+    '    even for a big feature. Break large changes into SEVERAL small search/replace',
+    '    blocks (one per spot you touch). A whole-file rewrite of an existing file will',
+    '    be refused, and long outputs get truncated mid-stream.',
+    '  • The SEARCH block MUST identify exactly ONE place in the file. Never anchor on a',
+    '    short generic snippet (e.g. a lone "</div>", "});", "`;" or a closing brace) that',
+    '    repeats — include enough surrounding lines (a nearby unique line, or the enclosing',
+    '    function signature) so it matches a SINGLE location. An anchor that matches several',
+    '    places is REJECTED, not guessed.',
+    '  • Place inserted code in the RIGHT scope. To wire DOM/event code, anchor inside the',
+    '    function that runs after render (e.g. renderApp), NOT after a function\'s `return`.',
     '  • NEVER write placeholders like "// ... existing code ...", "/* rest unchanged */",',
     '    or "# ... existing ...". They will be rejected and the edit will fail.',
     '  • Copy SEARCH text verbatim from the file shown to you. If you are not sure of',
@@ -122,14 +136,16 @@ If you have nothing useful to say, output {"shouldSpeak": false}. Silence is pre
 // ─── Consolidation prompt (used at merge time, Laban-style CONCAT) ──────────
 
 export const CONSOLIDATION_SYSTEM = `
-You are the Consolidation Agent. You are given the conversation from a branch that is about to be merged. Produce a single concise summary that captures:
+You are the Consolidation Agent. You summarize what a branch merge ACTUALLY changes in the target — based on the FILE CHANGES (diffs) you are given, which are the ground truth of what is in the files.
 
-  1. Decisions made (with brief rationale)
-  2. Code/artifacts produced (filenames + one-line description)
-  3. Alternatives considered and rejected
-  4. Open questions (if any)
+CRITICAL: Summarize ONLY changes that appear in the provided diffs. The conversation is given for intent/naming context only — do NOT claim something was done just because it was discussed or proposed. If the user rejected or didn't apply a proposed edit, it will NOT be in the diffs, so it must NOT appear in your summary.
 
-Output as plain markdown, no preamble. Aim for 100-250 words. Be specific. Do NOT include greetings or filler.
+Produce a single concise summary capturing:
+  1. What changed in each file (filename + what the diff actually does)
+  2. The net effect / decisions reflected in the code
+  3. Anything notably proposed-but-absent only if it matters (optional, brief)
+
+Output plain markdown, no preamble, 80-200 words. Be specific to the diffs. No greetings or filler.
 `.trim();
 
 // ─── Rebase consistency check ───────────────────────────────────────────────
