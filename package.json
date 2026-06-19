@@ -119,7 +119,7 @@
         },
         "contextbranch.captureNewFiles": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "When a NEW file appears in the workspace (created outside the AI conversation), claim it as an artifact in the active branch. Off by default because new-file claiming is surprising — turn on if you want full git-checkout semantics."
         }
       }
