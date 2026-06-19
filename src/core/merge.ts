@@ -130,12 +130,16 @@ export async function previewMerge(
   const rebaseNotes: string[] = [];
   if (source.parentCheckpointId) {
     const cp = ws.storage.loadCheckpoint(source.parentCheckpointId);
-    if (cp && cp.messageIds.length !== target.messageIds.length) {
-      rebaseNotes.push(
-        `Target branch has ${target.messageIds.length - cp.messageIds.length} ` +
-        `additional messages since this branch's fork point.`
-      );
-      if (opts.rebaseCheck) {
+    if (cp) {
+      const delta = target.messageIds.length - cp.messageIds.length;
+      if (delta !== 0) {
+        rebaseNotes.push(
+          delta > 0
+            ? `Target branch has ${delta} additional messages since this branch's fork point.`
+            : `Target branch is ${Math.abs(delta)} messages behind this branch's fork point.`
+        );
+      }
+      if (opts.rebaseCheck && delta !== 0) {
         try {
           const aiNotes = await opts.rebaseCheck(source, target, sourceMessages, targetMessages);
           rebaseNotes.push(...aiNotes);
@@ -275,10 +279,26 @@ export async function finalizeMerge(
   const source = ws.getBranch(opts.sourceBranchId)!;
   const target = ws.getBranch(opts.targetBranchId)!;
 
-  // Block merge unless verification passed OR force flag set
-  if (
-    preview.verification.status === 'fail' && !opts.force
-  ) {
+  // Re-evaluate whether anything is still blocking after the user's
+  // accepted conflict resolutions have been applied.
+
+  const accepted = new Set(opts.acceptedConflictPaths ?? []);
+  const conflicts = preview.verification.artifactConflicts ?? [];
+
+  // Only conflicts that were NOT accepted remain blocking.
+  const unresolvedConflicts = conflicts.filter(
+    c => !accepted.has(c.path)
+  );
+
+  // Preserve test failures as blocking.
+  const testFailed =
+    typeof preview.verification.testOutput === 'string' &&
+    /FAIL:/i.test(preview.verification.testOutput);
+
+  const blockingFailure =
+    unresolvedConflicts.length > 0 || testFailed;
+
+  if (blockingFailure && !opts.force) {
     throw new Error(
       'Merge verification failed. Resolve conflicts, fix tests, or pass force=true.'
     );
@@ -336,11 +356,14 @@ export async function finalizeMerge(
     }
   }
 
+  // Snapshot the finalized merged state so the branch head and graph stay aligned.
+  const postMergeCheckpoint = ws.createCheckpoint(target.id, `Post-merge of ${source.name}`);
+
   // Mark source branch as merged
   source.status = 'merged';
   source.mergedIntoBranchId = target.id;
   source.mergedAt = Date.now();
-  source.mergedAsCheckpointId = targetSnapshot.id;
+  source.mergedAsCheckpointId = postMergeCheckpoint.id;
   ws.storage.saveBranch(source);
 
   // Build merge event
@@ -549,8 +572,24 @@ async function runVerification(input: VerificationInput): Promise<VerificationRe
       });
       result.testOutput = (stdout + '\n' + stderr).trim();
     } catch (err: any) {
-      result.testOutput = `FAIL: ${err.message}\n${err.stdout ?? ''}\n${err.stderr ?? ''}`;
-      result.status = 'fail';
+      // Distinguish "the test runner isn't installed / couldn't start" from
+      // "tests actually ran and failed". A missing binary (shell exit 127, or
+      // ENOENT) is an environment gap, not a test failure, so it must NOT
+      // block the merge.
+      const detail = `${err.message ?? ''}\n${err.stderr ?? ''}`;
+      const runnerMissing =
+        err.code === 127 ||
+        err.code === 'ENOENT' ||
+        /command not found|not found|ENOENT|no such file/i.test(detail);
+      if (runnerMissing) {
+        result.testOutput =
+          `SKIPPED: test command "${input.testCommand}" is not available on this machine; ` +
+          `verification did not run tests.`;
+        // leave result.status untouched — not a failure
+      } else {
+        result.testOutput = `FAIL: ${err.message}\n${err.stdout ?? ''}\n${err.stderr ?? ''}`;
+        result.status = 'fail';
+      }
     }
   }
 

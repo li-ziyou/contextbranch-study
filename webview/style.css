@@ -22,7 +22,21 @@ html, body {
   background: var(--vscode-sideBar-background);
   overflow: hidden;
 }
-
+.detail-checkpoint-item {
+      cursor: pointer;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 6px 8px;
+      border-radius: 4px;
+    }
+    .detail-checkpoint-item:hover {
+      background: var(--vscode-list-hoverBackground, rgba(255,255,255,0.07));
+    }
+    .detail-checkpoint-item:focus-visible {
+      outline: 1px solid var(--vscode-focusBorder, #4FC3F7);
+      outline-offset: -1px;
+    }
 #app {
   display: flex;
   flex-direction: column;
@@ -55,7 +69,7 @@ html, body {
   cursor: pointer;
   user-select: none;
   font-weight: 500;
-  max-width: calc(100% - 50px);
+  max-width: calc(100% - 80px);
   overflow: hidden;
   transition: background 0.1s;
 }
@@ -103,6 +117,11 @@ html, body {
 
 .icon-btn:hover {
   background: var(--vscode-toolbar-hoverBackground);
+}
+
+.icon-btn.active {
+  background: var(--vscode-toolbar-activeBackground, var(--vscode-list-activeSelectionBackground));
+  color: var(--vscode-list-activeSelectionForeground);
 }
 
 /* ─── banner ──────────────────────────────────────────── */
@@ -248,6 +267,24 @@ html, body {
   height: 1px;
   background: var(--vscode-panel-border);
   margin: 4px 0;
+}
+
+/* ─── workspace (chat + history side-by-side) ─────────── */
+
+.workspace {
+  display: flex;
+  flex-direction: row;
+  height: 100%;
+  min-height: 0;        /* lets children actually shrink/scroll */
+  overflow: hidden;
+}
+
+.chat-pane {
+  flex: 1 1 auto;
+  min-width: 0;         /* prevents the chat pane from refusing to shrink */
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 /* ─── conversation ────────────────────────────────────── */
@@ -507,6 +544,339 @@ button:disabled {
   cursor: not-allowed;
 }
 
+/* ─── history pane (collapsible right side) ───────────── */
+
+.history-pane {
+  flex: 0 0 auto;
+  width: 380px;         /* initial width; JS overrides this on drag */
+  min-width: 240px;
+  max-width: 80%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;        /* critical so the graph container can scroll */
+  overflow: hidden;
+}
+
+.history-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-sideBarSectionHeader-background);
+  flex-shrink: 0;
+}
+
+.pane-resizer {
+  flex: 0 0 6px;
+  cursor: col-resize;
+  background: var(--vscode-editorWidget-border, #444);
+  opacity: 0.4;
+  transition: opacity 0.15s;
+}
+.pane-resizer:hover,
+.pane-resizer.dragging {
+  opacity: 1;
+}
+
+.history-title {
+  font-size: 0.85em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--vscode-sideBarSectionHeader-foreground, var(--vscode-foreground));
+}
+
+.history-toolbar-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.history-graph-container {
+  flex: 1;
+  overflow-y: auto;        /* vertical scroll only */
+  overflow-x: hidden;      /* never horizontal */
+  background: var(--vscode-editor-background);
+  position: relative;
+}
+.history-graph-container svg {
+  max-width: 100%;         /* SVG never exceeds the panel width */
+  display: block;
+  margin: 0 auto;          /* center horizontally if narrower than panel */
+}
+
+/* Arrowheads inherit edge color via the graph-arrow class */
+.graph-arrow {
+  fill: var(--vscode-foreground);
+  opacity: 0.55;
+}
+
+/* Side labels next to checkpoints and merges */
+.graph-node-label {
+  font-family: var(--vscode-font-family);
+  font-size: 11px;
+  fill: var(--vscode-foreground);
+  pointer-events: none;
+  user-select: none;
+  dominant-baseline: middle;
+  opacity: 0.9;
+}
+
+/* Subtle hover effect on whole node group */
+.graph-node {
+  transition: opacity 0.1s;
+}
+.graph-node:hover {
+  opacity: 0.85;
+}
+
+#history-svg {
+  display: block;
+  /* width / height set dynamically by the renderer */
+}
+
+.history-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 20px;
+  pointer-events: none;
+}
+
+.history-empty p {
+  font-size: 0.88em;
+  line-height: 1.5;
+  margin: 2px 0;
+}
+
+/* ─── graph nodes and edges ───────────────────────────── */
+
+.graph-node {
+  cursor: pointer;
+}
+
+.graph-node rect,
+.graph-node circle,
+.graph-node polygon {
+  stroke: var(--vscode-foreground);
+  stroke-width: 1.2;
+  fill: var(--vscode-editor-background);
+  transition: fill 0.1s;
+}
+.checkpoint-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      margin-left: 8px;
+      font-size: 12px;
+      border: 1px solid var(--vscode-button-border, transparent);
+      border-radius: 4px;
+      background: var(--vscode-button-secondaryBackground, #3a3d41);
+      color: var(--vscode-button-secondaryForeground, #ccc);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.12s ease;
+    }
+    .checkpoint-btn:hover {
+      background: var(--vscode-button-secondaryHoverBackground, #45494e);
+    }
+    .checkpoint-btn:active { transform: translateY(0.5px); }
+    .checkpoint-btn:disabled { opacity: 0.5; cursor: default; }
+    .checkpoint-btn-icon { font-size: 13px; line-height: 1; }
+.graph-node:hover rect,
+.graph-node:hover circle,
+.graph-node:hover polygon {
+  fill: var(--vscode-list-hoverBackground);
+}
+
+.graph-node text {
+  font-family: var(--vscode-font-family);
+  font-size: 11px;
+  fill: var(--vscode-foreground);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Branch nodes — pill-shaped rect */
+.graph-node.branch rect {
+  fill: var(--vscode-button-background);
+  stroke: var(--vscode-button-background);
+}
+.graph-node.branch text {
+  fill: var(--vscode-button-foreground);
+  font-weight: 500;
+}
+.graph-node.branch.active rect {
+  stroke: var(--vscode-focusBorder);
+  stroke-width: 2;
+}
+
+/* Checkpoint nodes — small colored dot, varies by kind */
+.graph-node.checkpoint circle {
+  stroke-width: 1;
+}
+.graph-node.checkpoint.fork circle {
+  fill: var(--vscode-descriptionForeground);
+}
+.graph-node.checkpoint.manual circle {
+  fill: var(--vscode-charts-orange, #f5a623);
+  stroke: var(--vscode-charts-orange, #f5a623);
+}
+.graph-node.checkpoint.pre-merge circle {
+  fill: var(--vscode-descriptionForeground);
+  opacity: 0.65;
+}
+
+/* Merge nodes — diamond-ish polygon */
+.graph-node.merge polygon {
+  fill: var(--vscode-charts-blue, #4a90e2);
+  stroke: var(--vscode-charts-blue, #4a90e2);
+}
+.graph-node.merge text {
+  fill: var(--vscode-button-foreground);
+  font-weight: 500;
+}
+
+/* Edges */
+.graph-edge {
+  stroke: var(--vscode-foreground);
+  stroke-width: 1;
+  fill: none;
+  opacity: 0.5;
+}
+.graph-edge.fork {
+  stroke-dasharray: 4 3;
+  opacity: 0.6;
+}
+.graph-edge.merge {
+  stroke-dasharray: 2 3;
+  opacity: 0.6;
+}
+
+/* ─── history detail card ─────────────────────────────── */
+
+.history-detail {
+  position: absolute;
+  right: 10px;
+  top: 50px;
+  width: calc(100% - 20px);
+  max-width: 280px;
+  background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+  border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border));
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+  padding: 10px 12px;
+  z-index: 50;
+  font-size: 0.9em;
+}
+
+.history-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+/* Detail card — section headers */
+.detail-section-header {
+  margin-top: 12px;
+  margin-bottom: 6px;
+  font-size: 0.85em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--vscode-descriptionForeground);
+  border-bottom: 1px solid var(--vscode-panel-border);
+  padding-bottom: 4px;
+}
+
+.detail-empty {
+  font-size: 0.85em;
+  opacity: 0.7;
+  margin: 4px 0;
+}
+
+/* Checkpoint list */
+.detail-checkpoint-list {
+  list-style: none;
+  padding: 0;
+  margin: 4px 0 8px 0;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.detail-checkpoint-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+.detail-checkpoint-item:last-child { border-bottom: none; }
+
+.detail-checkpoint-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 5px;
+  background: var(--vscode-descriptionForeground);
+}
+.detail-checkpoint-dot.manual    { background: var(--vscode-charts-orange, #f5a623); }
+.detail-checkpoint-dot.fork      { background: var(--vscode-descriptionForeground); }
+.detail-checkpoint-dot.pre-merge { background: var(--vscode-descriptionForeground); opacity: 0.6; }
+
+.detail-checkpoint-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.detail-checkpoint-label {
+  font-size: 0.9em;
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.detail-checkpoint-meta {
+  font-size: 0.78em;
+  color: var(--vscode-descriptionForeground);
+  margin-top: 2px;
+}
+
+.detail-switch-btn {
+  margin-top: 10px;
+  width: 100%;
+}
+.history-detail-header strong {
+  font-size: 0.95em;
+}
+
+#history-detail-body h3 {
+  font-size: 1em;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+#history-detail-body p {
+  margin: 4px 0;
+  line-height: 1.4;
+}
+
+#history-detail-body .muted {
+  font-size: 0.82em;
+  margin: 2px 0 6px 0;
+}
+
+#history-detail-body button {
+  margin-top: 8px;
+  font-size: 0.9em;
+  padding: 4px 10px;
+}
+
 /* ─── modals ──────────────────────────────────────────── */
 
 .modal {
@@ -733,9 +1103,6 @@ button:disabled {
 }
 
 /* ─── cascading-edits panel ──────────────────────────── */
-/* The "semantic merge" UI. Each proposal is a checkbox the user accepts
-   or rejects, with an expandable diff. Designed to feel like a code-review
-   inline-suggestion: clear, actionable, and one click per item. */
 
 .info-block-header {
   display: flex;
@@ -904,7 +1271,6 @@ button:disabled {
   to { transform: rotate(360deg); }
 }
 
-
 /* ─── checkpoint UI ──────────────────────────────────── */
 
 .checkpoint-controls {
@@ -957,6 +1323,135 @@ button:disabled {
   color: var(--vscode-descriptionForeground);
   line-height: 1.4;
 }
+
+/* ─── graph controls overlay (bottom-left of history pane) ── */
+
+#history-graph-container {
+  position: relative;
+}
+
+.graph-controls {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 20;
+  background: var(--vscode-editorWidget-background, rgba(30,30,30,0.88));
+  border: 1px solid var(--vscode-editorWidget-border, #454545);
+  border-radius: 8px;
+  padding: 6px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  user-select: none;
+}
+
+.graph-controls-zoom,
+.graph-controls-pan {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.graph-controls-zoom {
+  border-bottom: 1px solid var(--vscode-editorWidget-border, #454545);
+  padding-bottom: 4px;
+  margin-bottom: 2px;
+}
+
+.graph-controls-pan-mid {
+  display: flex;
+  gap: 2px;
+}
+
+.gc-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: 4px;
+  background: var(--vscode-button-secondaryBackground, #3a3a3a);
+  color: var(--vscode-button-secondaryForeground, #ccc);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.1s;
+}
+
+.gc-btn:hover {
+  background: var(--vscode-button-secondaryHoverBackground, #4a4a4a);
+  color: var(--vscode-foreground);
+}
+
+.gc-btn-wide {
+  width: 56px;
+}
+
+.gc-btn-reset {
+  font-size: 12px;
+}
+
+/* ─── graph legend overlay (bottom-right of history pane) ─── */
+
+.graph-legend {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  z-index: 20;
+  background: var(--vscode-editorWidget-background, rgba(30,30,30,0.88));
+  border: 1px solid var(--vscode-editorWidget-border, #454545);
+  border-radius: 8px;
+  padding: 8px 10px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  font-size: 0.78em;
+  color: var(--vscode-descriptionForeground);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  pointer-events: none;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.legend-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.legend-line-orange {
+  display: inline-block;
+  width: 22px;
+  height: 2px;
+  flex-shrink: 0;
+  background: #e67e22;
+  position: relative;
+}
+
+.legend-line-orange::after {
+  content: '';
+  position: absolute;
+  right: -1px;
+  top: -3px;
+  width: 0;
+  height: 0;
+  border-left: 6px solid #e67e22;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+}
+
+/* ─── checkpoint badge ──────────────────────────────────── */
 
 .checkpoint-badge {
   display: inline-block;

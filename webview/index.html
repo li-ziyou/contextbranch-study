@@ -5,22 +5,85 @@
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; script-src 'nonce-{{nonce}}'; img-src {{cspSource}} https: data:; font-src {{cspSource}};" />
   <link rel="stylesheet" href="{{cssUri}}" />
+    <style>
+    html, body { height: 100% !important; margin: 0 !important; }
+    #app { height: 100% !important; display: flex !important; flex-direction: column !important; }
+
+    #workspace {
+      display: flex !important;
+      flex-direction: row !important;
+      flex: 1 1 auto !important;
+      min-height: 0 !important;
+      overflow: hidden !important;
+    }
+
+    #chat-pane {
+      flex: 1 1 auto !important;
+      min-width: 0 !important;
+      min-height: 0 !important;
+      display: flex !important;
+      flex-direction: column !important;
+    }
+
+    #conversation {
+      flex: 1 1 auto !important;
+      min-height: 0 !important;
+      overflow-y: auto !important;
+    }
+
+    #pane-resizer {
+      flex: 0 0 8px !important;
+      cursor: col-resize !important;
+      background: var(--vscode-editorWidget-border, #454545) !important;
+      opacity: 0.6 !important;
+      align-self: stretch !important;
+    }
+    #pane-resizer:hover,
+    #pane-resizer.dragging { opacity: 1 !important; background: #4FC3F7 !important; }
+    #pane-resizer[hidden] { display: none !important; }
+
+    #history-pane {
+      flex: 0 0 auto !important;
+      width: 400px !important;
+      min-width: 220px !important;
+      max-width: 85% !important;
+      min-height: 0 !important;
+      display: flex !important;
+      flex-direction: column !important;
+      overflow: hidden !important;
+    }
+    #history-pane[hidden] { display: none !important; }  /* ← THE FIX */
+
+    #history-graph-container {
+      flex: 1 1 auto !important;
+      min-height: 0 !important;
+      overflow: auto !important;
+      position: relative !important;
+    }
+
+    #history-svg { display: block; }
+  </style>
   <title>ContextBranch</title>
 </head>
 <body>
   <div id="app">
 
     <!-- ─── Top bar ─────────────────────────────────────── -->
-    <header class="topbar">
-      <div class="branch-pill" id="branch-pill" title="Click to switch branch">
-        <span class="branch-icon">⎇</span>
-        <span class="branch-name" id="active-branch-name">main</span>
-        <span class="branch-caret">▾</span>
-      </div>
-      <div class="topbar-actions">
-        <button class="icon-btn" id="btn-menu" title="Branch actions">⋯</button>
-      </div>
-    </header>
+  <header class="topbar">
+    <div class="branch-pill" id="branch-pill" title="Click to switch branch">
+      <span class="branch-icon">⎇</span>
+      <span class="branch-name" id="active-branch-name">main</span>
+      <span class="branch-caret">▾</span>
+    </div>
+    <button class="checkpoint-btn" id="btn-checkpoint" title="Save a checkpoint of the current branch">
+      <span class="checkpoint-btn-icon">⎘</span>
+      <span class="checkpoint-btn-label">Checkpoint</span>
+    </button>
+    <div class="topbar-actions">
+      <button class="icon-btn" id="btn-toggle-history" title="Show history graph">⎇</button>
+      <button class="icon-btn" id="btn-menu" title="Branch actions">⋯</button>
+    </div>
+  </header>
 
     <!-- ─── Banner ─────────────────────────────────────── -->
     <div class="banner" id="banner" hidden></div>
@@ -54,44 +117,123 @@
       <button class="menu-item" data-action="apply" id="menu-apply">
         <span class="menu-icon">📝</span> Apply artifacts to workspace
       </button>
+      <button class="menu-item" data-action="saveCheckpoint">
+        <span class="menu-icon">📌</span> Save checkpoint here
+      </button>
       <div class="menu-divider"></div>
       <button class="menu-item danger" data-action="abandon" id="menu-abandon">
         <span class="menu-icon">✕</span> Abandon branch
       </button>
     </div>
 
-    <!-- ─── Conversation pane ──────────────────────────── -->
-    <main class="conversation" id="conversation">
+    <!-- ─── Workspace: chat pane + collapsible history pane ───── -->
+    <div class="workspace" id="workspace">
 
-      <div class="empty-state" id="empty-state">
-        <div class="empty-icon">💬</div>
-        <h2>Start a conversation</h2>
-        <p>Type a message below. The AI's reply will appear here.</p>
-        <p class="empty-hint">Use the <strong>⋯</strong> menu to branch, decompose tasks, or merge.</p>
-      </div>
+      <!-- Left side: existing chat (conversation + composer) -->
+      <div class="chat-pane" id="chat-pane">
 
-      <div class="messages" id="messages"></div>
+        <main class="conversation" id="conversation">
 
-      <div class="streaming-bubble" id="streaming" hidden>
-        <div class="role-label">assistant</div>
-        <div class="streaming-text" id="streaming-text"></div>
-        <div class="streaming-indicator">⋯ generating</div>
-      </div>
+          <div class="empty-state" id="empty-state">
+            <div class="empty-icon">💬</div>
+            <h2>Start a conversation</h2>
+            <p>Type a message below. The AI's reply will appear here.</p>
+            <p class="empty-hint">Use the <strong>⋯</strong> menu to branch, decompose tasks, or merge.</p>
+          </div>
 
-    </main>
+          <div class="messages" id="messages"></div>
 
-    <!-- ─── Composer ───────────────────────────────────── -->
-    <div class="composer">
-      <textarea id="composer-input"
-                placeholder="Message..."
-                rows="3"></textarea>
-      <div class="composer-row">
-        <div class="composer-status" id="composer-status"></div>
-        <div class="composer-buttons">
-          <button class="btn-stop" id="btn-stop" hidden>Stop</button>
-          <button class="btn-send" id="btn-send">Send</button>
+          <div class="streaming-bubble" id="streaming" hidden>
+            <div class="role-label">assistant</div>
+            <div class="streaming-text" id="streaming-text"></div>
+            <div class="streaming-indicator">⋯ generating</div>
+          </div>
+
+        </main>
+
+        <!-- Composer -->
+        <div class="composer">
+          <textarea id="composer-input"
+                    placeholder="Message..."
+                    rows="3"></textarea>
+          <div class="composer-row">
+            <div class="composer-status" id="composer-status"></div>
+            <div class="composer-buttons">
+              <button class="btn-stop" id="btn-stop" hidden>Stop</button>
+              <button class="btn-send" id="btn-send">Send</button>
+            </div>
+          </div>
         </div>
+
       </div>
+
+      <!-- Drag handle to resize the history pane -->
+      <div class="pane-resizer" id="pane-resizer" hidden></div>
+
+      <!-- Right side: collapsible history graph panel -->
+      <aside class="history-pane" id="history-pane" hidden>
+        <div class="history-toolbar">
+          <span class="history-title">Development history</span>
+          <div class="history-toolbar-actions">
+            <button class="icon-btn" id="btn-history-refresh" title="Refresh">↻</button>
+            <button class="icon-btn" id="btn-history-close" title="Close panel">×</button>
+          </div>
+        </div>
+
+        <div class="history-graph-container" id="history-graph-container">
+          <svg id="history-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+          <div class="history-empty" id="history-empty" hidden>
+            <p class="muted">No history yet.</p>
+            <p class="muted">Create a branch or save a checkpoint to see it here.</p>
+          </div>
+
+          <!-- Navigation controls (bottom-left) -->
+          <div class="graph-controls" id="graph-controls">
+            <div class="graph-controls-zoom">
+              <button class="gc-btn" id="gc-zoom-in"  title="Zoom in">+</button>
+              <button class="gc-btn gc-btn-reset" id="gc-reset" title="Reset view">⊙</button>
+              <button class="gc-btn" id="gc-zoom-out" title="Zoom out">−</button>
+            </div>
+            <div class="graph-controls-pan">
+              <button class="gc-btn gc-btn-wide" id="gc-pan-up"    title="Pan up">↑</button>
+              <div class="graph-controls-pan-mid">
+                <button class="gc-btn" id="gc-pan-left"  title="Pan left">←</button>
+                <button class="gc-btn" id="gc-pan-right" title="Pan right">→</button>
+              </div>
+              <button class="gc-btn gc-btn-wide" id="gc-pan-down"  title="Pan down">↓</button>
+            </div>
+          </div>
+
+          <!-- Legend (bottom-right) -->
+          <div class="graph-legend" id="graph-legend">
+            <div class="legend-item">
+              <span class="legend-dot" style="background:#4FC3F7;"></span>
+              <span>Current branch</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-dot" style="background:#2d2d30; border:1px solid #888;"></span>
+              <span>Other branch</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-dot" style="background:#e67e22;"></span>
+              <span>Merge event</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-line-orange"></span>
+              <span>Merge direction</span>
+            </div>
+          </div>
+        </div>
+
+        <aside class="history-detail" id="history-detail" hidden>
+          <div class="history-detail-header">
+            <strong id="history-detail-title">Details</strong>
+            <button class="icon-btn close-btn" id="history-detail-close">×</button>
+          </div>
+          <div id="history-detail-body"></div>
+        </aside>
+      </aside>
+
     </div>
 
     <!-- ─── Modals ─────────────────────────────────────── -->

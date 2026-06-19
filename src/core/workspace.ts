@@ -7,7 +7,8 @@
 
 import { Storage } from './storage';
 import {
-  Branch, Message, Artifact, Checkpoint, WorkspaceState, BranchStatus
+  Branch, Message, Artifact, Checkpoint, WorkspaceState, BranchStatus,
+  MergeEvent
 } from './types';
 
 export class Workspace {
@@ -442,5 +443,45 @@ export class Workspace {
   abandonBranch(branchId: string): void {
     if (branchId === this.mainBranchId) throw new Error('Cannot abandon main');
     this.setBranchStatus(branchId, 'abandoned');
+  }
+
+  getCheckpointsForBranch(branchId: string): Checkpoint[] {
+    return this.getAllCheckpoints()
+      .filter(cp => cp.branchId === branchId)
+      .sort((a, b) => a.createdAt - b.createdAt);
+  }
+  getHistoryGraph(): {
+    branches: Branch[];
+    checkpoints: Checkpoint[];
+    checkpointsByBranch: Record<string, Checkpoint[]>;
+    mergeEvents: MergeEvent[];
+  } {
+    const branches = this.getAllBranches()
+      .slice()
+      .sort((a, b) => a.createdAt - b.createdAt);
+
+    // Load every checkpoint (fork, pre-merge, manual — all of them).
+    const checkpoints = this.getAllCheckpoints()
+      .slice()
+      .sort((a, b) => a.createdAt - b.createdAt);
+
+    // Bucket checkpoints by branch — saves the renderer from doing
+    // its own grouping pass. Each bucket is already chronologically sorted
+    // because we sorted the full list first.
+    const checkpointsByBranch: Record<string, Checkpoint[]> = {};
+    for (const b of branches) checkpointsByBranch[b.id] = [];
+    for (const cp of checkpoints) {
+      if (!checkpointsByBranch[cp.branchId]) {
+        // Branch might have been abandoned and removed from the active list
+        // but its checkpoints can still live on disk. Skip them or include
+        // them under a sentinel key — depends on what you want to render.
+        continue;
+      }
+      checkpointsByBranch[cp.branchId].push(cp);
+    }
+
+    const mergeEvents = this.storage.loadAllMergeEvents();
+
+    return { branches, checkpoints, checkpointsByBranch, mergeEvents };
   }
 }

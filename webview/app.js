@@ -31,10 +31,18 @@
     decompositionResult: null,
     pendingMergePreview: null,
     pendingMerge: null,
+    historyOpen: false,
+    historyGraph: null,
+    selectedHistoryNodeId: null,
     checkpoints: [],
     activeCheckpointId: null,
   };
 
+  window.__cb = {
+  get state() { return state; },
+  get send()  { return send; },
+  $: $,
+  };
   // ─── messaging ────────────────────────────────────────────────────────
 
   function send(msg) {
@@ -86,6 +94,9 @@
   function handleState(s) {
     state = Object.assign({}, state, s);
     render();
+    if (state.historyOpen && state.historyGraph) {
+      renderHistoryView();
+    }
   }
 
   function handleStreamStart() {
@@ -270,6 +281,797 @@
       ? 'Message...'
       : 'Set an API key first (Cmd/Ctrl+Shift+P → ContextBranch: Set API Key)';
   }
+  function renderHistoryView() {
+    console.log('[history] renderHistoryView called');
+    const hg = state.historyGraph;
+    console.log('[history] historyGraph is:', hg);
+
+    const svg = $('history-svg');
+    const empty = $('history-empty');
+
+    if (!hg) {
+      console.log('[history] bailing: historyGraph is null/undefined');
+      svg.innerHTML = '';
+      empty.hidden = false;
+      return;
+    }
+
+    console.log('[history] branches:', hg.branches?.length,
+                'checkpoints:', hg.checkpoints?.length,
+                'mergeEvents:', hg.mergeEvents?.length);
+
+    if (hg.branches.length <= 1 && hg.checkpoints.length === 0 && hg.mergeEvents.length === 0) {
+      console.log('[history] bailing: empty state condition met');
+      svg.innerHTML = '';
+      empty.hidden = false;
+      return;
+    }
+
+    empty.hidden = true;
+    console.log('[history] about to build model');
+    const model = buildGraphModel(hg);
+    console.log('[history] model:', model.nodes.length, 'nodes,', model.edges.length, 'edges');
+
+    const laidOut = layoutGraph(model);
+    console.log('[history] laid out, width:', laidOut.width, 'height:', laidOut.height);
+
+    renderGraph(laidOut);
+    console.log('[history] renderGraph done. SVG now has', svg.children.length, 'children');
+  }
+
+  function buildGraphModel(hg) {
+  const nodes = [];
+  const edges = [];
+  const branchMap = new Map(hg.branches.map(b => [b.id, b]));
+
+  const mergeEvents = (hg.mergeEvents || [])
+    .slice()
+    .sort((a, b) =>
+      (a.completedAt || a.startedAt || 0) - (b.completedAt || b.startedAt || 0)
+    );
+
+  // 1. Branch nodes
+  for (const b of hg.branches) {
+    nodes.push({
+      id: 'br:' + b.id,
+      kind: 'branch',
+      label: b.name,
+      branch: b,
+      createdAt: b.createdAt,
+    });
+  }
+
+  // 2. Merge nodes — each merge becomes a real node in the tree, parented
+  //    to the TARGET branch (or to the target's latest merge node, so chains
+  //    of merges into the same target stack correctly).
+  const latestMergeIntoTarget = new Map(); // targetBranchId -> merge node id
+
+  for (const m of mergeEvents) {
+    const mergeNodeId = 'mg:' + m.id;
+    const when = m.completedAt || m.startedAt || 0;
+
+    // Resolve source and target branch names for a more informative label
+    const sourceBranch = branchMap.get(m.sourceBranchId);
+    const targetBranch = branchMap.get(m.targetBranchId);
+    const sourceName = sourceBranch ? sourceBranch.name : m.sourceBranchId;
+    const targetName = targetBranch ? targetBranch.name : m.targetBranchId;
+
+    nodes.push({
+      id: mergeNodeId,
+      kind: 'merge',
+      // label: `${sourceName} → ${targetName}`,        
+      label: `${targetName}`,
+      mergeEvent: m,
+      sourceBranchId: m.sourceBranchId,
+      sourceBranchName: sourceName,
+      targetBranchId: m.targetBranchId,
+      targetBranchName: targetName,
+      createdAt: when,
+    });
+
+    // Tree parent of a merge node is the current "tip" of the target branch:
+    // either the previous merge into that target, or the target branch node.
+    const targetTip = latestMergeIntoTarget.get(m.targetBranchId)
+      || ('br:' + m.targetBranchId);
+    edges.push({ from: targetTip, to: mergeNodeId, kind: 'mainline' });
+
+    // The source branch feeds into the merge — drawn distinctly, NOT a tree edge.
+    edges.push({
+      from: 'br:' + m.sourceBranchId,
+      to: mergeNodeId,
+      kind: 'merge',
+      sourceName: branchMap.get(m.sourceBranchId)?.name || m.sourceBranchId,
+      targetName: branchMap.get(m.targetBranchId)?.name || m.targetBranchId,
+    });
+
+    latestMergeIntoTarget.set(m.targetBranchId, mergeNodeId);
+  }
+
+  // 3. Fork edges — but re-parent onto a merge node if the branch forked
+  //    AFTER a merge into its parent. This is the key change: a branch
+  //    created from a post-merge state hangs off the merge node.
+
+  for (const b of hg.branches) {
+    if (!b.parentBranchId) continue;
+    const forkTime = b.createdAt;
+
+    // Find the latest merge into this branch's parent that happened
+    // before the fork. If one exists, parent the fork to that merge node.
+    let parentNodeId = 'br:' + b.parentBranchId;
+    let bestMergeTime = -Infinity;
+
+    for (const m of mergeEvents) {
+      if (m.targetBranchId !== b.parentBranchId) continue;
+      const when = m.completedAt || m.startedAt || 0;
+      if (when <= forkTime && when > bestMergeTime) {
+        bestMergeTime = when;
+        parentNodeId = 'mg:' + m.id;
+      }
+    }
+
+    edges.push({ from: parentNodeId, to: 'br:' + b.id, kind: 'fork' });
+  }
+
+  return { nodes, edges, branchMap, mergeEvents };
+}
+function computeDepths(model) {
+  const depth = new Map();
+
+  function getDepth(branchId) {
+    if (depth.has(branchId)) return depth.get(branchId);
+
+    const b = model.branchMap.get(branchId);
+    if (!b || !b.parentBranchId) {
+      depth.set(branchId, 0);
+      return 0;
+    }
+
+    const d = 1 + getDepth(b.parentBranchId);
+    depth.set(branchId, d);
+    return d;
+  }
+
+  for (const b of model.branchMap.values()) {
+    getDepth(b.id);
+  }
+
+  return depth;
+}
+function layoutGraph(model) {
+  const NODE_SPACING_X = 120;
+  const ROW_H = 100;
+  const PAD_X = 60;
+  const PAD_Y = 60;
+
+  // Build adjacency from the edges that define the TREE (fork + mainline).
+  // Merge-source edges are overlays and must not influence the layout tree.
+  const nodeById = new Map(model.nodes.map(n => [n.id, n]));
+  const childrenOf = new Map(model.nodes.map(n => [n.id, []]));
+  const hasParent = new Set();
+
+  for (const e of model.edges) {
+    if (e.kind === 'merge') continue; // overlay only
+    if (!nodeById.has(e.from) || !nodeById.has(e.to)) continue;
+    childrenOf.get(e.from).push(e.to);
+    hasParent.add(e.to);
+  }
+
+  const roots = model.nodes.filter(n => !hasParent.has(n.id)).map(n => n.id);
+
+  // Stable ordering by creation time, then id.
+  const orderKey = (id) => {
+    const n = nodeById.get(id);
+    return [n.createdAt || 0, id];
+  };
+  const cmp = (a, b) => {
+    const [ta, ia] = orderKey(a), [tb, ib] = orderKey(b);
+    return ta - tb || String(ia).localeCompare(String(ib));
+  };
+  roots.sort(cmp);
+  childrenOf.forEach(ch => ch.sort(cmp));
+
+  // Subtree logical widths (bottom-up).
+  const logicalWidth = new Map();
+  function calcWidth(id) {
+    const kids = childrenOf.get(id);
+    if (kids.length === 0) { logicalWidth.set(id, 1); return 1; }
+    let w = 0;
+    for (const c of kids) w += calcWidth(c);
+    logicalWidth.set(id, w);
+    return w;
+  }
+  let totalWidth = 0;
+  for (const r of roots) totalWidth += calcWidth(r);
+
+  // Position centered (top-down).
+  const positioned = [];
+  let maxDepth = 0;
+  function place(id, depth, startX) {
+    if (depth > maxDepth) maxDepth = depth;
+    const myW = logicalWidth.get(id) * NODE_SPACING_X;
+    const cx = startX + myW / 2;
+    const cy = depth * ROW_H;
+    positioned.push(Object.assign({}, nodeById.get(id), {
+      x: PAD_X + cx,
+      y: PAD_Y + cy,
+    }));
+    let childX = startX;
+    for (const c of childrenOf.get(id)) {
+      place(c, depth + 1, childX);
+      childX += logicalWidth.get(c) * NODE_SPACING_X;
+    }
+  }
+  let rootX = 0;
+  for (const r of roots) {
+    place(r, 0, rootX);
+    rootX += logicalWidth.get(r) * NODE_SPACING_X;
+  }
+
+  // Edges.
+  const posById = new Map(positioned.map(n => [n.id, n]));
+  const positionedEdges = [];
+  for (const e of model.edges) {
+    const from = posById.get(e.from);
+    const to = posById.get(e.to);
+    if (!from || !to) continue;
+
+    const edgeObj = {
+      kind: e.kind,
+      type: e.kind === 'merge' ? 'merge' : 'parent',
+      pathData: buildStraightEdge(from, to),
+    };
+
+    if (e.kind === 'merge') {
+      // Carry names + midpoint through to the renderer for labeling.
+      edgeObj.label = 'merged from ' + e.sourceName;
+      edgeObj.midX = (from.x + to.x) / 2;
+      edgeObj.midY = (from.y + to.y) / 2;
+    }
+
+    positionedEdges.push(edgeObj);
+  }
+
+  return {
+    nodes: positioned,
+    edges: positionedEdges,
+    width: PAD_X * 2 + totalWidth * NODE_SPACING_X,
+    height: PAD_Y * 2 + maxDepth * ROW_H,
+  };
+}
+// ------------------------------------------------------------
+// Bulletproof Edge Routing
+// ------------------------------------------------------------
+function buildGitLaneEdge(from, to, ROW_H) {
+  const NODE_RADIUS = 16;
+  const ARROW_CLEARANCE = 6;
+  
+  const startX = from.x;
+  const startY = from.y + NODE_RADIUS;
+  
+  const endX = to.x;
+  const endY = to.y - NODE_RADIUS - ARROW_CLEARANCE;
+
+  // Straight down (fallback if they ever share a lane)
+  if (startX === endX) {
+    return `M ${startX} ${startY} L ${endX} ${endY}`;
+  }
+
+  // SWOOP ROUTING
+  const controlDrop = 25; 
+  // Drop out of the parent node, curve into the target lane, and drop straight down.
+  const laneEntryY = from.y + (ROW_H * 0.6); 
+
+  return `M ${startX} ${startY} 
+          C ${startX} ${startY + controlDrop}, 
+            ${endX} ${laneEntryY - controlDrop}, 
+            ${endX} ${laneEntryY}
+          L ${endX} ${endY}`;
+}
+function buildStraightEdge(from, to) {
+  const NODE_RADIUS = 16;
+  const ARROW_CLEARANCE = 6; 
+  
+  // Calculate the distance and angle between the two nodes
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const angle = Math.atan2(dy, dx);
+  
+  // Start the line exactly at the bottom edge of the parent circle
+  const startX = from.x + Math.cos(angle) * NODE_RADIUS;
+  const startY = from.y + Math.sin(angle) * NODE_RADIUS;
+  
+  // Stop the line just above the child circle (leaving room for the arrow)
+  const endX = to.x - Math.cos(angle) * (NODE_RADIUS + ARROW_CLEARANCE);
+  const endY = to.y - Math.sin(angle) * (NODE_RADIUS + ARROW_CLEARANCE);
+  
+  // Draw a standard SVG straight line (L)
+  return `M ${startX} ${startY} L ${endX} ${endY}`;
+}
+function renderGraph(g) {
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const svg = $('history-svg');
+
+  svg.innerHTML = '';
+
+  // --------------------------------------------------
+  // SVG sizing
+  // --------------------------------------------------
+
+  svg.setAttribute('width', g.width);
+  svg.setAttribute('height', g.height);
+  svg.setAttribute('viewBox', `0 0 ${g.width} ${g.height}`);
+
+  // --------------------------------------------------
+  // Camera group (FIXES YOUR ERROR)
+  // --------------------------------------------------
+
+  const camera = document.createElementNS(SVG_NS, 'g');
+  camera.setAttribute('class', 'graph-camera');
+  svg.appendChild(camera);
+
+  // --------------------------------------------------
+  // Zoom + pan state
+  // --------------------------------------------------
+
+  let scale = 1;
+  let panX = 0;
+  let panY = 0;
+
+  function updateCamera() {
+    camera.setAttribute(
+      'transform',
+      `translate(${panX}, ${panY}) scale(${scale})`
+    );
+  }
+
+  updateCamera();
+
+  // --------------------------------------------------
+  // Mouse wheel zoom
+  // --------------------------------------------------
+
+  svg.onwheel = (e) => {
+    e.preventDefault();
+
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+
+    scale *= delta;
+
+    scale = Math.max(0.3, Math.min(scale, 4));
+
+    updateCamera();
+  };
+
+  // --------------------------------------------------
+  // Drag panning
+  // --------------------------------------------------
+
+  let dragging = false;
+  let lastX = 0;
+  let lastY = 0;
+
+  svg.onmousedown = (e) => {
+    dragging = true;
+    lastX = e.clientX;
+    lastY = e.clientY;
+  };
+
+  window.onmouseup = () => {
+    dragging = false;
+  };
+
+  window.onmousemove = (e) => {
+    if (!dragging) return;
+
+    const dx = e.clientX - lastX;
+    const dy = e.clientY - lastY;
+
+    lastX = e.clientX;
+    lastY = e.clientY;
+
+    panX += dx;
+    panY += dy;
+
+    updateCamera();
+  };
+
+  // --------------------------------------------------
+  // Corner navigation controls
+  // --------------------------------------------------
+
+  const PAN_STEP = 80;
+  const ZOOM_F   = 1.3;
+
+  function bindGC(id, fn) {
+    const el = document.getElementById(id);
+    if (el) { el.onclick = (e) => { e.stopPropagation(); fn(); }; }
+  }
+
+  bindGC('gc-zoom-in',   () => { scale = Math.min(scale * ZOOM_F, 4);   updateCamera(); });
+  bindGC('gc-zoom-out',  () => { scale = Math.max(scale / ZOOM_F, 0.2); updateCamera(); });
+  bindGC('gc-reset',     () => { scale = 1; panX = 0; panY = 0;         updateCamera(); });
+  bindGC('gc-pan-up',    () => { panY += PAN_STEP; updateCamera(); });
+  bindGC('gc-pan-down',  () => { panY -= PAN_STEP; updateCamera(); });
+  bindGC('gc-pan-left',  () => { panX += PAN_STEP; updateCamera(); });
+  bindGC('gc-pan-right', () => { panX -= PAN_STEP; updateCamera(); });
+
+  // --------------------------------------------------
+  // Arrow defs
+  // --------------------------------------------------
+
+  const defs = document.createElementNS(SVG_NS, 'defs');
+
+  const marker = document.createElementNS(SVG_NS, 'marker');
+
+  marker.setAttribute('id', 'arrow');
+  marker.setAttribute('viewBox', '0 0 10 10');
+  marker.setAttribute('refX', '8');
+  marker.setAttribute('refY', '5');
+  marker.setAttribute('markerWidth', '6');
+  marker.setAttribute('markerHeight', '6');
+  marker.setAttribute('orient', 'auto');
+
+  const arrowPath = document.createElementNS(SVG_NS, 'path');
+
+  arrowPath.setAttribute(
+    'd',
+    'M 0 0 L 10 5 L 0 10 z'
+  );
+
+  arrowPath.setAttribute(
+    'fill',
+    'var(--vscode-descriptionForeground)'
+  );
+
+  marker.appendChild(arrowPath);
+
+  defs.appendChild(marker);
+
+  svg.appendChild(defs);
+
+  // --------------------------------------------------
+  // Draw edges FIRST
+  // --------------------------------------------------
+
+for (const e of g.edges) {
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('d', e.pathData);
+  path.setAttribute('fill', 'none');
+  if (e.type === 'merge') {
+    path.setAttribute('stroke', '#e67e22');
+    path.setAttribute('stroke-dasharray', '5,5');
+  } else {
+    path.setAttribute('stroke', 'var(--vscode-descriptionForeground, #666)');
+  }
+  path.setAttribute('stroke-width', '2');
+  path.setAttribute('marker-end', 'url(#arrow)');
+  camera.appendChild(path);
+
+  // Label merge edges at their midpoint.
+  if (e.type === 'merge' && e.label) {
+    const label = document.createElementNS(SVG_NS, 'text');
+    label.setAttribute('x', e.midX);
+    label.setAttribute('y', e.midY - 4);          // nudge above the line
+    label.setAttribute('fill', '#e67e22');
+    label.setAttribute('font-size', '11');
+    label.setAttribute('text-anchor', 'middle');
+    label.setAttribute('paint-order', 'stroke');  // halo so text stays readable over lines
+    label.setAttribute('stroke', 'var(--vscode-editor-background, #1e1e1e)');
+    label.setAttribute('stroke-width', '3');
+    label.textContent = e.label;
+    camera.appendChild(label);
+  }
+}
+
+  // --------------------------------------------------
+  // Draw nodes SECOND
+  // --------------------------------------------------
+
+   for (const n of g.nodes) {
+    const group = document.createElementNS(SVG_NS, 'g');
+    group.style.cursor = 'pointer';
+
+    const isMerge = n.kind === 'merge';
+    const circle = document.createElementNS(SVG_NS, 'circle');
+    circle.setAttribute('cx', n.x);
+    circle.setAttribute('cy', n.y);
+    circle.setAttribute('r', isMerge ? 11 : 16);
+    circle.setAttribute(
+      'fill',
+      isMerge ? '#e67e22'
+        : (n.branch.id === state.activeBranchId ? '#4FC3F7' : '#2d2d30')
+    );
+    circle.setAttribute('stroke', '#888');
+    circle.setAttribute('stroke-width', '2');
+    group.appendChild(circle);
+
+    const text = document.createElementNS(SVG_NS, 'text');
+    text.setAttribute('x', n.x + 28);
+    text.setAttribute('y', n.y + 5);
+    text.setAttribute('fill', 'var(--vscode-editor-foreground)');
+    text.setAttribute('font-size', '13');
+    text.textContent = n.label;
+    group.appendChild(text);
+
+    const title = document.createElementNS(SVG_NS, 'title');
+    title.textContent = isMerge ? tooltipFor(n)
+      : `${n.branch.name}\nStatus: ${n.branch.status}\nMessages: ${n.branch.messageCount ?? 0}`;
+    group.appendChild(title);
+
+    group.addEventListener('click', (e) => {
+      e.stopPropagation();
+      onHistoryNodeClick(n);
+    });
+
+    camera.appendChild(group);
+  }
+}
+
+function truncate(s, max) {
+  if (!s) return '';
+  return s.length > max ? s.slice(0, max - 1) + '…' : s;
+}
+
+
+/**
+ * Move the endpoint of an edge back toward the start by `r` pixels.
+ * Used so the arrowhead sits just outside the target node instead of
+ * being half-buried under it.
+ */
+function shortenEnd(from, to, r) {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const len = Math.hypot(dx, dy);
+  if (len <= r) return { x: to.x, y: to.y };
+  return {
+    x: to.x - (dx / len) * r,
+    y: to.y - (dy / len) * r,
+  };
+}
+
+function tooltipFor(n) {
+  if (n.kind === 'branch') {
+    const b = n.branch;
+    return `Branch: ${b.name}\nStatus: ${b.status}\n${b.messageCount ?? b.messageIds?.length ?? 0} messages`;
+  }
+  if (n.kind === 'checkpoint') {
+    const cp = n.checkpoint;
+    const when = new Date(cp.createdAt || 0).toLocaleString();
+    return `Checkpoint (${cp.kind || 'manual'})\n${cp.label || '(no label)'}\n${when}`;
+  }
+  if (n.kind === 'merge') {
+    const ev = n.mergeEvent;
+    const when = new Date(ev.timestamp || ev.createdAt || 0).toLocaleString();
+    return `Merge\nStatus: ${ev.verification?.status || 'unknown'}\n${when}`;
+  }
+  return '';
+}
+
+  function onHistoryNodeClick(node) {
+  state.selectedHistoryNodeId = node.id;
+  const detail = $('history-detail');
+  const title = $('history-detail-title');
+  const body = $('history-detail-body');
+  detail.hidden = false;
+  body.innerHTML = '';
+
+  if (node.kind === 'branch') {
+    renderBranchCard(node, title, body);
+  } else if (node.kind === 'merge') {
+    renderMergeCard(node, title, body);
+  } else {
+    title.textContent = 'Unknown';
+    body.textContent = 'No details available.';
+  }
+}
+
+/**
+ * Card for a branch node — the branch from its creation until either
+ * the first merge into it, or "now" if there have been no merges.
+ */
+function renderBranchCard(node, title, body) {
+  const b = node.branch;
+  const isActive = b.id === state.activeBranchId;
+
+  // Lifetime: from branch.createdAt up to the first merge into this branch
+  // (or +Infinity if there have been none yet).
+  const merges = (state.historyGraph?.mergeEvents || [])
+    .filter(ev => ev.targetBranchId === b.id)
+    .sort((a, b) => (a.completedAt || a.startedAt || 0) - (b.completedAt || b.startedAt || 0));
+
+  const windowStart = b.createdAt || 0;
+  const windowEnd = merges[0]
+    ? (merges[0].completedAt || merges[0].startedAt || Infinity)
+    : Infinity;
+
+  // ── Header ──
+  title.textContent = b.name;
+
+  // ── Meta line ──
+  appendP(body, `${b.status} · ${b.messageCount ?? 0} messages`, 'muted');
+
+  if (b.description) {
+    appendP(body, b.description);
+  }
+
+  if (isActive) {
+    appendP(body, '(currently active)', 'muted');
+  }
+
+  // ── Checkpoints in this lifetime ──
+  renderCheckpointSection(body, b.id, windowStart, windowEnd); // burasi iste bir sikinti var aslinda diye dusunuyorum
+
+  // ── Switch button ──
+  if (!isActive && b.status !== 'merged' && b.status !== 'abandoned') {
+    appendSwitchButton(body, b.id);
+  }
+}
+
+/**
+ * Card for a merge node — represents the target branch from THIS merge
+ * up to the next merge into the same target (or "now" if it's the latest).
+ */
+function renderMergeCard(node, title, body) {
+  const ev = node.mergeEvent;
+  const v = ev.verification || {};
+  const targetBranchId = ev.targetBranchId;
+  const sourceName = node.sourceBranchName || ev.sourceBranchId;
+  const targetName = node.targetBranchName || ev.targetBranchId;
+  const isActive = targetBranchId === state.activeBranchId;
+
+  // Lifetime: from this merge's time up to the NEXT merge into the same target
+  // (if any). If this is the latest merge into the target, the window is open-ended.
+  const mergesIntoTarget = (state.historyGraph?.mergeEvents || [])
+    .filter(m => m.targetBranchId === targetBranchId)
+    .sort((a, b) => (a.completedAt || a.startedAt || 0) - (b.completedAt || b.startedAt || 0));
+
+  const thisMergeTime = ev.completedAt || ev.startedAt || 0;
+  const myIdx = mergesIntoTarget.findIndex(m => m.id === ev.id);
+  const nextMerge = mergesIntoTarget[myIdx + 1];
+  const windowStart = thisMergeTime;
+  const windowEnd = nextMerge
+    ? (nextMerge.completedAt || nextMerge.startedAt || Infinity)
+    : Infinity;
+
+  // ── Header ──
+  // title.textContent = `${sourceName} → ${targetName}`;
+  title.textContent = `${targetName}`;
+  // ── Meta lines ──
+  const when = new Date(thisMergeTime).toLocaleString();
+  appendP(body, when, 'muted');
+  appendP(body, `Status: ${v.status || 'unknown'}${v.forced ? ' (forced)' : ''}`);
+
+  if (ev.rebaseNotes && ev.rebaseNotes.length) {
+    appendP(body, ev.rebaseNotes.join('; '), 'muted');
+  }
+
+  if (isActive) {
+    appendP(body, '(target is currently active)', 'muted');
+  }
+
+  // ── Checkpoints on the TARGET branch in this lifetime ──
+  renderCheckpointSection(body, targetBranchId, windowStart, windowEnd);
+
+  // ── Switch to the (target) branch ──
+  if (!isActive) {
+    const targetBranch = state.historyGraph?.branches?.find(b => b.id === targetBranchId);
+    if (targetBranch && targetBranch.status !== 'abandoned') {
+      appendSwitchButton(body, targetBranchId);
+    }
+  }
+}
+
+// ─── helpers used by both card types ────────────────────────────────────
+
+function renderCheckpointSection(parent, branchId, windowStart, windowEnd) {
+  const allCheckpoints = state.historyGraph?.checkpoints || [];
+  const inWindow = allCheckpoints
+    .filter(cp => cp.branchId === branchId)
+    .filter(cp => {
+      const t = cp.createdAt || 0;
+      return t >= windowStart && t < windowEnd;
+    })
+    .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+
+  const header = document.createElement('div');
+  header.className = 'detail-section-header';
+  header.textContent = `Checkpoints (${inWindow.length})`;
+  parent.appendChild(header);
+
+  if (inWindow.length === 0) {
+    appendP(parent, 'No checkpoints in this period.', 'muted detail-empty');
+    return;
+  }
+
+  const ul = document.createElement('ul');
+  ul.className = 'detail-checkpoint-list';
+  for (const cp of inWindow) {
+    const li = document.createElement('li');
+    li.className = 'detail-checkpoint-item';
+    li.setAttribute('role', 'button');
+    li.setAttribute('tabindex', '0');           // keyboard-focusable
+    li.title = 'Switch to this checkpoint';
+
+    const dot = document.createElement('span');
+    dot.className = 'detail-checkpoint-dot ' + (cp.kind || 'manual');
+    li.appendChild(dot);
+
+    const main = document.createElement('div');
+    main.className = 'detail-checkpoint-main';
+
+    const label = document.createElement('div');
+    label.className = 'detail-checkpoint-label';
+    label.textContent = cp.label || `(${cp.kind || 'manual'} checkpoint)`;
+    main.appendChild(label);
+
+    const meta = document.createElement('div');
+    meta.className = 'detail-checkpoint-meta';
+    const when = new Date(cp.createdAt || 0).toLocaleString();
+    meta.textContent = `${when} · ${cp.messageIds.length} msgs · ${cp.artifactIds.length} files`;
+    main.appendChild(meta);
+
+    li.appendChild(main);
+
+    // Whole row is the switch affordance.
+    const doSwitch = () => {
+      send({ type: 'restoreCheckpoint', branchId, checkpointId: cp.id });
+      $('history-detail').hidden = true;
+    };
+    li.addEventListener('click', doSwitch);
+    li.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); doSwitch(); }
+    });
+
+    ul.appendChild(li);
+  }
+  parent.appendChild(ul);
+}
+
+function appendP(parent, text, cls) {
+  const p = document.createElement('p');
+  if (cls) p.className = cls;
+  p.textContent = text;
+  parent.appendChild(p);
+  return p;
+}
+
+function appendSwitchButton(parent, branchId) {
+  const btn = document.createElement('button');
+  btn.className = 'btn-primary detail-switch-btn';
+  btn.textContent = 'Switch to this branch';
+  btn.addEventListener('click', () => {
+    send({ type: 'switchBranch', branchId });
+    $('history-detail').hidden = true;
+  });
+  parent.appendChild(btn);
+}
+
+function appendSwitchButtonCheckpoint(parent, branchId, checkpointId) {
+  const btn = document.createElement('button');
+  btn.className = 'btn-primary detail-switch-btn';
+  btn.textContent = 'Switch to this checkpoint';
+  btn.addEventListener('click', () => {
+    send({ type: 'restoreCheckpoint', branchId, checkpointId });
+    $('history-detail').hidden = true;
+  });
+  parent.appendChild(btn);
+}
+
+/**
+ * For a given branch and instance index, return the timestamp of the NEXT
+ * instance (i.e., the next merge into this branch). If there isn't one,
+ * return Infinity so we include everything after `instanceIdx`'s creation.
+ */
+function findNextInstanceTime(branchId, instanceIdx) {
+  const merges = (state.historyGraph?.mergeEvents || [])
+    .filter(ev => ev.targetBranchId === branchId)
+    .sort((a, b) => (a.completedAt || a.startedAt || 0) - (b.completedAt || b.startedAt || 0));
+  // Each merge creates a new instance. Instance 0 ends when merge 0 happens,
+  // instance 1 ends when merge 1 happens, etc.
+  const nextMerge = merges[instanceIdx];
+  if (!nextMerge) return Infinity;
+  return nextMerge.completedAt || nextMerge.startedAt || Infinity;
+}
 
   function renderMessageContent(content) {
     // Minimal markdown-ish rendering: code fences and inline code
@@ -915,9 +1717,82 @@
   });
 
   $('btn-menu').addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleDropdown('action-menu');
+    });
+  $('btn-checkpoint').addEventListener('click', (e) => {
     e.stopPropagation();
-    toggleDropdown('action-menu');
+    openCheckpointModal();
   });
+   $('btn-toggle-history').addEventListener('click', (e) => {
+    e.stopPropagation();
+    state.historyOpen = !state.historyOpen;
+    $('history-pane').hidden = !state.historyOpen;
+    $('pane-resizer').hidden = !state.historyOpen;   // ← this line
+    $('btn-toggle-history').classList.toggle('active', state.historyOpen);
+    if (state.historyOpen) renderHistoryView();
+  });
+
+ $('btn-history-close').addEventListener('click', () => {
+    state.historyOpen = false;
+    $('history-pane').hidden = true;
+    $('pane-resizer').hidden = true;                 // ← this line
+    $('btn-toggle-history').classList.remove('active');
+  });
+  $('history-detail-close').addEventListener('click', () => {
+    state.selectedHistoryNodeId = null;
+    $('history-detail').hidden = true;
+  });
+
+  $('btn-history-refresh').addEventListener('click', () => {
+    send({ type: 'requestState' });
+  });
+
+  // ─── history pane resizer ─────────────────────────────────────────────
+  (function initPaneResizer() {
+    const resizer = $('pane-resizer');
+    const pane = $('history-pane');
+    const chat = $('chat-pane');
+    const ws = $('workspace');
+    if (!resizer || !pane || !chat || !ws) {
+      console.warn('[cb] resizer elements missing');
+      return;
+    }
+
+    // Force the row layout inline so no external CSS can override it.
+    ws.style.display = 'flex';
+    ws.style.flexDirection = 'row';
+    chat.style.flex = '1 1 auto';
+    chat.style.minWidth = '0';
+    pane.style.flex = '0 0 auto';
+
+    let dragging = false;
+
+    resizer.addEventListener('mousedown', (e) => {
+      dragging = true;
+      resizer.classList.add('dragging');
+      document.body.style.userSelect = 'none';
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      const rect = ws.getBoundingClientRect();
+      let w = rect.right - e.clientX;            // history pane is on the right
+      const min = 220;
+      const max = rect.width - 200;              // leave at least 200px for chat
+      w = Math.max(min, Math.min(w, max));
+      pane.style.width = w + 'px';
+      pane.style.flexBasis = w + 'px';           // belt-and-suspenders
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (!dragging) return;
+      dragging = false;
+      resizer.classList.remove('dragging');
+      document.body.style.userSelect = '';
+    });
+  })();
 
   // ─── boot ─────────────────────────────────────────────────────────────
 
