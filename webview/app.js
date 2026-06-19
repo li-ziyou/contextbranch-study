@@ -676,6 +676,26 @@ function renderGraph(g) {
   };
 
   // --------------------------------------------------
+  // Corner navigation controls
+  // --------------------------------------------------
+
+  const PAN_STEP = 80;
+  const ZOOM_F   = 1.3;
+
+  function bindGC(id, fn) {
+    const el = document.getElementById(id);
+    if (el) { el.onclick = (e) => { e.stopPropagation(); fn(); }; }
+  }
+
+  bindGC('gc-zoom-in',   () => { scale = Math.min(scale * ZOOM_F, 4);   updateCamera(); });
+  bindGC('gc-zoom-out',  () => { scale = Math.max(scale / ZOOM_F, 0.2); updateCamera(); });
+  bindGC('gc-reset',     () => { scale = 1; panX = 0; panY = 0;         updateCamera(); });
+  bindGC('gc-pan-up',    () => { panY += PAN_STEP; updateCamera(); });
+  bindGC('gc-pan-down',  () => { panY -= PAN_STEP; updateCamera(); });
+  bindGC('gc-pan-left',  () => { panX += PAN_STEP; updateCamera(); });
+  bindGC('gc-pan-right', () => { panX -= PAN_STEP; updateCamera(); });
+
+  // --------------------------------------------------
   // Arrow defs
   // --------------------------------------------------
 
