@@ -91,6 +91,12 @@ contextbranch/
 │   ├── index.html            Three-pane layout
 │   ├── style.css             Themed via VS Code CSS variables
 │   └── app.js                Vanilla JS — no React build complexity
+├── evaluation/               User-study replication package
+│   ├── README.md             Overview of the evaluation setup
+│   ├── protocol/             Study protocol, task descriptions, consent forms
+│   ├── tasks/                Starter applications given to participants
+│   ├── data/                 Collected telemetry / session data (per participant)
+│   └── analysis/             Scripts and notebooks for analyzing study results
 └── media/icon.svg
 ```
 
