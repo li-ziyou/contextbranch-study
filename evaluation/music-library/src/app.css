@@ -1,0 +1,130 @@
+:root {
+  --bg: #f4f4f5;
+  --panel: #ffffff;
+  --sidebar: #18181b;
+  --text: #18181b;
+  --muted: #71717a;
+  --border: #e4e4e7;
+  --accent: #6366f1;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  min-height: 100vh;
+}
+
+/* Sidebar */
+.sidebar {
+  background: var(--sidebar);
+  color: #fff;
+  padding: 24px 18px;
+}
+
+.logo {
+  font-size: 1.3rem;
+  margin-bottom: 32px;
+}
+
+.sidebar-heading {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #a1a1aa;
+  margin-bottom: 12px;
+}
+
+.empty-note {
+  font-size: 0.85rem;
+  color: #a1a1aa;
+  line-height: 1.5;
+}
+
+/* Content */
+.content {
+  padding: 32px 40px;
+}
+
+.content-header {
+  margin-bottom: 24px;
+}
+
+.content-header h2 {
+  font-size: 1.6rem;
+}
+
+.subtitle {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin-top: 4px;
+}
+
+/* Song list */
+.song-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.song-row {
+  display: grid;
+  grid-template-columns: 44px 1fr 1fr auto;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.song-row:hover {
+  background: #fafafa;
+  border-color: var(--accent);
+}
+
+.song-cover {
+  width: 44px;
+  height: 44px;
+  border-radius: 6px;
+  display: block;
+}
+
+.song-main {
+  display: flex;
+  flex-direction: column;
+}
+
+.song-name {
+  font-weight: 600;
+}
+
+.song-artist {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.song-album {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.song-duration {
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
