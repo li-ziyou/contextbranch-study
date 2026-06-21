@@ -1,0 +1,15 @@
+{
+  "name": "music-library",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+ "scripts": {
+  "dev": "vite",
+  "build": "vite build",
+  "watch": "vite build --watch",
+  "preview": "vite preview"
+},
+  "devDependencies": {
+    "vite": "^8.0.12"
+  }
+}
