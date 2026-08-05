@@ -172,6 +172,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       case 'send': return this.handleSend(msg.content);
       case 'startStudyTask': return this.handleStartStudyTask();
       case 'runStudyTests': return this.handleRunStudyTests();
+      case 'openStudyIntegration': return this.handleOpenStudyIntegration();
       case 'finishStudyTask': return this.handleFinishStudyTask();
       case 'createBranch': return this.handleCreateBranch(msg.name, msg.description, msg.fromMessageId, msg.parentBranchId, msg.select);
       case 'switchBranch': return this.handleSwitchBranch(msg.branchId);
@@ -605,9 +606,16 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     const ws = this.requireWorkspace();
     if (!ws) return;
     const study = this.getStudyController();
-    if (study && !study.allowsMerge(sourceBranchId, targetBranchId, ws)) {
-      this.postMessage({ type: 'error', message: 'During this study task, only an automatic sibling state may be integrated into main.' });
-      return;
+    if (study) {
+      const actionError = study.actionError();
+      if (actionError) {
+        this.postMessage({ type: 'error', message: actionError });
+        return;
+      }
+      if (!study.allowsMerge(sourceBranchId, targetBranchId, ws)) {
+        this.postMessage({ type: 'error', message: 'During this study task, only an active automatic sibling state may be integrated into main.' });
+        return;
+      }
     }
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const config = vscode.workspace.getConfiguration('contextbranch');
@@ -653,6 +661,11 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     if (!ws) return;
     const study = this.getStudyController();
     if (study) {
+      const actionError = study.actionError();
+      if (actionError) {
+        this.postMessage({ type: 'error', message: actionError });
+        return;
+      }
       if (force || !study.allowsMerge(sourceBranchId, targetBranchId, ws)) {
         this.postMessage({ type: 'error', message: 'Study integrations are user-initiated sibling-to-main merges; force merge is disabled.' });
         return;
@@ -891,6 +904,26 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       output: output.slice(-10_000),
     });
     this.pushState();
+  }
+
+  private handleOpenStudyIntegration(): void {
+    const ws = this.requireWorkspace();
+    const study = this.getStudyController();
+    if (!ws || !study) return;
+    const actionError = study.actionError();
+    if (actionError) {
+      this.postMessage({ type: 'error', message: actionError });
+      return;
+    }
+    if (!study.allowsMerge(ws.activeBranchId, ws.mainBranchId, ws)) {
+      this.postMessage({ type: 'error', message: 'Only the active automatic state can be integrated into main.' });
+      return;
+    }
+    this.postMessage({
+      type: 'openStudyIntegration',
+      sourceBranchId: ws.activeBranchId,
+      targetBranchId: ws.mainBranchId,
+    });
   }
 
   private async handleFinishStudyTask(): Promise<void> {

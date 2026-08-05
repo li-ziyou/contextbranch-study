@@ -144,7 +144,8 @@ export class StudyController {
 
   allowsMerge(sourceBranchId: string, targetBranchId: string, ws: Workspace): boolean {
     if (!this.isContextBranch || targetBranchId !== ws.mainBranchId) return false;
-    return ws.getBranch(sourceBranchId)?.tags?.includes('study-sibling') ?? false;
+    const source = ws.getBranch(sourceBranchId);
+    return source?.status === 'active' && source.tags?.includes('study-sibling') === true;
   }
 
   uiState(ws: Workspace): StudyUiState {

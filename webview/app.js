@@ -39,6 +39,7 @@
     activeCheckpointId: null,
     study: null,
     studyTestsRunning: false,
+    studyIntegration: null,
     apiCounterMode: 'total',   // 'total' | 'split' | 'none' (click the pill to cycle)
   };
 
@@ -134,6 +135,13 @@
           render();
           break;
         }
+        case 'openStudyIntegration':
+          openMergeModal({
+            sourceBranchId: msg.sourceBranchId,
+            targetBranchId: msg.targetBranchId,
+            studyIntegration: true,
+          });
+          break;
         case 'studyFinished':
           showStatus('Task finished. The operator can now collect the final main state.', 'success');
           render();
@@ -399,6 +407,8 @@
       bannerHtml = 'This task is finished. Do not continue editing the workspace.';
     } else if (state.condition === 'linear') {
       bannerHtml = '⚠ Study mode: linear condition — branching is disabled.';
+    } else if (state.study && !state.isMain) {
+      bannerHtml = `Working in isolated state <strong>${escapeHtml(state.activeBranchName)}</strong>. Switching states swaps the workspace files.`;
     } else if (!state.isMain) {
       bannerHtml = `Editing branch <strong>${escapeHtml(state.activeBranchName)}</strong>. Workspace files are not changed unless you click Apply in the ⋯ menu.`;
     }
@@ -538,6 +548,12 @@
     $('study-start').hidden = started;
     $('study-start').disabled = !state.providerReady || finished;
     $('study-run-tests').disabled = !started || finished || study.remainingSeconds === 0 || state.studyTestsRunning;
+    const activeBranch = state.branches.find((branch) => branch.id === state.activeBranchId);
+    const canIntegrate = study.condition === 'contextbranch' && started && !finished &&
+      study.remainingSeconds > 0 && activeBranch?.status === 'active' &&
+      study.siblingStateIds.includes(state.activeBranchId);
+    $('study-integrate').hidden = !canIntegrate;
+    $('study-integrate').disabled = !canIntegrate;
     $('study-finish').disabled = !started || finished;
   }
   function renderHistoryView() {
@@ -2094,7 +2110,7 @@ function findNextInstanceTime(branchId, instanceIdx) {
     const canFinalize = !testsFailed && unresolved.length === 0;
 
     $('merge-confirm').hidden = !canFinalize;
-    $('merge-force').hidden = canFinalize;
+    $('merge-force').hidden = Boolean(state.study) || canFinalize;
   }
 
   // ─── dropdowns ────────────────────────────────────────────────────────
@@ -2224,18 +2240,35 @@ function findNextInstanceTime(branchId, instanceIdx) {
 
   // ─── merge modal ──────────────────────────────────────────────────────
 
-  function openMergeModal() {
-    $('merge-source-name').textContent = state.activeBranchName;
+  function openMergeModal({ sourceBranchId = state.activeBranchId, targetBranchId = null, studyIntegration = false } = {}) {
+    const source = state.branches.find((branch) => branch.id === sourceBranchId);
+    $('merge-source-name').textContent = source?.name || state.activeBranchName;
     const sel = $('merge-target-select');
     sel.innerHTML = '';
-    for (const b of state.branches) {
-      if (b.id === state.activeBranchId) continue;
-      if (b.status === 'merged' || b.status === 'abandoned') continue;
-      const o = document.createElement('option');
-      o.value = b.id;
-      o.textContent = b.name;
-      if (b.id === state.mainBranchId) o.selected = true;
-      sel.appendChild(o);
+    state.studyIntegration = studyIntegration
+      ? { sourceBranchId, targetBranchId: targetBranchId || state.mainBranchId }
+      : null;
+    if (studyIntegration) {
+      const main = state.branches.find((branch) => branch.id === state.mainBranchId);
+      const option = document.createElement('option');
+      option.value = state.mainBranchId;
+      option.textContent = main?.name || 'main';
+      option.selected = true;
+      sel.appendChild(option);
+      sel.disabled = true;
+      $('merge-preview-btn').textContent = 'Preview integration';
+    } else {
+      sel.disabled = false;
+      $('merge-preview-btn').textContent = 'Preview merge';
+      for (const b of state.branches) {
+        if (b.id === sourceBranchId) continue;
+        if (b.status === 'merged' || b.status === 'abandoned') continue;
+        const o = document.createElement('option');
+        o.value = b.id;
+        o.textContent = b.name;
+        if (b.id === state.mainBranchId) o.selected = true;
+        sel.appendChild(o);
+      }
     }
     if (sel.options.length === 0) {
       showStatus('No valid merge target — only main exists.', 'error');
@@ -2260,7 +2293,7 @@ function findNextInstanceTime(branchId, instanceIdx) {
     $('merge-running').hidden = false;
     send({
       type: 'previewMerge',
-      sourceBranchId: state.activeBranchId,
+      sourceBranchId: state.studyIntegration?.sourceBranchId || state.activeBranchId,
       targetBranchId: target,
     });
   });
@@ -2280,6 +2313,7 @@ function findNextInstanceTime(branchId, instanceIdx) {
   });
 
   $('merge-force').addEventListener('click', () => {
+    if (state.study) return;
     if (!state.pendingMerge) return;
     setMergeUiBusy(true);
     $('merge-running').hidden = false;
@@ -2356,6 +2390,7 @@ function findNextInstanceTime(branchId, instanceIdx) {
   $('btn-stop').addEventListener('click', () => send({ type: 'abortStream' }));
   $('study-start').addEventListener('click', () => send({ type: 'startStudyTask' }));
   $('study-run-tests').addEventListener('click', () => send({ type: 'runStudyTests' }));
+  $('study-integrate').addEventListener('click', () => send({ type: 'openStudyIntegration' }));
   $('study-finish').addEventListener('click', () => send({ type: 'finishStudyTask' }));
 
   $('composer-input').addEventListener('keydown', (e) => {
