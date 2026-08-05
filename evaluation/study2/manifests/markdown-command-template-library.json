@@ -2,28 +2,28 @@
   "schemaVersion": 1,
   "taskId": "markdown-command-template-library",
   "participantTitle": "Markdown Command Template Library",
-  "featureBench": {
-    "instanceId": "mlflow__mlflow.93dab383.test_ai_command_utils.85dcb487.lv1",
-    "datasetUrl": "https://huggingface.co/datasets/LiberCoders/FeatureBench/resolve/main/data/full-00000-of-00001.parquet?download=true",
-    "patchSha256": "ea7972807bacca51fa5c1c87cc7a6d10b28b298507c1675d4b1c1ff9ad2c5ca8",
-    "testPatchSha256": "39a4673f5acdb5374eaf4d27b91d707ecb7b66b00dead448ef3adaa91cb2cb83",
-    "originalTestPath": "tests/ai_commands/test_ai_command_utils.py",
-    "runtimeImageName": "libercoders/featurebench-specs_mlflow-instance_efffa87e"
+  "provenance": {
+    "type": "FeatureBench-derived curated study task",
+    "sourceInstanceId": "mlflow__mlflow.93dab383.test_ai_command_utils.85dcb487.lv1",
+    "datasetUrl": "https://huggingface.co/datasets/LiberCoders/FeatureBench",
+    "sourceRepository": "mlflow/mlflow",
+    "sourceCommit": "93dab383a1a3fc9882ebc32283ad2a05d79ff70f",
+    "derivedBehaviour": [
+      "optional Markdown metadata",
+      "recursive template discovery",
+      "template retrieval with or without metadata"
+    ],
+    "construction": "The study baseline is purpose-built; it does not reproduce the upstream FeatureBench patch or test suite."
   },
-  "source": {
-    "repository": "mlflow/mlflow",
-    "commit": "93dab383a1a3fc9882ebc32283ad2a05d79ff70f",
-    "taskMode": "feature mutation",
-    "taskSourcePaths": [
-      "mlflow/ai_commands/ai_command_utils.py",
-      "mlflow/ai_commands/__init__.py"
-    ]
+  "assets": {
+    "baselineDirectory": "task-assets/markdown-command-template-library/baseline",
+    "referenceDirectory": "task-assets/markdown-command-template-library/reference"
   },
   "ticket": {
     "summary": "Build a Markdown command-template library.",
     "requirements": [
       "Read optional YAML metadata at the start of a Markdown template.",
-      "Discover templates in nested folders and list their slash-separated keys.",
+      "Discover Markdown templates in nested folders and list slash-separated keys.",
       "Retrieve complete template content and retrieve a version without metadata."
     ]
   },
@@ -31,13 +31,13 @@
     "visibleInBothConditions": true,
     "implementationIntentLabels": [
       "Parse Markdown metadata",
-      "Discover and retrieve template files"
+      "Index and retrieve template files"
     ]
   },
   "contextBranch": {
     "siblingStates": [
       { "id": "metadata", "label": "Parse Markdown metadata" },
-      { "id": "templates", "label": "Discover and retrieve template files" }
+      { "id": "catalog", "label": "Index and retrieve template files" }
     ]
   },
   "runner": {
@@ -47,15 +47,14 @@
   },
   "submission": {
     "allowedProductionPaths": [
-      "mlflow/ai_commands/ai_command_utils.py",
-      "mlflow/ai_commands/__init__.py"
+      "template_library/frontmatter.py",
+      "template_library/catalog.py"
     ],
     "finalState": "main"
   },
   "privateGrader": {
     "mode": "fresh-clean-baseline",
     "outcome": "verified-feature-delivery",
-    "hiddenGoals": ["metadata", "discovery", "retrieval"],
-    "supplementaryReferenceTest": "tests/ai_commands/test_ai_command_utils.py"
+    "hiddenGoals": ["metadata", "catalog", "library_integration"]
   }
 }

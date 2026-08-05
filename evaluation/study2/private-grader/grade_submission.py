@@ -85,9 +85,6 @@ def main() -> int:
             config, copied = materialize_clean_submission(args.bundle, args.submission, clean_root)
             private_root = args.bundle / "private"
             status, output = run_checks(clean_root, private_root, args.timeout)
-            reference_status, reference_output = run_checks(
-                clean_root, private_root, args.timeout, private_root / "reference_tests"
-            )
             result = {
                 "taskId": config["taskId"],
                 "gradedAt": datetime.now(timezone.utc).isoformat(),
@@ -96,10 +93,6 @@ def main() -> int:
                 "verifiedFeatureDelivery": status == 0,
                 "runnerExitCode": status,
                 "runnerOutput": output,
-                "supplementaryReferenceTest": {
-                    "exitCode": reference_status,
-                    "output": reference_output,
-                },
             }
         except Exception as error:
             result = {

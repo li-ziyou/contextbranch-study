@@ -14,5 +14,5 @@ python3 evaluation/study2/private-grader/grade_submission.py \
 ```
 
 The JSON record contains the clean-patch status, the three goal identifiers,
-the container result, and the binary `verifiedFeatureDelivery` outcome. It is
+the test-runtime result, and the binary `verifiedFeatureDelivery` outcome. It is
 an auditable result record, not a participant-facing score.

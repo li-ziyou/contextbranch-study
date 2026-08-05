@@ -1,8 +1,10 @@
 # Public tests
 
-Public tests are small acceptance checks supplied to participants. They can be
-edited, deleted, or bypassed without changing the final result because the
-private grader later reconstructs the repair on a separate clean baseline.
+Public tests are small acceptance checks supplied to participants. Each task
+has one test for each implementation area and one end-to-end test that requires
+both areas. They can be edited, deleted, or bypassed without changing the final
+result because the private grader later reconstructs the repair on a separate
+clean baseline.
 Each generated workspace includes the command below:
 
 ```bash

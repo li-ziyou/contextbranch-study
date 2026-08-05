@@ -1,22 +1,22 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "ContextBranch Study 2 task manifest",
+  "title": "ContextBranch Study 2 curated task manifest",
   "type": "object",
   "required": [
-    "schemaVersion", "taskId", "participantTitle", "featureBench", "source",
+    "schemaVersion", "taskId", "participantTitle", "provenance", "assets",
     "ticket", "rootBrief", "contextBranch", "runner", "submission", "privateGrader"
   ],
   "properties": {
     "schemaVersion": { "const": 1 },
     "taskId": { "type": "string" },
     "participantTitle": { "type": "string" },
-    "featureBench": {
+    "provenance": {
       "type": "object",
-      "required": ["instanceId", "datasetUrl", "patchSha256", "testPatchSha256", "originalTestPath", "runtimeImageName"]
+      "required": ["type", "sourceInstanceId", "datasetUrl", "sourceRepository", "sourceCommit", "derivedBehaviour", "construction"]
     },
-    "source": {
+    "assets": {
       "type": "object",
-      "required": ["repository", "commit", "taskMode", "taskSourcePaths"]
+      "required": ["baselineDirectory", "referenceDirectory"]
     },
     "ticket": { "type": "object" },
     "rootBrief": { "type": "object" },

@@ -2,8 +2,8 @@
 
 This private repository is the source of truth for the ContextBranch Study 2
 software and its frozen research artifacts. It includes the VS Code extension,
-the two FeatureBench-derived task manifests, task-builder contracts, the clean
-grader contract, session materials, and analysis-ready event definitions.
+two curated FeatureBench-derived task manifests, task-builder contracts, the
+clean grader contract, session materials, and analysis-ready event definitions.
 
 It does not store participant-identifying data, recordings, API keys, raw run
 directories, or participant bundles containing private evaluation material.

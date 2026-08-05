@@ -6,19 +6,20 @@ Code ContextBranch extension at the repository root.
 
 Study 1 is an existing formative pilot and is not implemented or rerun here.
 Study 2 compares a linear AI coding workflow with automatic divide-and-conquer
-plus user-controlled reintegration. FeatureBench supplies the pinned source
-revision, feature mutation, reference test, and task metadata. Participants
-receive a small task slice rather than the full upstream project. A dedicated
-local Python runtime contains only the dependencies and support modules needed
-to execute this pair of features, which keeps a human-study setup small and
-reproducible without requiring the multi-GB benchmark images.
+plus user-controlled reintegration. The two task themes are derived from
+pinned FeatureBench instances, but the study uses curated local baselines
+instead of reproducing their upstream patches. Each baseline has two
+non-overlapping implementation modules and a supplied composition layer. This
+makes a conflict-free integration both possible and necessary for the complete
+feature. Participants receive a small local task package, not an upstream
+repository or benchmark image.
 
 ## Fixed task pair
 
 | Task ID | Participant-facing name | FeatureBench source |
 |---|---|---|
-| `markdown-command-template-library` | Markdown Command Template Library | `mlflow__mlflow.93dab383.test_ai_command_utils.85dcb487.lv1` |
-| `rgb-image-composer` | RGB Image Composer | `astropy__astropy.b0db0daa.test_basic_rgb.067e927c.lv1` |
+| `markdown-command-template-library` | Markdown Command Template Library | MLflow command-template feature |
+| `rgb-image-composer` | RGB Image Composer | Astropy RGB-composition feature |
 
 Every participant completes both tasks. One is assigned to Linear and the
 other to ContextBranch. `operator/assignment-sequences.json` defines the four
@@ -28,13 +29,13 @@ balanced sequences.
 
 For one period, the operator creates a fresh participant bundle containing:
 
-1. a sanitized feature-mutation workspace;
+1. a sanitized incomplete feature workspace;
 2. the task ticket and the two frozen implementation-intent labels;
 3. readable, read-only public tests and a fixed public-test command;
 4. ContextBranch in the assigned condition; and
 5. a fixed model, system prompt, edit policy, time limit, and pooled budget.
 
-The participant never receives upstream history, source patches, private tests,
+The participant never receives source patches, reference repairs, private tests,
 grader fixtures, API keys, or another participant's run data.
 
 ## Control boundaries
@@ -53,10 +54,11 @@ implementation-intent labels appear in a single conversation and code state.
 ## Directory map
 
 ```text
-manifests/       Frozen task contracts and their schema.
+manifests/       Frozen task contracts, provenance, and their schema.
 operator/        Assignment generation, workspace preparation, collection, and preflight.
 protocol/        Participant flow and researcher runbook.
-task-builder/    Rules for producing safe participant bundles.
+task-assets/     Curated baseline and reference implementations, retained privately.
+task-builder/    Rules for producing safe participant bundles from task assets.
 public-tests/    Public-test contract; concrete files are task-builder output.
 private-grader/  Fresh-baseline clean-patch evaluation contract.
 tasks/           Task-specific source and expected code-surface notes.
@@ -74,9 +76,10 @@ npm run study:dry-run
 npm run study:prepare -- P017 1 --provider YOUR_FIXED_PROVIDER --model YOUR_FIXED_MODEL
 ```
 
-`study:validate` checks the frozen manifests. `study:assign` prints a
-deterministic sequence; it does not write participant data. `study:build-tasks`
-creates the separate participant/private bundles. `study:setup-runtime`
+`study:validate` checks the frozen manifests and the two-module task shape.
+`study:assign` prints a deterministic sequence; it does not write participant
+data. `study:build-tasks` creates the separate participant/private bundles.
+`study:setup-runtime`
 creates the isolated Python environment; `study:preflight` confirms that both
 bundles and that environment are ready. `study:prepare` creates
 one fresh period workspace. Open its printed `workspace` path in VS Code with

@@ -18,7 +18,7 @@ const defaultRunsRoot = path.join(studyRoot, 'runs');
 const runtimeRoot = path.join(repoRoot, '.study-runtime');
 const builderRoot = path.join(repoRoot, '.study-builder');
 const requiredManifestFields = [
-  'schemaVersion', 'taskId', 'participantTitle', 'featureBench', 'source',
+  'schemaVersion', 'taskId', 'participantTitle', 'provenance', 'assets',
   'ticket', 'rootBrief', 'contextBranch', 'runner', 'submission', 'privateGrader',
 ];
 
@@ -49,17 +49,26 @@ function validate() {
     if (manifest.runner?.publicTestCommand?.includes('private')) {
       failures.push(`${path.basename(file)}: public command must not expose private grader`);
     }
-    if (!manifest.featureBench?.patchSha256 || !manifest.featureBench?.testPatchSha256) {
-      failures.push(`${path.basename(file)}: requires pinned FeatureBench patch hashes`);
+    if (manifest.provenance?.type !== 'FeatureBench-derived curated study task') {
+      failures.push(`${path.basename(file)}: must identify its curated FeatureBench-derived provenance`);
     }
-    if (!manifest.featureBench?.runtimeImageName?.startsWith('libercoders/featurebench-specs_')) {
-      failures.push(`${path.basename(file)}: requires the pinned FeatureBench runtime-image provenance`);
+    if (!manifest.provenance?.sourceInstanceId || !manifest.provenance?.sourceCommit) {
+      failures.push(`${path.basename(file)}: requires a pinned FeatureBench source instance and commit`);
+    }
+    for (const asset of ['baselineDirectory', 'referenceDirectory']) {
+      const assetPath = path.join(studyRoot, manifest.assets?.[asset] ?? '');
+      if (!manifest.assets?.[asset] || !fs.existsSync(assetPath)) {
+        failures.push(`${path.basename(file)}: missing ${asset}`);
+      }
     }
     if (manifest.runner?.runtime !== 'contextbranch-study-python') {
       failures.push(`${path.basename(file)}: requires the Study Python runtime`);
     }
     if (!Array.isArray(manifest.submission?.allowedProductionPaths) || manifest.submission.allowedProductionPaths.length === 0) {
       failures.push(`${path.basename(file)}: requires an allowlisted production path`);
+    }
+    if (new Set(manifest.submission?.allowedProductionPaths ?? []).size !== 2) {
+      failures.push(`${path.basename(file)}: requires exactly two independent production paths`);
     }
     if (!Array.isArray(manifest.privateGrader?.hiddenGoals) || manifest.privateGrader.hiddenGoals.length !== 3) {
       failures.push(`${path.basename(file)}: requires exactly three private behavioural goals`);
@@ -291,8 +300,13 @@ function preflight(options) {
       failures.push(`${manifest.taskId}: participant bundle is missing`);
       continue;
     }
-    if (fs.existsSync(path.join(workspace, manifest.featureBench.originalTestPath))) {
-      failures.push(`${manifest.taskId}: original reference test leaked into participant bundle`);
+    for (const relativePath of manifest.submission.allowedProductionPaths) {
+      if (!fs.existsSync(path.join(workspace, relativePath))) {
+        failures.push(`${manifest.taskId}: participant bundle is missing ${relativePath}`);
+      }
+    }
+    if (!fs.existsSync(path.join(bundlesRoot, manifest.taskId, 'private', 'reference'))) {
+      failures.push(`${manifest.taskId}: private reference repair is missing`);
     }
   }
   const python = path.join(runtimeRoot, 'bin', 'python');
@@ -331,7 +345,12 @@ function dryRun(options) {
     try {
       const workspace = path.join(scratch, 'workspace');
       cpDirectory(path.join(bundle, 'participant'), workspace, () => true);
-      execFileSync('git', ['apply', '--reverse', path.join(bundle, 'private', 'reference.patch')], { cwd: workspace, stdio: 'inherit' });
+      for (const relativePath of manifest.submission.allowedProductionPaths) {
+        const source = path.join(bundle, 'private', 'reference', relativePath);
+        const target = path.join(workspace, relativePath);
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.copyFileSync(source, target);
+      }
       execFileSync('python3', ['.study/bin/study_runner.py', 'public', '--workspace', '.'], {
         cwd: workspace,
         stdio: 'inherit',

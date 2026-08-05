@@ -2,31 +2,29 @@
   "schemaVersion": 1,
   "taskId": "rgb-image-composer",
   "participantTitle": "RGB Image Composer",
-  "featureBench": {
-    "instanceId": "astropy__astropy.b0db0daa.test_basic_rgb.067e927c.lv1",
-    "datasetUrl": "https://huggingface.co/datasets/LiberCoders/FeatureBench/resolve/main/data/full-00000-of-00001.parquet?download=true",
-    "patchSha256": "f9252830020be75995273cf0c80c375117957f373c24437d4b249c821f286c02",
-    "testPatchSha256": "7c8ce38083d3efb6a79e2336bc7a3d1f03fe3c5ff4eb5bd000904c78524ee07e",
-    "originalTestPath": "astropy/visualization/tests/test_basic_rgb.py",
-    "runtimeImageName": "libercoders/featurebench-specs_astropy-instance_493bb78b"
+  "provenance": {
+    "type": "FeatureBench-derived curated study task",
+    "sourceInstanceId": "astropy__astropy.b0db0daa.test_basic_rgb.067e927c.lv1",
+    "datasetUrl": "https://huggingface.co/datasets/LiberCoders/FeatureBench",
+    "sourceRepository": "astropy/astropy",
+    "sourceCommit": "b0db0daac6b851596851cb43e5456fb6c916c071",
+    "derivedBehaviour": [
+      "per-channel normalization",
+      "same-shape channel validation",
+      "floating-point and 8-bit RGB composition"
+    ],
+    "construction": "The study baseline is purpose-built; it does not reproduce the upstream FeatureBench patch or test suite."
   },
-  "source": {
-    "repository": "astropy/astropy",
-    "commit": "b0db0daac6b851596851cb43e5456fb6c916c071",
-    "taskMode": "feature mutation",
-    "taskSourcePaths": [
-      "astropy/visualization/basic_rgb.py",
-      "astropy/visualization/interval.py",
-      "astropy/visualization/stretch.py",
-      "astropy/visualization/lupton_rgb.py"
-    ]
+  "assets": {
+    "baselineDirectory": "task-assets/rgb-image-composer/baseline",
+    "referenceDirectory": "task-assets/rgb-image-composer/reference"
   },
   "ticket": {
     "summary": "Build an RGB image composer.",
     "requirements": [
       "Accept three same-sized grayscale image arrays.",
-      "Normalize each channel and combine them into an RGB image.",
-      "Support normalized floating-point and 8-bit output."
+      "Normalize each channel into a displayable range and combine them into an RGB image.",
+      "Support floating-point and 8-bit output."
     ]
   },
   "rootBrief": {
@@ -39,7 +37,7 @@
   "contextBranch": {
     "siblingStates": [
       { "id": "normalize", "label": "Normalize and validate image channels" },
-      { "id": "compose", "label": "Compose and encode the RGB image" }
+      { "id": "encode", "label": "Compose and encode the RGB image" }
     ]
   },
   "runner": {
@@ -49,17 +47,14 @@
   },
   "submission": {
     "allowedProductionPaths": [
-      "astropy/visualization/basic_rgb.py",
-      "astropy/visualization/interval.py",
-      "astropy/visualization/stretch.py",
-      "astropy/visualization/lupton_rgb.py"
+      "rgb_composer/normalization.py",
+      "rgb_composer/encoding.py"
     ],
     "finalState": "main"
   },
   "privateGrader": {
     "mode": "fresh-clean-baseline",
     "outcome": "verified-feature-delivery",
-    "hiddenGoals": ["normalization", "encoding", "validation"],
-    "supplementaryReferenceTest": "astropy/visualization/tests/test_basic_rgb.py"
+    "hiddenGoals": ["normalization", "encoding", "composer_integration"]
   }
 }
