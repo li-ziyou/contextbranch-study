@@ -169,7 +169,9 @@
     "build": "node esbuild.js",
     "watch": "node esbuild.js --watch",
     "package": "vsce package",
-    "compile": "tsc -noEmit"
+    "compile": "tsc -noEmit",
+    "study:validate": "node evaluation/study2/operator/studyctl.mjs validate",
+    "study:assign": "node evaluation/study2/operator/studyctl.mjs assign"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

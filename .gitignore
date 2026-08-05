@@ -6,3 +6,13 @@ out/
 *.log
 .DS_Store
 .contextbranch/
+.env
+.env.*
+!.env.example
+
+# Study runs and materials that must never enter version control.
+evaluation/study2/runs/
+evaluation/study2/participant-bundles/
+evaluation/study2/recordings/
+evaluation/study2/task-cache/
+evaluation/study2/private-results/

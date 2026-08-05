@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "taskId": "markdown-command-template-library",
+  "participantTitle": "Markdown Command Template Library",
+  "featureBench": {
+    "instanceId": "mlflow__mlflow.93dab383.test_ai_command_utils.85dcb487.lv1"
+  },
+  "source": {
+    "repository": "mlflow/mlflow",
+    "commit": "93dab383a1a3fc9882ebc32283ad2a05d79ff70f",
+    "taskMode": "feature mutation"
+  },
+  "ticket": {
+    "summary": "Build a Markdown command-template library.",
+    "requirements": [
+      "Read optional YAML metadata at the start of a Markdown template.",
+      "Discover templates in nested folders and list their slash-separated keys.",
+      "Retrieve complete template content and retrieve a version without metadata."
+    ]
+  },
+  "rootBrief": {
+    "visibleInBothConditions": true,
+    "implementationIntentLabels": [
+      "Parse Markdown metadata",
+      "Discover and retrieve template files"
+    ]
+  },
+  "contextBranch": {
+    "siblingStates": [
+      { "id": "metadata", "label": "Parse Markdown metadata" },
+      { "id": "templates", "label": "Discover and retrieve template files" }
+    ]
+  },
+  "runner": {
+    "publicTestCommand": "study-run-public markdown-command-template-library",
+    "image": "contextbranch-study/mlflow-task:pending-build",
+    "network": "none"
+  },
+  "submission": {
+    "allowedProductionPaths": [
+      "mlflow/ai_commands/ai_command_utils.py",
+      "mlflow/ai_commands/__init__.py"
+    ],
+    "finalState": "main"
+  },
+  "privateGrader": {
+    "mode": "fresh-clean-baseline",
+    "outcome": "verified-feature-delivery",
+    "status": "test source pending implementation"
+  }
+}

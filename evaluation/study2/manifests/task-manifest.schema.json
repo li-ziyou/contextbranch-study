@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ContextBranch Study 2 task manifest",
+  "type": "object",
+  "required": [
+    "schemaVersion", "taskId", "participantTitle", "featureBench", "source",
+    "ticket", "rootBrief", "contextBranch", "runner", "submission", "privateGrader"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "taskId": { "type": "string" },
+    "participantTitle": { "type": "string" },
+    "featureBench": { "type": "object" },
+    "source": { "type": "object" },
+    "ticket": { "type": "object" },
+    "rootBrief": { "type": "object" },
+    "contextBranch": {
+      "type": "object",
+      "properties": {
+        "siblingStates": { "type": "array", "minItems": 2, "maxItems": 2 }
+      },
+      "required": ["siblingStates"]
+    },
+    "runner": { "type": "object" },
+    "submission": { "type": "object" },
+    "privateGrader": { "type": "object" }
+  }
+}

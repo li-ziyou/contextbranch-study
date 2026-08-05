@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "rule": "Assign valid participant numbers cyclically after recruitment order is frozen. Do not replace a withdrawn participant by reusing their run ID.",
+  "sequences": [
+    {
+      "id": "S1",
+      "period1": { "taskId": "markdown-command-template-library", "condition": "linear" },
+      "period2": { "taskId": "rgb-image-composer", "condition": "contextbranch" }
+    },
+    {
+      "id": "S2",
+      "period1": { "taskId": "markdown-command-template-library", "condition": "contextbranch" },
+      "period2": { "taskId": "rgb-image-composer", "condition": "linear" }
+    },
+    {
+      "id": "S3",
+      "period1": { "taskId": "rgb-image-composer", "condition": "linear" },
+      "period2": { "taskId": "markdown-command-template-library", "condition": "contextbranch" }
+    },
+    {
+      "id": "S4",
+      "period1": { "taskId": "rgb-image-composer", "condition": "contextbranch" },
+      "period2": { "taskId": "markdown-command-template-library", "condition": "linear" }
+    }
+  ]
+}

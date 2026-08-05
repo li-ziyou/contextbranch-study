@@ -1,3 +1,39 @@
+# ContextBranch Study
+
+This private repository is the source of truth for the ContextBranch Study 2
+software and its frozen research artifacts. It includes the VS Code extension,
+the two FeatureBench-derived task manifests, task-builder contracts, the clean
+grader contract, session materials, and analysis-ready event definitions.
+
+It does not store participant-identifying data, recordings, API keys, raw run
+directories, or participant bundles containing private evaluation material.
+
+## Study 2 quick start
+
+```bash
+npm install
+npm run compile
+npm run study:validate
+npm run study:assign -- P017
+```
+
+The participant flow, system boundaries, and implementation sequence are in
+[`evaluation/study2/README.md`](evaluation/study2/README.md). The extension is
+the participant-facing application; the study layer will make it start the
+assigned task deterministically instead of exposing its general-purpose branch
+creation and decomposition controls.
+
+## Repository boundaries
+
+- `src/` and `webview/`: ContextBranch VS Code extension.
+- `evaluation/study2/`: all Study 2 source materials and control software.
+- `evaluation/study2/private-grader/`: private evaluation source. It is kept
+  in this private repository but excluded from participant bundles.
+- `evaluation/study2/runs/`, `recordings/`, and `private-results/`: local-only
+  data, ignored by Git.
+
+---
+
 # ContextBranch
 
 Git-style branching and merging for AI coding chat, inside VS Code.

@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "taskId": "rgb-image-composer",
+  "participantTitle": "RGB Image Composer",
+  "featureBench": {
+    "instanceId": "astropy__astropy.b0db0daa.test_basic_rgb.067e927c.lv1"
+  },
+  "source": {
+    "repository": "astropy/astropy",
+    "commit": "b0db0daac6b851596851cb43e5456fb6c916c071",
+    "taskMode": "feature mutation"
+  },
+  "ticket": {
+    "summary": "Build an RGB image composer.",
+    "requirements": [
+      "Accept three same-sized grayscale image arrays.",
+      "Normalize each channel and combine them into an RGB image.",
+      "Support normalized floating-point and 8-bit output."
+    ]
+  },
+  "rootBrief": {
+    "visibleInBothConditions": true,
+    "implementationIntentLabels": [
+      "Normalize and validate image channels",
+      "Compose and encode the RGB image"
+    ]
+  },
+  "contextBranch": {
+    "siblingStates": [
+      { "id": "normalize", "label": "Normalize and validate image channels" },
+      { "id": "compose", "label": "Compose and encode the RGB image" }
+    ]
+  },
+  "runner": {
+    "publicTestCommand": "study-run-public rgb-image-composer",
+    "image": "contextbranch-study/astropy-task:pending-build",
+    "network": "none"
+  },
+  "submission": {
+    "allowedProductionPaths": [
+      "astropy/visualization/basic_rgb.py",
+      "astropy/visualization/interval.py",
+      "astropy/visualization/stretch.py",
+      "astropy/visualization/lupton_rgb.py"
+    ],
+    "finalState": "main"
+  },
+  "privateGrader": {
+    "mode": "fresh-clean-baseline",
+    "outcome": "verified-feature-delivery",
+    "status": "test source pending implementation"
+  }
+}
