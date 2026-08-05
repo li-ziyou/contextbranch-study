@@ -241,7 +241,12 @@ export class Workspace {
     let art = this.storage.loadArtifact(id);
     if (!art) {
       art = {
-        id, path: artifactPath, content, baseContent, mergeIntent,
+        id, path: artifactPath, content,
+        // Keep the original branch-point content through repeated edits. A
+        // branch switch and a later three-way integration must restore/merge
+        // against the original baseline, not merely the previous keystroke.
+        baseContent: prev ? (prev.baseContent ?? baseContent) : baseContent,
+        mergeIntent,
         createdAt: ts, updatedAt: ts,
       };
       this.storage.saveArtifact(art);

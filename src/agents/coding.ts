@@ -60,7 +60,7 @@ export class CodingAgent {
     // just cost tokens every call. Merge-context system notes are always kept.
     const maxHistory = opts.maxHistory ?? DEFAULT_MAX_HISTORY;
     const filtered = opts.history.filter(
-      m => m.role !== 'system' || m.content.startsWith('[merge]')
+      m => m.role !== 'system' || m.content.startsWith('[merge]') || m.content.startsWith('[study]')
     );
     const mergeNotes = filtered.filter(m => m.role === 'system');
     const recent = filtered.slice(-maxHistory);

@@ -77,30 +77,31 @@ To override, set in VS Code settings:
 
 The test/lint commands run with a 60s timeout in the workspace root. If they exit non-zero, the merge preview shows **FAIL** and the user must either fix the branch and retry or force-merge.
 
-## Study mode
+## Study 2 setup
 
-For controlled user study:
+Do not create a study workspace by manually setting VS Code preferences. The
+operator command creates a fresh workspace and writes the protected assignment
+file that activates study mode.
 
-```json
-"contextbranch.studyMode": true,
-"contextbranch.participantId": "P01",
-"contextbranch.condition": "branched"   // or "linear"
+```bash
+npm run study:build-tasks
+npm run study:setup-runtime
+npm run study:preflight
+npm run study:dry-run
+npm run package
+npm run study:prepare -- P017 1 --provider FIXED_PROVIDER --model FIXED_MODEL
 ```
 
-When `condition: "linear"` is set, branching UI is disabled — participants can only chat in main. This lets you A/B compare interaction models cleanly.
-
-## Export study data
-
-In the Extension Development Host:
-
-1. Cmd/Ctrl+Shift+P → **ContextBranch: Export Study Data**
-2. Pick a save location.
-
-Output is a single anonymized JSON containing all branches, merge events, timings, token counts, override rates, etc. — see `src/core/types.ts → StudyExport` for schema.
-
-## Reset
-
-Cmd/Ctrl+Shift+P → **ContextBranch: Reset Workspace** — deletes all `.contextbranch/` data. Useful between participants.
+Install the generated `.vsix` on the research machine, then open the
+`workspace` path printed by `study:prepare`. The first prepared period fixes
+the provider, model, and all time and model-resource limits in a local study
+profile. Configure that provider's API key through `ContextBranch: Set API Key`
+on the research machine before the session. Run the second period with the same
+profile. After a participant finishes,
+use `study:collect` and `study:grade`; do not use Reset or the general export
+command during a session. The full procedure is in
+[`evaluation/study2/README.md`](evaluation/study2/README.md) and
+[`evaluation/study2/protocol/operator-runbook.md`](evaluation/study2/protocol/operator-runbook.md).
 
 ## Where data is stored
 
@@ -127,7 +128,7 @@ Add `.contextbranch/` to your `.gitignore` if you don't want it in version contr
 npm run package
 ```
 
-This produces `contextbranch-0.1.0.vsix` which can be installed in VS Code via:
+This produces `contextbranch-0.3.0.vsix` which can be installed in VS Code via:
 
 **Extensions** panel → ⋯ menu → **Install from VSIX...**
 

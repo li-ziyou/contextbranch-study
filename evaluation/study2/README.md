@@ -6,7 +6,12 @@ Code ContextBranch extension at the repository root.
 
 Study 1 is an existing formative pilot and is not implemented or rerun here.
 Study 2 compares a linear AI coding workflow with automatic divide-and-conquer
-plus user-controlled reintegration.
+plus user-controlled reintegration. FeatureBench supplies the pinned source
+revision, feature mutation, reference test, and task metadata. Participants
+receive a small task slice rather than the full upstream project. A dedicated
+local Python runtime contains only the dependencies and support modules needed
+to execute this pair of features, which keeps a human-study setup small and
+reproducible without requiring the multi-GB benchmark images.
 
 ## Fixed task pair
 
@@ -49,7 +54,7 @@ implementation-intent labels appear in a single conversation and code state.
 
 ```text
 manifests/       Frozen task contracts and their schema.
-operator/        Assignment generation and the future study launcher.
+operator/        Assignment generation, workspace preparation, collection, and preflight.
 protocol/        Participant flow and researcher runbook.
 task-builder/    Rules for producing safe participant bundles.
 public-tests/    Public-test contract; concrete files are task-builder output.
@@ -57,22 +62,44 @@ private-grader/  Fresh-baseline clean-patch evaluation contract.
 tasks/           Task-specific source and expected code-surface notes.
 ```
 
-## Current implementation order
-
-1. Implement the manifest loader and `StudyController` in `src/study/`.
-2. Build the Markdown task end to end: sanitized baseline, public test runner,
-   submit capture, and private clean grader.
-3. Repeat the same verified path for RGB.
-4. Connect assignment, timer, pooled model budget, and automatic export.
-5. Run technical dry runs in all four task-condition orders before data
-   collection.
-
-The two commands already available in this bootstrap are:
+## Operator commands
 
 ```bash
 npm run study:validate
 npm run study:assign -- P017
+npm run study:build-tasks
+npm run study:setup-runtime
+npm run study:preflight
+npm run study:dry-run
+npm run study:prepare -- P017 1 --provider YOUR_FIXED_PROVIDER --model YOUR_FIXED_MODEL
 ```
 
 `study:validate` checks the frozen manifests. `study:assign` prints a
-deterministic sequence; it does not write participant data.
+deterministic sequence; it does not write participant data. `study:build-tasks`
+creates the separate participant/private bundles. `study:setup-runtime`
+creates the isolated Python environment; `study:preflight` confirms that both
+bundles and that environment are ready. `study:prepare` creates
+one fresh period workspace. Open its printed `workspace` path in VS Code with
+this extension installed; the study controller reads `.study/run.json` and
+locks the assignment. The first prepared run creates `runs/study-profile.json`
+with its provider, model, time limit, and model budgets; later runs must match
+that profile, so the two conditions cannot silently receive different
+resources. Before a session, configure the matching provider API key with
+`ContextBranch: Set API Key` on the research machine.
+
+`study:dry-run` applies the private reference repair to a temporary copy of
+each participant bundle, runs its public suite, and runs clean private grading.
+It verifies the executable task path without creating study data.
+
+After the participant presses `Finish task`, collect and grade the main state:
+
+```bash
+npm run study:collect -- RUN_ID
+npm run study:grade -- --bundle participant-bundles/TASK_ID \
+  --submission evaluation/study2/runs/RUN_ID/submission/main \
+  --result evaluation/study2/private-results/RUN_ID.json
+```
+
+Finishing records hashes of the allowlisted production files. `study:collect`
+checks those hashes before copying the submission, so an edit made after the
+task ended cannot enter the clean grader.

@@ -37,6 +37,8 @@
     selectedHistoryNodeId: null,
     checkpoints: [],
     activeCheckpointId: null,
+    study: null,
+    studyTestsRunning: false,
     apiCounterMode: 'total',   // 'total' | 'split' | 'none' (click the pill to cycle)
   };
 
@@ -110,6 +112,35 @@
         case 'artifactsPreviewDismissed':
           hidePreviewBar();
           showStatus('Preview dismissed — files reverted.', 'info');
+          break;
+        case 'studyStarted':
+          showStatus('Task started.', 'success');
+          break;
+        case 'studyTestStarted':
+          state.studyTestsRunning = true;
+          $('study-run-tests').disabled = true;
+          showStatus('Running public tests…', 'info');
+          break;
+        case 'studyTestResult': {
+          state.studyTestsRunning = false;
+          const output = msg.output || '(No test output.)';
+          $('study-test-output').textContent = output;
+          $('study-test-output').hidden = false;
+          showStatus(
+            msg.exitCode === 0 ? `Public tests passed (${Math.ceil(msg.durationMs / 1000)}s).`
+              : `Public tests did not pass (${Math.ceil(msg.durationMs / 1000)}s).`,
+            msg.exitCode === 0 ? 'success' : 'error',
+          );
+          render();
+          break;
+        }
+        case 'studyFinished':
+          showStatus('Task finished. The operator can now collect the final main state.', 'success');
+          render();
+          break;
+        case 'studyTimedOut':
+          showStatus('Time is up. The final main state has been recorded.', 'info');
+          render();
           break;
       }
     } catch (err) {
@@ -321,7 +352,7 @@
     const apiCounter = $('api-counter');
     const t = state.telemetry;
     if (apiCounter) {
-      if (t && !state.noWorkspace) {
+      if (t && !state.noWorkspace && !state.study) {
         const userCalls  = t.totalApiCalls || 0;
         const mergeCalls = t.totalMergeApiCalls || 0;
         const total = userCalls + mergeCalls;
@@ -362,6 +393,10 @@
       bannerHtml = '⚠ No folder open. Use <strong>File → Open Folder</strong> in this window — ContextBranch stores data per workspace.';
     } else if (!state.providerReady) {
       bannerHtml = '⚠ No API key set. Open the Command Palette (Ctrl/Cmd+Shift+P) and run <strong>ContextBranch: Set API Key</strong>.';
+    } else if (state.study && !state.study.started) {
+      bannerHtml = 'Read the task ticket and public tests, then click <strong>Start task</strong>.';
+    } else if (state.study && state.study.finished) {
+      bannerHtml = 'This task is finished. Do not continue editing the workspace.';
     } else if (state.condition === 'linear') {
       bannerHtml = '⚠ Study mode: linear condition — branching is disabled.';
     } else if (!state.isMain) {
@@ -439,7 +474,7 @@
       div.appendChild(body);
 
       // Per-message actions
-      if ((m.role === 'user' || m.role === 'assistant') && state.condition !== 'linear') {
+      if (!state.study && (m.role === 'user' || m.role === 'assistant') && state.condition !== 'linear') {
         const actions = document.createElement('div');
         actions.className = 'message-actions';
 
@@ -463,13 +498,47 @@
     apply.disabled = false;
     abandon.disabled = state.isMain;
 
+    const studyActive = Boolean(state.study);
+    $('btn-menu').hidden = studyActive;
+    $('btn-checkpoint').hidden = studyActive;
+    $('btn-toggle-history').hidden = studyActive;
+    if (studyActive) {
+      $('history-pane').hidden = true;
+      $('pane-resizer').hidden = true;
+      state.historyOpen = false;
+    }
+    renderStudyControls();
+
     renderCheckpointModal();
 
     // Send button enabled state
-    $('btn-send').disabled = !state.providerReady || state.isStreaming;
-    $('composer-input').placeholder = state.providerReady
+    const studyBlocked = studyActive && (!state.study.started || state.study.finished || state.study.remainingSeconds === 0);
+    $('btn-send').disabled = !state.providerReady || state.isStreaming || studyBlocked;
+    $('composer-input').placeholder = studyBlocked
+      ? (state.study.finished ? 'Task finished.' : 'Start task to enable the assistant.')
+      : state.providerReady
       ? 'Message...'
       : 'Set an API key first (Cmd/Ctrl+Shift+P → ContextBranch: Set API Key)';
+  }
+
+  function renderStudyControls() {
+    const toolbar = $('study-toolbar');
+    if (!state.study) {
+      toolbar.hidden = true;
+      return;
+    }
+    const study = state.study;
+    toolbar.hidden = false;
+    $('study-task-title').textContent = study.taskTitle;
+    const minutes = Math.floor(study.remainingSeconds / 60);
+    const seconds = String(study.remainingSeconds % 60).padStart(2, '0');
+    $('study-timer').textContent = study.started ? `${minutes}:${seconds} remaining` : `${study.timeLimitSeconds / 60} min`;
+    const started = study.started;
+    const finished = study.finished;
+    $('study-start').hidden = started;
+    $('study-start').disabled = !state.providerReady || finished;
+    $('study-run-tests').disabled = !started || finished || study.remainingSeconds === 0 || state.studyTestsRunning;
+    $('study-finish').disabled = !started || finished;
   }
   function renderHistoryView() {
     console.log('[history] renderHistoryView called');
@@ -2285,6 +2354,9 @@ function findNextInstanceTime(branchId, instanceIdx) {
 
   $('btn-send').addEventListener('click', sendMessage);
   $('btn-stop').addEventListener('click', () => send({ type: 'abortStream' }));
+  $('study-start').addEventListener('click', () => send({ type: 'startStudyTask' }));
+  $('study-run-tests').addEventListener('click', () => send({ type: 'runStudyTests' }));
+  $('study-finish').addEventListener('click', () => send({ type: 'finishStudyTask' }));
 
   $('composer-input').addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {

@@ -1,26 +1,24 @@
-# Task builder contract
+# Task builder
 
-The builder converts each pinned FeatureBench source revision into two separate
-outputs:
+The builder creates two separate outputs for each FeatureBench instance:
 
-1. a participant bundle containing a sanitized feature-mutation baseline,
-   ticket, readable public tests, and a public runner; and
-2. a private grader package containing the same clean mutation baseline,
-   allowlisted production paths, hidden tests, and fixed fixtures.
+- `participant/` is a fresh, small Git workspace with only the task's
+  production files, feature mutation, ticket, public tests, and public runner.
+  It has no remote, FeatureBench patch, original F2P test, hidden tests, or
+  grader.
+- `private/` contains the same small clean mutation baseline, the original
+  FeatureBench F2P test for audit, and three hidden behavioural groups.
 
-The participant bundle must not contain the upstream Git history, FeatureBench
-patch, target test file, source solution, private test code, grader fixtures,
-or any remote origin. The task repository is re-initialized with only study
-commits before distribution.
+Build both bundles with the repository command. It creates a local builder
+environment if one is not already present:
 
-For each task, the builder must prove:
+```bash
+npm run study:build-tasks
+```
 
-- the mutation baseline fails the intended public test;
-- the reference repair passes public and private tests;
-- a near-miss implementation can be distinguished by private checks;
-- a participant modification to tests, runner scripts, configuration, or
-  package metadata cannot alter a clean private result;
-- the public command completes deterministically in under one minute.
-
-Concrete task source, mutation recipe, public tests, and private tests are not
-implemented in this bootstrap. They are the next two task-building issues.
+The builder downloads the FeatureBench Parquet file, checks the pinned patch
+hashes from the task manifests, sparse-checks out the stated source commit,
+applies only the allowlisted production diff, and reinitializes the participant
+copy as a clean local Git baseline. Public and private tests use the same
+isolated Study Python runtime, which contains only the dependencies and small
+support modules required by these two features.

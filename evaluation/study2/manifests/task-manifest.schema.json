@@ -10,8 +10,14 @@
     "schemaVersion": { "const": 1 },
     "taskId": { "type": "string" },
     "participantTitle": { "type": "string" },
-    "featureBench": { "type": "object" },
-    "source": { "type": "object" },
+    "featureBench": {
+      "type": "object",
+      "required": ["instanceId", "datasetUrl", "patchSha256", "testPatchSha256", "originalTestPath", "runtimeImageName"]
+    },
+    "source": {
+      "type": "object",
+      "required": ["repository", "commit", "taskMode", "taskSourcePaths"]
+    },
     "ticket": { "type": "object" },
     "rootBrief": { "type": "object" },
     "contextBranch": {
@@ -21,8 +27,17 @@
       },
       "required": ["siblingStates"]
     },
-    "runner": { "type": "object" },
-    "submission": { "type": "object" },
-    "privateGrader": { "type": "object" }
+    "runner": {
+      "type": "object",
+      "required": ["publicTestCommand", "runtime", "network"]
+    },
+    "submission": {
+      "type": "object",
+      "required": ["allowedProductionPaths", "finalState"]
+    },
+    "privateGrader": {
+      "type": "object",
+      "required": ["mode", "outcome", "hiddenGoals"]
+    }
   }
 }

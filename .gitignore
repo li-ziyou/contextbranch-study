@@ -4,6 +4,7 @@ out/
 *.vsix
 .vscode-test/
 *.log
+__pycache__/
 .DS_Store
 .contextbranch/
 .env
@@ -16,3 +17,8 @@ evaluation/study2/participant-bundles/
 evaluation/study2/recordings/
 evaluation/study2/task-cache/
 evaluation/study2/private-results/
+participant-bundles/
+task-cache/
+.study-venv/
+.study-runtime/
+.study-builder/

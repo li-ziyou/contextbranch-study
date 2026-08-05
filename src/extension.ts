@@ -17,6 +17,7 @@ import { WorkspaceCapture } from './core/file-watcher';
 import { LLMProvider, createProvider } from './llm/provider';
 import { ContextBranchView } from './webview/webview-manager';
 import { StudyExport } from './core/types';
+import { StudyController } from './study/controller';
 
 const SECRET_KEY = 'contextbranch.apiKey';
 
@@ -25,6 +26,7 @@ let provider: LLMProvider | null = null;
 let view: ContextBranchView | null = null;
 let capture: WorkspaceCapture | null = null;
 let statusBar: vscode.StatusBarItem | null = null;
+let studyController: StudyController | null = null;
 
 export async function activate(context: vscode.ExtensionContext) {
   // 1. Register the webview view FIRST so the user always sees the panel,
@@ -35,9 +37,10 @@ export async function activate(context: vscode.ExtensionContext) {
     context,  
     () => workspace,
     () => provider,
-    () => config.get<'linear' | 'branched'>('condition') ?? 'branched',
+    () => studyController?.condition ?? config.get<'linear' | 'branched' | 'contextbranch'>('condition') ?? 'branched',
     () => config.get<boolean>('studyMode') ?? false,
     () => capture, // give the view access so it can suppress paths around its own writes
+    () => studyController,
   );
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(ContextBranchView.viewType, view, {
@@ -75,6 +78,7 @@ export async function activate(context: vscode.ExtensionContext) {
   const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   let storage: Storage | null = null;
   if (root) {
+    studyController = StudyController.load(root);
     const cbRoot = path.join(root, '.contextbranch');
     storage = new Storage(cbRoot);
     workspace = new Workspace(storage);
@@ -91,6 +95,7 @@ export async function activate(context: vscode.ExtensionContext) {
     //     was first initialized here, fold them into main so the starting state
     //     is captured (otherwise only files you later touch get captured).
     runInitialIngest(cbRoot);
+    studyController?.initialize(workspace);
   } else {
     vscode.window.showWarningMessage(
       'ContextBranch: open a folder first, then reload the window.'
@@ -108,6 +113,7 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       const newRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       if (newRoot && !workspace) {
+        studyController = StudyController.load(newRoot);
         const cbRoot = path.join(newRoot, '.contextbranch');
         storage = new Storage(cbRoot);
         workspace = new Workspace(storage);
@@ -120,6 +126,7 @@ export async function activate(context: vscode.ExtensionContext) {
         view?.pushState();
         updateStatusBar();
         runInitialIngest(cbRoot);
+        studyController?.initialize(workspace);
         vscode.window.showInformationMessage('ContextBranch: workspace ready.');
       }
     })
@@ -163,6 +170,10 @@ export async function activate(context: vscode.ExtensionContext) {
       vscode.window.showInformationMessage(`Study data exported.`);
     }),
     vscode.commands.registerCommand('contextbranch.resetWorkspace', async () => {
+      if (studyController) {
+        vscode.window.showErrorMessage('ContextBranch data cannot be reset during a prepared study task.');
+        return;
+      }
       if (!storage) {
         vscode.window.showErrorMessage('Open a folder first.');
         return;
@@ -178,6 +189,14 @@ export async function activate(context: vscode.ExtensionContext) {
       vscode.window.showInformationMessage('ContextBranch reset.');
     }),
   );
+
+  const studyTimer = setInterval(() => {
+    if (studyController) {
+      void view?.checkStudyTimeout();
+      view?.pushState();
+    }
+  }, 1000);
+  context.subscriptions.push({ dispose: () => clearInterval(studyTimer) });
 
   // 6. Watch for config changes
   context.subscriptions.push(
@@ -240,6 +259,13 @@ async function setupProvider(context: vscode.ExtensionContext): Promise<void> {
   }
   try {
     const { provider: name, key } = JSON.parse(stored);
+    if (studyController && name !== studyController.providerName) {
+      provider = null;
+      vscode.window.showErrorMessage(
+        `Prepared study task requires the ${studyController.providerName} provider. Configure that provider before opening the participant workspace.`
+      );
+      return;
+    }
     const model = vscode.workspace.getConfiguration('contextbranch').get<string>('model');
     provider = createProvider(name, key, model || undefined);
   } catch (err: any) {
@@ -256,8 +282,8 @@ async function exportStudyData(ws: Workspace, config: vscode.WorkspaceConfigurat
   const forced = mergeEvents.filter(m => m.verification.forced);
 
   return {
-    participantId: config.get<string>('participantId') ?? '',
-    condition: config.get<'linear' | 'branched'>('condition') ?? 'branched',
+    participantId: studyController?.participantId ?? config.get<string>('participantId') ?? '',
+    condition: studyController?.condition ?? config.get<'linear' | 'branched' | 'contextbranch'>('condition') ?? 'branched',
     exportedAt: Date.now(),
     sessionDurationMs: Date.now() - ws.workspaceState.telemetry.sessionStartedAt,
     branches,

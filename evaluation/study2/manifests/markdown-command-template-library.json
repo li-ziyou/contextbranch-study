@@ -3,12 +3,21 @@
   "taskId": "markdown-command-template-library",
   "participantTitle": "Markdown Command Template Library",
   "featureBench": {
-    "instanceId": "mlflow__mlflow.93dab383.test_ai_command_utils.85dcb487.lv1"
+    "instanceId": "mlflow__mlflow.93dab383.test_ai_command_utils.85dcb487.lv1",
+    "datasetUrl": "https://huggingface.co/datasets/LiberCoders/FeatureBench/resolve/main/data/full-00000-of-00001.parquet?download=true",
+    "patchSha256": "ea7972807bacca51fa5c1c87cc7a6d10b28b298507c1675d4b1c1ff9ad2c5ca8",
+    "testPatchSha256": "39a4673f5acdb5374eaf4d27b91d707ecb7b66b00dead448ef3adaa91cb2cb83",
+    "originalTestPath": "tests/ai_commands/test_ai_command_utils.py",
+    "runtimeImageName": "libercoders/featurebench-specs_mlflow-instance_efffa87e"
   },
   "source": {
     "repository": "mlflow/mlflow",
     "commit": "93dab383a1a3fc9882ebc32283ad2a05d79ff70f",
-    "taskMode": "feature mutation"
+    "taskMode": "feature mutation",
+    "taskSourcePaths": [
+      "mlflow/ai_commands/ai_command_utils.py",
+      "mlflow/ai_commands/__init__.py"
+    ]
   },
   "ticket": {
     "summary": "Build a Markdown command-template library.",
@@ -32,9 +41,9 @@
     ]
   },
   "runner": {
-    "publicTestCommand": "study-run-public markdown-command-template-library",
-    "image": "contextbranch-study/mlflow-task:pending-build",
-    "network": "none"
+    "publicTestCommand": "python3 .study/bin/study_runner.py public --workspace .",
+    "runtime": "contextbranch-study-python",
+    "network": "not-required"
   },
   "submission": {
     "allowedProductionPaths": [
@@ -46,6 +55,7 @@
   "privateGrader": {
     "mode": "fresh-clean-baseline",
     "outcome": "verified-feature-delivery",
-    "status": "test source pending implementation"
+    "hiddenGoals": ["metadata", "discovery", "retrieval"],
+    "supplementaryReferenceTest": "tests/ai_commands/test_ai_command_utils.py"
   }
 }

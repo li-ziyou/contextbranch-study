@@ -4,6 +4,7 @@
  */
 
 export type StudyCondition = 'linear' | 'contextbranch';
+export type StudyProvider = 'anthropic' | 'openai' | 'openrouter' | 'gemini';
 
 export interface StudySiblingState {
   id: string;
@@ -23,8 +24,8 @@ export interface StudyTaskManifest {
   };
   runner: {
     publicTestCommand: string;
-    image: string;
-    network: 'none';
+    runtime: 'contextbranch-study-python';
+    network: 'not-required';
   };
   submission: {
     allowedProductionPaths: string[];
@@ -39,7 +40,52 @@ export interface StudyRunConfig {
   condition: StudyCondition;
   manifestPath: string;
   timeLimitSeconds: number;
+  provider: StudyProvider;
   modelId: string;
   modelCallBudget: number;
   modelTokenBudget: number;
+}
+
+export interface StudyRunFile {
+  schemaVersion: 1;
+  runId: string;
+  participantId: string;
+  sequenceId: string;
+  period: 1 | 2;
+  taskId: string;
+  condition: StudyCondition;
+  createdAt: string;
+  startedAt: string | null;
+  timeLimitSeconds: number;
+  model: {
+    provider: StudyProvider;
+    id: string;
+    modelCallBudget: number;
+    modelTokenBudget: number;
+  };
+  manifest: {
+    taskId: string;
+    sha256: string;
+    ticket: { summary: string; requirements: string[] };
+    rootBrief: StudyTaskManifest['rootBrief'];
+    contextBranch: StudyTaskManifest['contextBranch'];
+    runner: StudyTaskManifest['runner'];
+    submission: StudyTaskManifest['submission'];
+  };
+}
+
+export interface StudyUiState {
+  active: boolean;
+  runId: string;
+  taskTitle: string;
+  condition: StudyCondition;
+  started: boolean;
+  finished: boolean;
+  timeLimitSeconds: number;
+  remainingSeconds: number;
+  modelCallBudget: number;
+  modelCallsUsed: number;
+  modelTokenBudget: number;
+  modelTokensUsed: number;
+  siblingStateIds: string[];
 }

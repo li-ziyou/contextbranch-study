@@ -91,6 +91,20 @@
     <!-- ─── Banner ─────────────────────────────────────── -->
     <div class="banner" id="banner" hidden></div>
 
+    <!-- Shown only in an operator-prepared Study 2 workspace. -->
+    <section class="study-toolbar" id="study-toolbar" hidden>
+      <div class="study-task-line">
+        <strong id="study-task-title"></strong>
+        <span id="study-timer"></span>
+      </div>
+      <div class="study-toolbar-actions">
+        <button class="btn-primary" id="study-start">Start task</button>
+        <button class="btn-secondary" id="study-run-tests" disabled>Run public tests</button>
+        <button class="btn-secondary" id="study-finish" disabled>Finish task</button>
+      </div>
+      <pre class="study-test-output" id="study-test-output" hidden></pre>
+    </section>
+
     <!-- ─── Preview-changes action bar ─────────────────── -->
     <div class="banner info preview-bar" id="preview-bar" hidden>
       <span id="preview-bar-text">Previewing changes in your files.</span>

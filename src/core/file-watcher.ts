@@ -31,6 +31,7 @@ import { Workspace } from './workspace';
 
 const IGNORED_DIR_SEGMENTS = new Set([
   '.contextbranch',
+  '.study',
   '.git',
   'node_modules',
   'dist',

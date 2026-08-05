@@ -1,19 +1,18 @@
-# Clean private grader contract
+# Clean private grader
 
-The grader never executes code from the submitted participant workspace except
-for the extracted allowlisted production patch.
+`grade_submission.py` does not run a participant's workspace directly. It
+starts from `private/mutation`, copies only the allowlisted production paths
+from the captured final main state, then runs three hidden behavioural groups
+inside the prepared Study Python runtime. Public tests, test scripts, package
+configuration, and participant-created files cannot affect the result.
 
-For a submitted main state it must:
+```bash
+python3 evaluation/study2/private-grader/grade_submission.py \
+  --bundle participant-bundles/markdown-command-template-library \
+  --submission evaluation/study2/runs/RUN_ID/submission/main \
+  --result evaluation/study2/private-results/RUN_ID.json
+```
 
-1. create a fresh worktree at the task's feature-mutation baseline;
-2. extract only changes in `submission.allowedProductionPaths` from the
-   manifest;
-3. apply that patch to the fresh worktree;
-4. mount private tests and fixtures outside the participant bundle;
-5. run the fixed private command with a fixed timeout; and
-6. write `grade.json` containing patch-application status, raw private-check
-   results, verified-feature-delivery status, and diagnostics.
-
-Test files, runners, package metadata, configuration, fixtures, and unmerged
-candidate states never affect the submitted outcome. This source directory is
-private, but its contents are still excluded from participant bundles.
+The JSON record contains the clean-patch status, the three goal identifiers,
+the container result, and the binary `verifiedFeatureDelivery` outcome. It is
+an auditable result record, not a participant-facing score.

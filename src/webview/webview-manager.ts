@@ -21,12 +21,18 @@ import { LLMProvider } from '../llm/provider';
 import { previewMerge, finalizeMerge, detectTestCommand, detectLintCommand } from '../core/merge';
 import { Branch, Artifact, Message } from '../core/types';
 import { ChangeDecorations } from '../core/change-decorations';
+import { StudyController } from '../study/controller';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 export class ContextBranchView implements vscode.WebviewViewProvider {
   public static readonly viewType = 'contextbranch.sidebar';
 
   private view?: vscode.WebviewView;
   private currentAbort?: AbortController;
+  private finishingTimedOutStudy = false;
   /** Edits proposed by the last assistant turn, awaiting user accept/reject. */
   private pendingEdits?: { branchId: string; ops: EditOp[] };
   private mergeInProgress?: boolean;
@@ -46,9 +52,10 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     private context: vscode.ExtensionContext,
     private getWorkspace: () => Workspace | null,
     private getProvider: () => LLMProvider | null,
-    private getCondition: () => 'linear' | 'branched',
+    private getCondition: () => 'linear' | 'branched' | 'contextbranch',
     private getStudyMode: () => boolean,
     private getCapture: () => WorkspaceCapture | null = () => null,
+    private getStudyController: () => StudyController | null = () => null,
   ) {}
 
   resolveWebviewView(view: vscode.WebviewView): void {
@@ -108,6 +115,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     const checkpoints = ws.getCheckpoints(activeId);
     const condition = this.getCondition();
     const provider = this.getProvider();
+    const study = this.getStudyController();
 
     this.postMessage({
       type: 'state',
@@ -138,6 +146,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       activeBranchStatus: active.status,
       isMain: activeId === ws.mainBranchId,
       telemetry: ws.workspaceState.telemetry,
+      study: study?.uiState(ws) ?? null,
       noWorkspace: false,
       historyGraph: ws.getHistoryGraph(),
     });
@@ -161,6 +170,9 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
   private async handleMessage(msg: any): Promise<void> {
     switch (msg.type) {
       case 'send': return this.handleSend(msg.content);
+      case 'startStudyTask': return this.handleStartStudyTask();
+      case 'runStudyTests': return this.handleRunStudyTests();
+      case 'finishStudyTask': return this.handleFinishStudyTask();
       case 'createBranch': return this.handleCreateBranch(msg.name, msg.description, msg.fromMessageId, msg.parentBranchId, msg.select);
       case 'switchBranch': return this.handleSwitchBranch(msg.branchId);
       case 'abandonBranch': return this.handleAbandonBranch(msg.branchId);
@@ -189,6 +201,14 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       this.postMessage({ type: 'error', message: 'No API key configured. Run "ContextBranch: Set API Key".' });
       return;
     }
+    const study = this.getStudyController();
+    if (study) {
+      const denial = study.beginModelCall(ws);
+      if (denial) {
+        this.postMessage({ type: 'error', message: denial });
+        return;
+      }
+    }
 
     // Append user message
     const branch = ws.getActiveBranch();
@@ -205,7 +225,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     const cfg = vscode.workspace.getConfiguration('contextbranch');
     let assistantText = '';
     let inputTokens = 0, outputTokens = 0;
-    let model: string | undefined;
+    const model = study?.modelId || cfg.get<string>('model') || provider.defaultModel;
     let aborted = false;
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
@@ -223,6 +243,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
         hotContextChars: cfg.get<number>('hotContextChars') ?? undefined,
         coldContextChars: cfg.get<number>('coldContextChars') ?? undefined,
         maxHistory: cfg.get<number>('maxHistoryMessages') ?? undefined,
+        model,
       })) {
         if (ev.type === 'delta' && ev.text) {
           assistantText += ev.text;
@@ -278,6 +299,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
         }
       }
     }
+    study?.recordModelUsage(ws, inputTokens, outputTokens, model);
 
     this.postMessage({ type: 'streamEnd' });
     this.pushState();
@@ -362,6 +384,10 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
 
   private handleCreateBranch(name: string, description?: string, fromMessageId?: string,
                              parentBranchId?: string, select: boolean = true): void {
+    if (this.getStudyController()) {
+      this.postMessage({ type: 'error', message: 'Study states are created automatically for this task.' });
+      return;
+    }
     if (this.getCondition() === 'linear') {
       this.postMessage({ type: 'error', message: 'Branching disabled in linear condition.' });
       return;
@@ -418,6 +444,10 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
   }
 
   private handleAbandonBranch(branchId: string): void {
+    if (this.getStudyController()) {
+      this.postMessage({ type: 'error', message: 'Study states cannot be abandoned during a task.' });
+      return;
+    }
     const ws = this.requireWorkspace();
     if (!ws) return;
     ws.abandonBranch(branchId);
@@ -472,6 +502,10 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
   }
 
   private handleCreateCheckpoint(branchId: string, label?: string): void {
+    if (this.getStudyController()) {
+      this.postMessage({ type: 'error', message: 'Manual checkpoints are disabled during a study task.' });
+      return;
+    }
     const ws = this.requireWorkspace();
     if (!ws) return;
     const cp = ws.createCheckpoint(branchId, label);
@@ -485,6 +519,10 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
   }
 
   private handleRestoreCheckpoint(branchId: string, checkpointId: string): void {
+    if (this.getStudyController()) {
+      this.postMessage({ type: 'error', message: 'Manual checkpoint restore is disabled during a study task.' });
+      return;
+    }
     const ws = this.requireWorkspace();
     if (!ws) return;
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -566,11 +604,16 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
   private async handlePreviewMerge(sourceBranchId: string, targetBranchId: string): Promise<void> {
     const ws = this.requireWorkspace();
     if (!ws) return;
+    const study = this.getStudyController();
+    if (study && !study.allowsMerge(sourceBranchId, targetBranchId, ws)) {
+      this.postMessage({ type: 'error', message: 'During this study task, only an automatic sibling state may be integrated into main.' });
+      return;
+    }
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const config = vscode.workspace.getConfiguration('contextbranch');
     const testCmd = config.get<string>('testCommand') || (workspaceRoot ? detectTestCommand(workspaceRoot) : null);
     const lintCmd = config.get<string>('lintCommand') || (workspaceRoot ? detectLintCommand(workspaceRoot) : null);
-    const semanticMerge = config.get<boolean>('semanticMerge') ?? true;
+    const semanticMerge = study ? false : config.get<boolean>('semanticMerge') ?? true;
 
     // Preview is intentionally FAST in the textual-diff path (~2s).
     // Cascading analysis adds an LLM call (~5-30s). It's the headline feature
@@ -585,6 +628,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
         workspaceRoot,
         testCommand: testCmd ?? undefined,
         lintCommand: lintCmd ?? undefined,
+        skipVerification: Boolean(study),
         analyzeCascade: analyzeCascade ?? undefined,
         resolveConflict: resolveConflict ?? undefined,
       });
@@ -607,12 +651,19 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     }
     const ws = this.requireWorkspace();
     if (!ws) return;
-    const provider = this.getProvider();
+    const study = this.getStudyController();
+    if (study) {
+      if (force || !study.allowsMerge(sourceBranchId, targetBranchId, ws)) {
+        this.postMessage({ type: 'error', message: 'Study integrations are user-initiated sibling-to-main merges; force merge is disabled.' });
+        return;
+      }
+    }
+    const provider = study ? null : this.getProvider();
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const config = vscode.workspace.getConfiguration('contextbranch');
     const testCmd = config.get<string>('testCommand') || (workspaceRoot ? detectTestCommand(workspaceRoot) : null);
     const lintCmd = config.get<string>('lintCommand') || (workspaceRoot ? detectLintCommand(workspaceRoot) : null);
-    const semanticMerge = config.get<boolean>('semanticMerge') ?? true;
+    const semanticMerge = study ? false : config.get<boolean>('semanticMerge') ?? true;
 
     const meta = provider ? new MetaAgent(provider) : null;
     const analyzeCascade = semanticMerge ? this.buildAnalyzeCascadeHook() : null;
@@ -620,10 +671,11 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
 
     const opts = {
       sourceBranchId, targetBranchId, force,
-      generateSynthesis: true,
+      generateSynthesis: !study,
       workspaceRoot,
       testCommand: testCmd ?? undefined,
       lintCommand: lintCmd ?? undefined,
+      skipVerification: Boolean(study),
       consolidate: meta ? (b: Branch, msgs: Message[], changed: any) => meta.consolidate(b, msgs, changed) : undefined,
       rebaseCheck: meta ? (s: Branch, t: Branch, sm: Message[], tm: Message[]) => meta.rebaseCheck(s, t, sm, tm) : undefined,
       consistencyCheck: meta ? (t: Branch, mm: Message[]) => meta.consistencyCheck(t, mm) : undefined,
@@ -638,7 +690,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       const preview = await previewMerge(ws, opts);
       const event = await finalizeMerge(ws, opts, preview);
 
-      if (ws.activeBranchId === sourceBranchId) ws.switchBranch(targetBranchId);
+      if (ws.activeBranchId === sourceBranchId) await this.handleSwitchBranch(targetBranchId);
       this.pushState();
       this.postMessage({
         type: 'mergeCompleted',
@@ -654,6 +706,10 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
   // ─── decomposition ────────────────────────────────────────────────────────
 
   private async handleDecompose(taskDescription: string): Promise<void> {
+    if (this.getStudyController()) {
+      this.postMessage({ type: 'error', message: 'Automatic study states are already available for this task.' });
+      return;
+    }
     const provider = this.getProvider();
     if (!provider) {
       this.postMessage({ type: 'error', message: 'No API key.' });
@@ -677,6 +733,10 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
    * reverts, and clicking a previewed line drops just that line.
    */
   private async handlePreviewArtifacts(branchId: string): Promise<void> {
+    if (this.getStudyController()) {
+      this.postMessage({ type: 'error', message: 'Use state switching during a study task; artifact preview is disabled.' });
+      return;
+    }
     const ws = this.requireWorkspace();
     if (!ws) return;
     const branch = ws.getBranch(branchId);
@@ -708,6 +768,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
 
   /** Revert all active previews for this branch back to their saved state. */
   private async handleDismissPreview(branchId: string): Promise<void> {
+    if (this.getStudyController()) return;
     const ws = this.requireWorkspace();
     if (!ws) return;
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -721,6 +782,10 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
   }
 
   private async handleApplyArtifacts(branchId: string): Promise<void> {
+    if (this.getStudyController()) {
+      this.postMessage({ type: 'error', message: 'Use state switching or integration during a study task; direct artifact apply is disabled.' });
+      return;
+    }
     const ws = this.requireWorkspace();
     if (!ws) return;
     const branch = ws.getBranch(branchId);
@@ -775,6 +840,106 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       await deco.markChanges(written[i].full, written[i].content, { reveal: i === 0 });
     }
     vscode.window.showInformationMessage(`Applied ${count} file(s) to workspace.`);
+  }
+
+  private handleStartStudyTask(): void {
+    const ws = this.requireWorkspace();
+    const study = this.getStudyController();
+    if (!ws || !study) return;
+    try {
+      study.start(ws);
+    } catch (error: any) {
+      this.postMessage({ type: 'error', message: error.message ?? String(error) });
+      return;
+    }
+    this.postMessage({ type: 'studyStarted' });
+    this.pushState();
+  }
+
+  private async handleRunStudyTests(): Promise<void> {
+    const ws = this.requireWorkspace();
+    const study = this.getStudyController();
+    if (!ws || !study) return;
+    const denial = study.actionError();
+    if (denial) {
+      this.postMessage({ type: 'error', message: denial });
+      return;
+    }
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) return;
+    this.postMessage({ type: 'studyTestStarted' });
+    const startedAt = Date.now();
+    let exitCode: number | null = 0;
+    let output = '';
+    try {
+      const result = await execAsync(study.publicTestCommand, {
+        cwd: workspaceRoot,
+        timeout: 90_000,
+        maxBuffer: 512_000,
+      });
+      output = `${result.stdout}\n${result.stderr}`.trim();
+    } catch (error: any) {
+      exitCode = typeof error.code === 'number' ? error.code : 1;
+      output = `${error.stdout ?? ''}\n${error.stderr ?? error.message ?? String(error)}`.trim();
+    }
+    const durationMs = Date.now() - startedAt;
+    study.recordPublicTest(ws, exitCode, output, durationMs);
+    this.postMessage({
+      type: 'studyTestResult',
+      exitCode,
+      durationMs,
+      output: output.slice(-10_000),
+    });
+    this.pushState();
+  }
+
+  private async handleFinishStudyTask(): Promise<void> {
+    const ws = this.requireWorkspace();
+    const study = this.getStudyController();
+    if (!ws || !study) return;
+    if (!study.uiState(ws).started) {
+      this.postMessage({ type: 'error', message: 'Start the task before finishing it.' });
+      return;
+    }
+    const activeStateAtFinish = ws.activeBranchId;
+    if (ws.activeBranchId !== ws.mainBranchId) {
+      const choice = await vscode.window.showWarningMessage(
+        'Only the final main state is submitted. Unintegrated work in the current state will not be included.',
+        { modal: true },
+        'Finish from main',
+        'Cancel',
+      );
+      if (choice !== 'Finish from main') return;
+      await this.handleSwitchBranch(ws.mainBranchId);
+    }
+    study.finish(ws, activeStateAtFinish);
+    this.postMessage({ type: 'studyFinished' });
+    this.pushState();
+  }
+
+  /** Finalize an expired task without letting post-time edits become a submission. */
+  public async checkStudyTimeout(): Promise<void> {
+    if (this.finishingTimedOutStudy) return;
+    const ws = this.getWorkspace();
+    const study = this.getStudyController();
+    if (!ws || !study) return;
+    const state = study.uiState(ws);
+    if (!state.started || state.finished || state.remainingSeconds > 0) return;
+
+    this.finishingTimedOutStudy = true;
+    try {
+      const activeStateAtFinish = ws.activeBranchId;
+      if (activeStateAtFinish !== ws.mainBranchId) {
+        await this.handleSwitchBranch(ws.mainBranchId);
+      }
+      study.finish(ws, activeStateAtFinish);
+      this.postMessage({ type: 'studyTimedOut' });
+      this.pushState();
+    } catch (error: any) {
+      this.postMessage({ type: 'error', message: `Could not finish the timed task: ${error.message ?? String(error)}` });
+    } finally {
+      this.finishingTimedOutStudy = false;
+    }
   }
 
   // ─── HTML scaffolding ─────────────────────────────────────────────────────

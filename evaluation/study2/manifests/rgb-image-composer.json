@@ -3,12 +3,23 @@
   "taskId": "rgb-image-composer",
   "participantTitle": "RGB Image Composer",
   "featureBench": {
-    "instanceId": "astropy__astropy.b0db0daa.test_basic_rgb.067e927c.lv1"
+    "instanceId": "astropy__astropy.b0db0daa.test_basic_rgb.067e927c.lv1",
+    "datasetUrl": "https://huggingface.co/datasets/LiberCoders/FeatureBench/resolve/main/data/full-00000-of-00001.parquet?download=true",
+    "patchSha256": "f9252830020be75995273cf0c80c375117957f373c24437d4b249c821f286c02",
+    "testPatchSha256": "7c8ce38083d3efb6a79e2336bc7a3d1f03fe3c5ff4eb5bd000904c78524ee07e",
+    "originalTestPath": "astropy/visualization/tests/test_basic_rgb.py",
+    "runtimeImageName": "libercoders/featurebench-specs_astropy-instance_493bb78b"
   },
   "source": {
     "repository": "astropy/astropy",
     "commit": "b0db0daac6b851596851cb43e5456fb6c916c071",
-    "taskMode": "feature mutation"
+    "taskMode": "feature mutation",
+    "taskSourcePaths": [
+      "astropy/visualization/basic_rgb.py",
+      "astropy/visualization/interval.py",
+      "astropy/visualization/stretch.py",
+      "astropy/visualization/lupton_rgb.py"
+    ]
   },
   "ticket": {
     "summary": "Build an RGB image composer.",
@@ -32,9 +43,9 @@
     ]
   },
   "runner": {
-    "publicTestCommand": "study-run-public rgb-image-composer",
-    "image": "contextbranch-study/astropy-task:pending-build",
-    "network": "none"
+    "publicTestCommand": "python3 .study/bin/study_runner.py public --workspace .",
+    "runtime": "contextbranch-study-python",
+    "network": "not-required"
   },
   "submission": {
     "allowedProductionPaths": [
@@ -48,6 +59,7 @@
   "privateGrader": {
     "mode": "fresh-clean-baseline",
     "outcome": "verified-feature-delivery",
-    "status": "test source pending implementation"
+    "hiddenGoals": ["normalization", "encoding", "validation"],
+    "supplementaryReferenceTest": "astropy/visualization/tests/test_basic_rgb.py"
   }
 }

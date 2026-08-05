@@ -1618,3 +1618,32 @@ button:disabled {
   border-top: 1px solid var(--vscode-panel-border, #3a3a3a);
   background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
 }
+
+/* ── Study 2 controls ──────────────────────────────────────────────────── */
+.study-toolbar {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--vscode-panel-border, #3a3a3a);
+  background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+}
+.study-toolbar[hidden] { display: none; }
+.study-task-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.82em;
+  margin-bottom: 7px;
+}
+#study-timer { color: var(--vscode-descriptionForeground); white-space: nowrap; }
+.study-toolbar-actions { display: flex; gap: 6px; }
+.study-toolbar-actions button { font-size: 0.8em; padding: 4px 8px; }
+.study-test-output {
+  max-height: 150px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 7px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.76em;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  border: 1px solid var(--vscode-panel-border, #3a3a3a);
+}

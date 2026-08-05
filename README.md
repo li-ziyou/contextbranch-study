@@ -127,12 +127,12 @@ contextbranch/
 │   ├── index.html            Three-pane layout
 │   ├── style.css             Themed via VS Code CSS variables
 │   └── app.js                Vanilla JS — no React build complexity
-├── evaluation/               User-study replication package
-│   ├── README.md             Overview of the evaluation setup
-│   ├── protocol/             Study protocol, task descriptions, consent forms
-│   ├── tasks/                Starter applications given to participants
-│   ├── data/                 Collected telemetry / session data (per participant)
-│   └── analysis/             Scripts and notebooks for analyzing study results
+├── evaluation/study2/        Study 2 task builder, runner, protocol, and grader
+│   ├── manifests/            Frozen task contracts and source revisions
+│   ├── operator/             Assignment, preparation, collection, and checks
+│   ├── public-tests/         Readable test suites given to participants
+│   ├── private-grader/       Fresh-baseline clean-patch evaluation
+│   └── task-builder/         Participant/private bundle builder
 └── media/icon.svg
 ```
 

@@ -214,7 +214,7 @@ export interface WorkspaceState {
 
 export interface StudyExport {
   participantId: string;
-  condition: 'linear' | 'branched';
+  condition: 'linear' | 'branched' | 'contextbranch';
   exportedAt: number;
   sessionDurationMs: number;
   branches: Branch[];
@@ -224,11 +224,4 @@ export interface StudyExport {
   mergeCount: number;
   forcedMergeCount: number;
   abandonedBranchCount: number;
-  // Subjective measures populated post-task by experimenter
-  postTaskSurvey?: {
-    nasaTlx?: Record<string, number>;
-    sus?: Record<string, number>;
-    tsri?: Record<string, number>;
-    notes?: string;
-  };
 }
