@@ -129,7 +129,7 @@
         "contextbranch.semanticMerge": {
           "type": "boolean",
           "default": true,
-          "description": "Run the MergeAnalystAgent during merge preview. The agent reads all artifacts in both branches and proposes cascading edits to UNCHANGED target files that may need updates to remain consistent with the changes. Disable to run the textual-only merge baseline (used as the ablation condition in the study)."
+          "description": "Allow the MergeAnalystAgent to propose cascading edits. Each merge has an explicit opt-in checkbox; every proposed edit is separately opt-in. Disable this setting to remove cascade analysis entirely (used as the textual-only merge baseline in the study)."
         },
         "contextbranch.autoApplyOnSwitch": {
           "type": "boolean",

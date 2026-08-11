@@ -13,3 +13,4 @@ task-cache/**
 *.vsix
 *.log
 AGENTS.md
+.contextbranch/

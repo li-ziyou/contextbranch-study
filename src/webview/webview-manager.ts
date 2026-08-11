@@ -21,6 +21,7 @@ import { ConflictResolverAgent } from '../agents/conflict-resolver';
 import { LLMProvider } from '../llm/provider';
 import { previewMerge, finalizeMerge, undoMerge, detectTestCommand, detectLintCommand } from '../core/merge';
 import { Branch, Artifact, Message } from '../core/types';
+import { Storage } from '../core/storage';
 import { ChangeDecorations } from '../core/change-decorations';
 import { StudyController } from '../study/controller';
 import { exec } from 'child_process';
@@ -40,6 +41,8 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
   /** A merge preview is user-reviewed state; never silently regenerate it. */
   private pendingMergePreview?: { sourceBranchId: string; targetBranchId: string; fingerprint: string; preview: any };
   private pendingMergeContextAbort?: AbortController;
+  /** Manual IDE conflict-resolution session for the currently reviewed merge. */
+  private pendingManualMerge?: { sourceBranchId: string; targetBranchId: string; paths: string[]; acceptedCascadePaths: string[] };
 
   /** Git-style highlights for lines added/changed by the last artifact apply. */
   private decorations?: ChangeDecorations;
@@ -182,8 +185,12 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       case 'switchBranch': return this.handleSwitchBranch(msg.branchId);
       case 'abandonBranch': return this.handleAbandonBranch(msg.branchId);
       case 'mergeBranch': return this.handleMergeBranch(msg.sourceBranchId, msg.targetBranchId, msg.force, msg.acceptedCascadePaths, msg.acceptedConflictPaths);
+      case 'beginManualMergeResolution': return this.handleBeginManualMergeResolution(msg.acceptedCascadePaths ?? []);
+      case 'finalizeManualMergeResolution': return this.handleFinalizeManualMergeResolution();
+      case 'cancelManualMergeResolution': return this.handleCancelManualMergeResolution();
+      case 'reviseConflictResolution': return this.handleReviseConflictResolution(msg.path, msg.instruction);
       case 'undoMerge': return this.handleUndoMerge(msg.mergeEventId);
-      case 'previewMerge': return this.handlePreviewMerge(msg.sourceBranchId, msg.targetBranchId);
+      case 'previewMerge': return this.handlePreviewMerge(msg.sourceBranchId, msg.targetBranchId, Boolean(msg.allowCascade));
       case 'createCheckpoint': return this.handleCreateCheckpoint(msg.branchId, msg.label);
       case 'restoreCheckpoint': return this.handleRestoreCheckpoint(msg.branchId, msg.checkpointId);
       case 'abortStream': return this.handleAbort();
@@ -696,6 +703,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
 
     this.pendingEdits = undefined;
     this.pendingMergePreview = undefined;
+    this.pendingManualMerge = undefined;
     // Any in-file preview belongs to the branch we're leaving — revert those
     // unsaved buffers before we write the new branch's files.
     await this.getDecorations().dismissAllPreviews();
@@ -889,7 +897,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     };
   }
 
-  private async handlePreviewMerge(sourceBranchId: string, targetBranchId: string): Promise<void> {
+  private async handlePreviewMerge(sourceBranchId: string, targetBranchId: string, allowCascade = false): Promise<void> {
     const ws = this.requireWorkspace();
     if (!ws) return;
     const study = this.getStudyController();
@@ -908,7 +916,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     const lintCmd = config.get<string>('lintCommand') || (workspaceRoot ? detectLintCommand(workspaceRoot) : null);
     const semanticMerge = study ? false : config.get<boolean>('semanticMerge') ?? true;
     const meta = provider ? new MetaAgent(provider) : null;
-    const analyzeCascade = semanticMerge ? this.buildAnalyzeCascadeHook() : null;
+    const analyzeCascade = semanticMerge && allowCascade ? this.buildAnalyzeCascadeHook() : null;
     const resolveConflict = semanticMerge ? this.buildResolveConflictHook() : null;
 
     try {
@@ -921,7 +929,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
         skipVerification: Boolean(study),
         consolidate: meta ? (b: Branch, msgs: Message[], changed: any, _t: Branch) => meta.consolidate(b, msgs, changed) : undefined,
         rebaseCheck: meta ? (source: Branch, target: Branch, sm: Message[], tm: Message[]) => meta.rebaseCheck(source, target, sm, tm) : undefined,
-        consistencyCheck: meta ? (target: Branch, mm: Message[]) => meta.consistencyCheck(target, mm) : undefined,
+        consistencyCheck: meta ? (target: Branch, mm: Message[], evidence: import('../core/merge').ConsistencyEvidence[]) => meta.consistencyCheck(target, mm, evidence, this.currentAbort?.signal) : undefined,
         analyzeCascade: analyzeCascade ?? undefined,
         resolveConflict: resolveConflict ?? undefined,
       });
@@ -936,6 +944,228 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       this.pendingMergePreview = undefined;
       this.postMessage({ type: 'error', message: `Preview failed: ${err.message ?? err}` });
     }
+  }
+
+  private async handleBeginManualMergeResolution(acceptedCascadePaths: string[] = []): Promise<void> {
+    const ws = this.requireWorkspace();
+    const cached = this.pendingMergePreview;
+    if (this.getStudyController()) {
+      this.postMessage({ type: 'error', message: 'Manual IDE conflict resolution is disabled during prepared study tasks.' });
+      return;
+    }
+    if (!ws || !cached) {
+      this.postMessage({ type: 'error', message: 'Preview the merge before starting conflict resolution.' });
+      return;
+    }
+    if (ws.activeBranchId !== cached.sourceBranchId) {
+      this.postMessage({ type: 'error', message: 'Switch to the source branch before resolving merge conflicts in the editor.' });
+      return;
+    }
+    const nowFingerprint = this.branchStateFingerprintPair(ws, cached.sourceBranchId, cached.targetBranchId);
+    if (nowFingerprint !== cached.fingerprint) {
+      this.postMessage({ type: 'error', message: 'The merge preview is stale. Preview the merge again before resolving conflicts.' });
+      return;
+    }
+    const conflicts = cached.preview.verification?.artifactConflicts ?? [];
+    if (!conflicts.length) {
+      this.postMessage({ type: 'error', message: 'This merge has no textual conflicts to resolve in the editor.' });
+      return;
+    }
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!root) {
+      this.postMessage({ type: 'error', message: 'No workspace folder is open.' });
+      return;
+    }
+
+    const deco = this.getDecorations();
+    const started: string[] = [];
+    try {
+      for (let i = 0; i < conflicts.length; i++) {
+        const conflict = conflicts[i];
+        const full = path.join(root, conflict.path);
+        const ok = await deco.previewChanges(full, conflict.conflictRegion, { reveal: i === 0 });
+        if (!ok) throw new Error(`Could not open ${conflict.path} for conflict resolution.`);
+        started.push(conflict.path);
+      }
+      this.pendingManualMerge = {
+        sourceBranchId: cached.sourceBranchId,
+        targetBranchId: cached.targetBranchId,
+        paths: conflicts.map((c: any) => c.path),
+        acceptedCascadePaths: [...acceptedCascadePaths],
+      };
+      this.postMessage({ type: 'manualMergeResolutionStarted', paths: started });
+    } catch (err: any) {
+      await deco.dismissAllPreviews();
+      this.pendingManualMerge = undefined;
+      this.postMessage({ type: 'error', message: `Could not start IDE conflict resolution: ${err.message ?? err}` });
+    }
+  }
+
+  private async handleFinalizeManualMergeResolution(): Promise<void> {
+    const ws = this.requireWorkspace();
+    const cached = this.pendingMergePreview;
+    const manual = this.pendingManualMerge;
+    if (!ws || !cached || !manual) {
+      this.postMessage({ type: 'error', message: 'No active IDE conflict-resolution session.' });
+      return;
+    }
+    if (ws.activeBranchId !== manual.sourceBranchId) {
+      this.postMessage({ type: 'error', message: 'Return to the source branch before finalizing the resolved merge.' });
+      return;
+    }
+    const nowFingerprint = this.branchStateFingerprintPair(ws, cached.sourceBranchId, cached.targetBranchId);
+    if (nowFingerprint !== cached.fingerprint) {
+      this.postMessage({ type: 'error', message: 'The merge preview became stale while you were resolving conflicts. The resolution was not finalized; preview the merge again.' });
+      return;
+    }
+
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!root) {
+      this.postMessage({ type: 'error', message: 'No workspace folder is open.' });
+      return;
+    }
+
+    const manualResolved: Record<string, string> = {};
+    const unresolved: string[] = [];
+    for (const conflict of (cached.preview.verification?.artifactConflicts ?? [])) {
+      const full = path.join(root, conflict.path);
+      const doc = vscode.workspace.textDocuments.find(d => d.uri.fsPath === full);
+      const content = doc?.getText() ?? readWorkspaceFile(root, conflict.path);
+      if (content == null) {
+        unresolved.push(`${conflict.path} (file is unavailable)`);
+        continue;
+      }
+      if (/<{7}|>{7}|^={7}$/m.test(content)) {
+        unresolved.push(conflict.path);
+        continue;
+      }
+      manualResolved[conflict.path] = content;
+    }
+    if (unresolved.length) {
+      this.postMessage({
+        type: 'manualMergeResolutionBlocked',
+        paths: unresolved,
+        message: `Resolve the remaining conflict markers in: ${unresolved.join(', ')}`,
+      });
+      return;
+    }
+
+    this.mergeInProgress = true;
+    try {
+      const event = await finalizeMerge(ws, {
+        sourceBranchId: cached.sourceBranchId,
+        targetBranchId: cached.targetBranchId,
+        force: false,
+        workspaceRoot: root,
+        testCommand: (() => {
+          const c = vscode.workspace.getConfiguration('contextbranch').get<string>('testCommand');
+          return c ?? (detectTestCommand(root) ?? undefined);
+        })(),
+        lintCommand: (() => {
+          const c = vscode.workspace.getConfiguration('contextbranch').get<string>('lintCommand');
+          return c ?? (detectLintCommand(root) ?? undefined);
+        })(),
+        skipVerification: false,
+        acceptedConflictPaths: manual.paths,
+        manualResolvedContents: manualResolved,
+        acceptedCascadePaths: manual.acceptedCascadePaths,
+      }, cached.preview);
+
+      await this.getDecorations().dismissAllPreviews();
+      this.pendingManualMerge = undefined;
+      this.pendingMergePreview = undefined;
+      if (ws.activeBranchId === cached.sourceBranchId) await this.handleSwitchBranch(cached.targetBranchId);
+      this.pushState();
+      this.postMessage({
+        type: 'mergeCompleted',
+        event,
+        cascadingApplied: manual.acceptedCascadePaths.length,
+        conflictsResolved: manual.paths.length,
+        resolutionMode: 'manual',
+      });
+    } catch (err: any) {
+      this.postMessage({ type: 'error', message: err.message ?? String(err) });
+    } finally {
+      this.mergeInProgress = false;
+    }
+  }
+
+  private async handleReviseConflictResolution(pathToRevise: string, instruction: string): Promise<void> {
+    const ws = this.requireWorkspace();
+    const cached = this.pendingMergePreview;
+    const provider = this.getProvider();
+    if (!ws || !cached) return;
+    if (!provider) {
+      this.postMessage({ type: 'error', message: 'No LLM provider is configured for AI conflict resolution.' });
+      return;
+    }
+    if (!pathToRevise || !instruction?.trim()) {
+      this.postMessage({ type: 'error', message: 'Enter a revision request for the AI resolution.' });
+      return;
+    }
+    const nowFingerprint = this.branchStateFingerprintPair(ws, cached.sourceBranchId, cached.targetBranchId);
+    if (nowFingerprint !== cached.fingerprint) {
+      this.postMessage({ type: 'error', message: 'The merge preview is stale. Preview the merge again before revising the AI resolution.' });
+      return;
+    }
+    const conflict = (cached.preview.verification?.artifactConflicts ?? []).find((c: any) => c.path === pathToRevise);
+    if (!conflict) {
+      this.postMessage({ type: 'error', message: `No reviewed conflict exists for ${pathToRevise}.` });
+      return;
+    }
+    const source = ws.getBranch(cached.sourceBranchId);
+    const target = ws.getBranch(cached.targetBranchId);
+    if (!source || !target) return;
+    const sourceArtifact = ws.getArtifacts(source.id).find(a => a.path === pathToRevise);
+    const targetArtifact = ws.getArtifacts(target.id).find(a => a.path === pathToRevise);
+    if (!sourceArtifact || !targetArtifact) {
+      this.postMessage({ type: 'error', message: `Could not load both branch versions of ${pathToRevise}.` });
+      return;
+    }
+    try {
+      const previous = (cached.preview.conflictResolutions ?? []).find((r: any) => r.path === pathToRevise);
+      const resolution = await new ConflictResolverAgent(provider).resolve({
+        path: pathToRevise,
+        base: conflict.baseContent ?? sourceArtifact.baseContent ?? '',
+        theirs: targetArtifact.content,
+        ours: sourceArtifact.content,
+        theirContext: ws.getMessages(target.id).slice(-4),
+        ourContext: ws.getMessages(source.id).slice(-4),
+        revisionInstruction: instruction,
+        currentResolution: previous?.resolvedContent,
+      });
+      const resolutions = [...(cached.preview.conflictResolutions ?? [])];
+      const index = resolutions.findIndex(r => r.path === pathToRevise);
+      if (index >= 0) resolutions[index] = resolution;
+      else resolutions.push(resolution);
+      cached.preview.conflictResolutions = resolutions;
+      cached.preview.synthesisDraft = undefined;
+      this.postMessage({ type: 'mergePreview', preview: cached.preview, sourceBranchId: cached.sourceBranchId, targetBranchId: cached.targetBranchId });
+    } catch (err: any) {
+      this.postMessage({ type: 'error', message: `AI revision failed: ${err.message ?? String(err)}` });
+    }
+  }
+
+  private async handleCancelManualMergeResolution(): Promise<void> {
+    await this.getDecorations().dismissAllPreviews();
+    this.pendingManualMerge = undefined;
+    this.postMessage({ type: 'manualMergeResolutionCancelled' });
+  }
+
+  private branchStateFingerprintPair(ws: Workspace, sourceId: string, targetId: string): string {
+    const fingerprint = (branchId: string): string => {
+      const b = ws.getBranch(branchId);
+      if (!b) throw new Error(`Branch ${branchId} not found`);
+      return Storage.hash(JSON.stringify({
+        branchId: b.id,
+        status: b.status,
+        parentCheckpointId: b.parentCheckpointId,
+        activeCheckpointId: b.activeCheckpointId,
+        messageIds: b.messageIds,
+        artifactIds: b.artifactIds,
+      }));
+    };
+    return Storage.hash(`${fingerprint(sourceId)}|${fingerprint(targetId)}`);
   }
 
   private async handleMergeBranch(

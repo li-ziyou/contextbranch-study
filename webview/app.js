@@ -35,6 +35,7 @@
     decomposing: false,
     pendingMergePreview: null,
     pendingMerge: null,
+    manualMergeResolution: null,
     historyOpen: false,
     historyGraph: null,
     selectedHistoryNodeId: null,
@@ -79,6 +80,21 @@
         case 'decompositionResult': handleDecompositionResult(msg.result); break;
         case 'mergePreview': handleMergePreview(msg.preview, msg.sourceBranchId, msg.targetBranchId); break;
         case 'mergeCompleted': handleMergeCompleted(msg.event, msg.cascadingApplied, msg.conflictsResolved); break;
+        case 'manualMergeResolutionStarted':
+          state.manualMergeResolution = { paths: msg.paths || [] };
+          renderConflictResolutions(state.pendingMergePreview);
+          updateMergeActionButtons();
+          showStatus('Conflict markers are open in the editor. Resolve them there, then finalize here.', 'info');
+          break;
+        case 'manualMergeResolutionCancelled':
+          state.manualMergeResolution = null;
+          renderConflictResolutions(state.pendingMergePreview);
+          updateMergeActionButtons();
+          showStatus('IDE conflict resolution cancelled; the preview was restored.', 'info');
+          break;
+        case 'manualMergeResolutionBlocked':
+          showStatus(msg.message || 'Resolve all conflict markers before finalizing.', 'error');
+          break;
         case 'mergeUndone': showStatus(msg.message || 'Merge undone.', 'success'); break;
         case 'contextWarning': showStatus(msg.message, 'error'); break;
         case 'switchApplied': {
@@ -331,6 +347,7 @@
   }
 
   function handleMergePreview(preview, sourceBranchId, targetBranchId) {
+    state.manualMergeResolution = null;
     state.pendingMergePreview = preview;
     state.pendingMerge = { sourceBranchId, targetBranchId };
     $('merge-running').hidden = true;
@@ -342,6 +359,7 @@
     closeModal('modal-merge');
     state.pendingMerge = null;
     state.pendingMergePreview = null;
+    state.manualMergeResolution = null;
     const parts = [];
     if (cascadingApplied > 0) parts.push(`${cascadingApplied} cascading edit${cascadingApplied === 1 ? '' : 's'}`);
     if (conflictsResolved > 0) parts.push(`${conflictsResolved} conflict${conflictsResolved === 1 ? '' : 's'} ai-resolved`);
@@ -1928,7 +1946,7 @@ function findNextInstanceTime(branchId, instanceIdx) {
       head.className = 'cascade-head';
       const cb = document.createElement('input');
       cb.type = 'checkbox';
-      cb.checked = true; // proposals are opt-out by default
+      cb.checked = false; // cascading edits are opt-in; the user must explicitly accept each proposal
       cb.dataset.cascadePath = proposal.path;
       cb.className = 'cascade-checkbox';
       const title = document.createElement('span');
@@ -1976,14 +1994,33 @@ function findNextInstanceTime(branchId, instanceIdx) {
   function renderConflictResolutions(p) {
     const wrap = $('merge-conflicts');
     const list = $('merge-conflicts-list');
+    const resolveBtn = $('merge-resolve-in-ide');
+    const cancelBtn = $('merge-cancel-ide');
+    const help = $('merge-manual-help');
     const resolutions = (p && p.conflictResolutions) || [];
+    const conflicts = (p && p.verification && p.verification.artifactConflicts) || [];
+    const manual = !!state.manualMergeResolution;
 
-    if (resolutions.length === 0) {
+    if (conflicts.length === 0) {
+      list.innerHTML = '';
       wrap.hidden = true;
       return;
     }
     wrap.hidden = false;
     list.innerHTML = '';
+    if (resolveBtn) {
+      resolveBtn.hidden = manual || !!state.study;
+      resolveBtn.disabled = false;
+    }
+    if (cancelBtn) cancelBtn.hidden = !manual;
+    if (help) help.hidden = !manual;
+
+    if (!resolutions.length && !manual) {
+      const note = document.createElement('div');
+      note.className = 'cascade-rationale';
+      note.textContent = 'No AI resolution is available. Resolve the conflict directly in the editor.';
+      list.appendChild(note);
+    }
 
     resolutions.forEach((res) => {
       const item = document.createElement('div');
@@ -1993,9 +2030,8 @@ function findNextInstanceTime(branchId, instanceIdx) {
       head.className = 'cascade-head';
       const cb = document.createElement('input');
       cb.type = 'checkbox';
-      // Default to accepting only high-confidence resolutions. Medium/low get
-      // shown but unchecked — the user decides.
-      cb.checked = res.confidence === 'high';
+      cb.checked = false;
+      cb.disabled = manual;
       cb.dataset.conflictPath = res.path;
       cb.className = 'conflict-checkbox';
       cb.addEventListener('change', () => updateMergeActionButtons());
@@ -2014,9 +2050,6 @@ function findNextInstanceTime(branchId, instanceIdx) {
         item.appendChild(r);
       }
       if (res.error) {
-        // Resolver failed — show why, and the checkbox defaults to UNCHECKED
-        // so the user falls back to textual conflict markers unless they
-        // explicitly opt in to the unsafe fallback content.
         cb.checked = false;
         const e = document.createElement('div');
         e.className = 'cascade-rationale cascade-error';
@@ -2031,8 +2064,6 @@ function findNextInstanceTime(branchId, instanceIdx) {
       const diff = document.createElement('pre');
       diff.className = 'cascade-diff';
       diff.hidden = true;
-      // Show the diff from target's current content → AI-resolved content,
-      // since that's what the user is about to commit to.
       diff.textContent = simpleLineDiff(res.originalContent || '', res.resolvedContent || '');
       toggle.addEventListener('click', () => {
         diff.hidden = !diff.hidden;
@@ -2041,6 +2072,45 @@ function findNextInstanceTime(branchId, instanceIdx) {
       item.appendChild(toggle);
       item.appendChild(diff);
 
+      const fullToggle = document.createElement('button');
+      fullToggle.type = 'button';
+      fullToggle.className = 'cascade-toggle';
+      fullToggle.textContent = 'show full proposed file';
+      const full = document.createElement('pre');
+      full.className = 'cascade-diff conflict-full-resolution';
+      full.hidden = true;
+      full.textContent = res.resolvedContent || '';
+      fullToggle.addEventListener('click', () => {
+        full.hidden = !full.hidden;
+        fullToggle.textContent = full.hidden ? 'show full proposed file' : 'hide full proposed file';
+      });
+      item.appendChild(fullToggle);
+      item.appendChild(full);
+
+      const revise = document.createElement('div');
+      revise.className = 'conflict-revise';
+      const input = document.createElement('textarea');
+      input.className = 'conflict-revise-input';
+      input.rows = 2;
+      input.placeholder = 'Ask the AI to revise this resolution…';
+      const reviseBtn = document.createElement('button');
+      reviseBtn.type = 'button';
+      reviseBtn.className = 'btn-secondary conflict-revise-btn';
+      reviseBtn.textContent = 'Ask AI to revise';
+      reviseBtn.disabled = manual || !state.providerReady;
+      reviseBtn.addEventListener('click', () => {
+        const instruction = input.value.trim();
+        if (!instruction) {
+          showStatus('Enter a revision request first.', 'error');
+          return;
+        }
+        reviseBtn.disabled = true;
+        send({ type: 'reviseConflictResolution', path: res.path, instruction });
+        setTimeout(() => { reviseBtn.disabled = false; }, 1000);
+      });
+      revise.appendChild(input);
+      revise.appendChild(reviseBtn);
+      item.appendChild(revise);
       list.appendChild(item);
     });
   }
@@ -2179,13 +2249,17 @@ function findNextInstanceTime(branchId, instanceIdx) {
     const p = state.pendingMergePreview;
     if (!p) return;
 
+    const manual = !!state.manualMergeResolution;
     const accepted = collectAcceptedConflictResolutions();
     const unresolved = (p.verification.artifactConflicts || []).filter((c) => !accepted.includes(c.path));
     const testsFailed = !!(p.verification.testOutput && /FAIL:/i.test(p.verification.testOutput));
     const canFinalize = !testsFailed && unresolved.length === 0;
 
-    $('merge-confirm').hidden = !canFinalize;
-    $('merge-force').hidden = Boolean(state.study) || canFinalize || unresolved.length > 0;
+    $('merge-confirm').hidden = manual || !canFinalize;
+    $('merge-finalize-ide').hidden = !manual;
+    $('merge-finalize-ide').disabled = false;
+    document.querySelectorAll('input.cascade-checkbox').forEach((b) => { b.disabled = manual; });
+    $('merge-force').hidden = Boolean(state.study) || manual || canFinalize || unresolved.length > 0;
   }
 
   // ─── dropdowns ────────────────────────────────────────────────────────
@@ -2323,6 +2397,8 @@ function findNextInstanceTime(branchId, instanceIdx) {
     state.studyIntegration = studyIntegration
       ? { sourceBranchId, targetBranchId: targetBranchId || state.mainBranchId }
       : null;
+     const cascadeOptIn = $('merge-cascade-optin');
+     if (cascadeOptIn) cascadeOptIn.hidden = Boolean(studyIntegration || state.study);
     if (studyIntegration) {
       const main = state.branches.find((branch) => branch.id === state.mainBranchId);
       const option = document.createElement('option');
@@ -2351,6 +2427,8 @@ function findNextInstanceTime(branchId, instanceIdx) {
     }
     $('merge-preview').hidden = true;
     $('merge-running').hidden = true;
+     const cascadeToggle = $('merge-allow-cascade');
+     if (cascadeToggle) cascadeToggle.checked = false;
     $('merge-preview-btn').hidden = false;
     $('merge-confirm').hidden = true;
     $('merge-force').hidden = true;
@@ -2370,6 +2448,7 @@ function findNextInstanceTime(branchId, instanceIdx) {
       type: 'previewMerge',
       sourceBranchId: state.studyIntegration?.sourceBranchId || state.activeBranchId,
       targetBranchId: target,
+       allowCascade: Boolean($('merge-allow-cascade')?.checked),
     });
   });
 
@@ -2402,6 +2481,36 @@ function findNextInstanceTime(branchId, instanceIdx) {
       force: true,
     });
   });
+
+  $('merge-resolve-in-ide').addEventListener('click', () => {
+    if (!state.pendingMerge) return;
+    send({
+      type: 'beginManualMergeResolution',
+      acceptedCascadePaths: collectAcceptedCascadeProposals(),
+    });
+  });
+
+  $('merge-cancel-ide').addEventListener('click', () => {
+    send({ type: 'cancelManualMergeResolution' });
+  });
+
+  $('merge-finalize-ide').addEventListener('click', () => {
+    setMergeUiBusy(true);
+    $('merge-running').hidden = false;
+    send({ type: 'finalizeManualMergeResolution' });
+  });
+
+  $('merge-cancel').addEventListener('click', () => {
+    if (state.manualMergeResolution) send({ type: 'cancelManualMergeResolution' });
+    closeModal('modal-merge');
+  });
+
+  const mergeCloseButton = document.querySelector('[data-close="modal-merge"]');
+  if (mergeCloseButton) {
+    mergeCloseButton.addEventListener('click', () => {
+      if (state.manualMergeResolution) send({ type: 'cancelManualMergeResolution' });
+    });
+  }
 
   // ─── preview Apply / Dismiss ───────────────────────────────────────────
   {

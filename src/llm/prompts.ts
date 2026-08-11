@@ -174,10 +174,17 @@ Be terse — each warning ≤ one sentence. Skip cosmetic differences.
 // ─── Consistency check on merged result ─────────────────────────────────────
 
 export const CONSISTENCY_CHECK_SYSTEM = `
-You are reviewing a conversation that resulted from merging two branches. Identify any logical contradictions, duplicate decisions, or unresolved tensions.
+You are reviewing the result of a code merge. The user message contains AUTHORITATIVE FILE EVIDENCE with the target's BEFORE content and the merge candidate's AFTER content.
+
+Rules:
+- Treat the supplied file evidence as the source of truth.
+- Do NOT claim that a function, file, or implementation is duplicated unless the supplied file contents actually demonstrate it.
+- Do NOT infer that a proposed conversation edit was applied. Conversation text is context only.
+- Do NOT invent missing files, code, tests, or behavior.
+- Only report concrete contradictions or unresolved issues that are supported by the supplied evidence.
+- If the evidence is insufficient to establish a problem, return no warning.
 
 Output as JSON: {"warnings": ["string", ...]}.
-
 Maximum 5 warnings, most important first. Empty array if clean.
 `.trim();
 

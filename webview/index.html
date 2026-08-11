@@ -313,22 +313,34 @@
           <span class="arrow">→</span>
           <select id="merge-target-select"></select>
         </div>
+        <label class="merge-cascade-optin" id="merge-cascade-optin">
+          <input type="checkbox" id="merge-allow-cascade">
+          <span>
+            <strong>Allow AI cascading-edit proposals</strong>
+            <small>Let ContextBranch suggest changes to other files that may need updating. Each proposal is still opt-in.</small>
+          </span>
+        </label>
         <div id="merge-preview" hidden>
           <div class="verification-panel" id="merge-verification"></div>
           <div class="info-block" id="merge-rebase-notes" hidden></div>
           <div class="info-block" id="merge-artifact-changes" hidden></div>
           <div class="info-block" id="merge-cascading" hidden>
             <div class="info-block-header">
-              <strong>Proposed cascading edits</strong>
+              <strong>AI-proposed cascading edits (opt-in)</strong>
               <span class="info-block-sub" id="merge-cascading-summary"></span>
             </div>
             <div id="merge-cascading-list"></div>
           </div>
           <div class="info-block" id="merge-conflicts" hidden>
             <div class="info-block-header">
-              <strong>AI-resolved conflicts</strong>
-              <span class="info-block-sub">unresolved conflicts must be resolved before merging</span>
+              <strong>Conflict resolution</strong>
+              <span class="info-block-sub">Review an AI-proposed resolution, ask it to revise it, or resolve the conflict directly in VS Code.</span>
             </div>
+            <div class="merge-manual-help" id="merge-manual-help" hidden>
+              Conflict markers are open in the editor as an unsaved intermediate merge. Use VS Code's <strong>Accept Current</strong>, <strong>Accept Incoming</strong>, <strong>Accept Both</strong>, or edit the file yourself. Then return here and finalize the resolved merge.
+            </div>
+            <button class="btn-secondary" id="merge-resolve-in-ide" hidden>Resolve conflicts in IDE</button>
+            <button class="btn-secondary" id="merge-cancel-ide" hidden>Cancel IDE resolution</button>
             <div id="merge-conflicts-list"></div>
           </div>
           <div class="info-block" id="merge-synthesis" hidden></div>
@@ -337,9 +349,10 @@
           <div class="spinner"></div> Running verification and cascade analysis…
         </div>
         <div class="modal-actions">
-          <button class="btn-secondary" data-close="modal-merge">Cancel</button>
+          <button class="btn-secondary" id="merge-cancel">Cancel</button>
           <button class="btn-primary" id="merge-preview-btn">Preview merge</button>
           <button class="btn-primary" id="merge-confirm" hidden>Finalize merge</button>
+          <button class="btn-primary" id="merge-finalize-ide" hidden>Finalize resolved merge</button>
           <button class="btn-danger" id="merge-force" hidden>Force merge</button>
         </div>
       </div>

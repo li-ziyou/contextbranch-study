@@ -30,6 +30,13 @@ const execAsync = promisify(exec);
 
 // ─── public API ──────────────────────────────────────────────────────────────
 
+export interface ConsistencyEvidence {
+  path: string;
+  status: 'add' | 'modify' | 'conflict';
+  before: string;
+  after: string;
+}
+
 export interface MergeOptions {
   sourceBranchId: string;
   targetBranchId: string;
@@ -58,7 +65,7 @@ export interface MergeOptions {
   rebaseCheck?: (source: Branch, target: Branch,
                  sourceMessages: Message[], targetMessages: Message[]) => Promise<string[]>;
   /** Hook for AI consistency check on the merge result. */
-  consistencyCheck?: (target: Branch, mergedMessages: Message[]) => Promise<string[]>;
+  consistencyCheck?: (target: Branch, mergedMessages: Message[], evidence: ConsistencyEvidence[]) => Promise<string[]>;
   /**
    * NEW: hook for cascading-edit analysis. Given the source and target
    * branches and the textual diff, returns proposed edits to OTHER files
@@ -99,6 +106,8 @@ export interface MergeOptions {
    * version is written instead.
    */
   acceptedConflictPaths?: string[];
+  /** Exact user-resolved file contents from the IDE conflict editor. */
+  manualResolvedContents?: Record<string, string>;
 }
 
 export interface MergePreview {
@@ -179,6 +188,18 @@ export async function previewMerge(
   const { changes, conflicts } = computeArtifactDiff(ws, source, target);
 
   // 3. Verification
+  // Give the consistency checker the actual candidate content for each changed
+  // artifact. It must never infer file changes from conversation history alone.
+  const consistencyEvidence: ConsistencyEvidence[] = changes.map(change => {
+    const targetArtifact = ws.getArtifacts(target.id).find(a => a.path === change.path);
+    return {
+      path: change.path,
+      status: change.status,
+      before: targetArtifact?.content ?? '',
+      after: mergedContentFor(ws, source, target, change),
+    };
+  });
+
   let verification: VerificationResult;
   if (opts.skipVerification) {
     verification = {
@@ -193,6 +214,7 @@ export async function previewMerge(
       testCommand: opts.testCommand,
       lintCommand: opts.lintCommand,
       consistencyCheck: opts.consistencyCheck,
+      consistencyEvidence,
     });
   }
 
@@ -336,6 +358,7 @@ export async function finalizeMerge(
   }
 
   const acceptedConflicts = new Set(opts.acceptedConflictPaths ?? []);
+  const manualResolved = opts.manualResolvedContents ?? {};
   const acceptedCascades = new Set(opts.acceptedCascadePaths ?? []);
   const conflicts = preview.verification.artifactConflicts ?? [];
   const unresolved = conflicts.filter(c => !acceptedConflicts.has(c.path));
@@ -345,10 +368,30 @@ export async function finalizeMerge(
   }
 
   const resolutionByPath = new Map((preview.conflictResolutions ?? []).map(r => [r.path, r]));
+  const conflictPaths = new Set(conflicts.map(c => c.path));
   for (const p of acceptedConflicts) {
+    if (!conflictPaths.has(p)) {
+      throw new Error(`Merge blocked: ${p} is not one of the conflicts in the reviewed preview.`);
+    }
+    if (Object.prototype.hasOwnProperty.call(manualResolved, p)) {
+      const content = manualResolved[p];
+      if (/<{7}|>{7}|^={7}$/m.test(content)) {
+        throw new Error(`Merge blocked: ${p} still contains unresolved conflict markers. Resolve all incoming/current sections in the editor first.`);
+      }
+      continue;
+    }
     const resolution = resolutionByPath.get(p);
     if (!resolution || resolution.path !== p || /<{5,}|>{5,}/.test(resolution.resolvedContent) || looksElided(resolution.resolvedContent, resolution.originalContent)) {
       throw new Error(`Merge blocked: accepted conflict resolution for ${p} is missing or unsafe.`);
+    }
+  }
+
+  for (const p of Object.keys(manualResolved)) {
+    if (!conflictPaths.has(p)) {
+      throw new Error(`Merge blocked: manual resolution for ${p} is not part of the reviewed conflict set.`);
+    }
+    if (!acceptedConflicts.has(p)) {
+      throw new Error(`Merge blocked: manual resolution for ${p} was supplied without accepting that conflict.`);
     }
   }
 
@@ -365,7 +408,7 @@ export async function finalizeMerge(
     }
   }
 
-  const candidate = buildCandidateFiles(ws, source, target, preview, acceptedConflicts, acceptedCascades);
+  const candidate = buildCandidateFiles(ws, source, target, preview, acceptedConflicts, acceptedCascades, manualResolved);
 
   // Verify the ACTUAL candidate that is about to be committed, not the current
   // workspace before applying it. This catches test failures introduced by the
@@ -390,7 +433,7 @@ export async function finalizeMerge(
   // the exact state undoMerge will restore; it is never deleted by undo.
   const targetSnapshot = ws.createCheckpoint(target.id, `Pre-merge of ${source.name}`);
 
-  applyArtifactChanges(ws, source, target, preview, opts.acceptedConflictPaths);
+  applyArtifactChanges(ws, source, target, preview, opts.acceptedConflictPaths, manualResolved);
 
   let cascadingAppliedCount = 0;
   for (const p of acceptedCascades) {
@@ -467,6 +510,7 @@ function buildCandidateFiles(
   preview: MergePreview,
   acceptedConflicts: Set<string>,
   acceptedCascades: Set<string>,
+  manualResolved: Record<string, string> = {},
 ): Map<string, string> {
   const out = new Map<string, string>();
   for (const a of ws.getArtifacts(target.id)) out.set(a.path, a.content);
@@ -477,7 +521,13 @@ function buildCandidateFiles(
     const ta = ws.getArtifacts(target.id).find(a => a.path === change.path);
     if (change.status === 'add' || !ta) out.set(change.path, sa.content);
     else if (change.status === 'modify') out.set(change.path, mergedContentFor(ws, source, target, change));
-    else if (acceptedConflicts.has(change.path)) out.set(change.path, resolutionByPath.get(change.path)!.resolvedContent);
+    else if (acceptedConflicts.has(change.path)) {
+      if (Object.prototype.hasOwnProperty.call(manualResolved, change.path)) {
+        out.set(change.path, manualResolved[change.path]);
+      } else {
+        out.set(change.path, resolutionByPath.get(change.path)!.resolvedContent);
+      }
+    }
   }
   for (const p of acceptedCascades) {
     const proposal = (preview.cascadingProposals ?? []).find(x => x.path === p);
@@ -494,7 +544,8 @@ interface CandidateVerificationInput {
 }
 
 async function runCandidateVerification(input: CandidateVerificationInput): Promise<VerificationResult> {
-  const result: VerificationResult = { status: 'pass', ranAt: Date.now(), forced: false, artifactConflicts: [] };
+  const result: VerificationResult = { status: 'skipped', ranAt: Date.now(), forced: false, artifactConflicts: [] };
+  let ranVerification = false;
   if (!input.workspaceRoot) { result.status = 'skipped'; return result; }
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'contextbranch-merge-'));
   try {
@@ -524,8 +575,8 @@ async function runCandidateVerification(input: CandidateVerificationInput): Prom
       try {
         const { stdout, stderr } = await execAsync(command, { cwd: temp, timeout: 90_000, maxBuffer: 1_000_000 });
         const text = `${stdout}\n${stderr}`.trim();
-        if (label === 'test') result.testOutput = text;
-        else result.lintOutput = text;
+        if (label === 'test') { result.testOutput = text; ranVerification = true; }
+        else { result.lintOutput = text; ranVerification = true; }
       } catch (err: any) {
         const detail = `${err.message ?? ''}\n${err.stderr ?? ''}`;
         const missing = err.code === 127 || err.code === 'ENOENT' || /command not found|ENOENT|no such file/i.test(detail);
@@ -542,7 +593,8 @@ async function runCandidateVerification(input: CandidateVerificationInput): Prom
     };
     if (input.testCommand) await run(input.testCommand, 'test');
     if (input.lintCommand) await run(input.lintCommand, 'lint');
-    if (!input.testCommand && !input.lintCommand) result.status = 'skipped';
+    if (ranVerification && result.status !== 'fail') result.status = 'pass';
+    else if (!ranVerification && result.status !== 'fail') result.status = 'skipped';
   } catch (err: any) {
     result.status = 'fail';
     result.testOutput = `FAIL: candidate verification setup failed: ${err.message ?? String(err)}`;
@@ -692,6 +744,7 @@ function applyArtifactChanges(
   target: Branch,
   preview: MergePreview,
   acceptedConflictPaths?: string[],
+  manualResolved: Record<string, string> = {},
 ): void {
   const sourceArtifacts = ws.getArtifacts(source.id);
   const targetArtifacts = ws.getArtifacts(target.id);
@@ -720,7 +773,10 @@ function applyArtifactChanges(
       const resolution = resolutionByPath.get(sa.path);
       let finalContent: string;
       let mergeIntent: Artifact['mergeIntent'];
-      if (resolution && acceptedConflicts.has(sa.path)) {
+      if (acceptedConflicts.has(sa.path) && Object.prototype.hasOwnProperty.call(manualResolved, sa.path)) {
+        finalContent = manualResolved[sa.path];
+        mergeIntent = 'merge';
+      } else if (resolution && acceptedConflicts.has(sa.path)) {
         finalContent = resolution.resolvedContent;
         mergeIntent = 'merge';
       } else {
@@ -755,7 +811,8 @@ interface VerificationInput {
   workspaceRoot?: string;
   testCommand?: string;
   lintCommand?: string;
-  consistencyCheck?: (target: Branch, mergedMessages: Message[]) => Promise<string[]>;
+  consistencyCheck?: (target: Branch, mergedMessages: Message[], evidence: ConsistencyEvidence[]) => Promise<string[]>;
+  consistencyEvidence: ConsistencyEvidence[];
 }
 
 async function runVerification(input: VerificationInput): Promise<VerificationResult> {
@@ -814,14 +871,14 @@ async function runVerification(input: VerificationInput): Promise<VerificationRe
   // AI consistency check
   if (input.consistencyCheck) {
     try {
-      const warnings = await input.consistencyCheck(input.target, input.mergedMessages);
+      const warnings = await input.consistencyCheck(input.target, input.mergedMessages, input.consistencyEvidence);
       result.consistencyWarnings = warnings;
     } catch (err: any) {
       result.consistencyWarnings = [`Consistency check failed: ${err.message}`];
     }
   }
 
-  if (result.status === 'pending') result.status = 'pass';
+  if (result.status === 'pending') result.status = 'skipped';
   return result;
 }
 
