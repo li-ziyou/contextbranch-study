@@ -51,6 +51,9 @@ export class ConflictResolverAgent {
         if (ev.type === 'error') {
           return this.fallback(opts, ev.error ?? 'unknown error');
         }
+        if (ev.type === 'done' && ev.truncated) {
+          return this.fallback(opts, 'resolver output was truncated at the provider limit');
+        }
       }
     } catch (err: any) {
       return this.fallback(opts, err.message ?? String(err));

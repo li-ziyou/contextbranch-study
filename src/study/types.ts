@@ -63,6 +63,8 @@ export interface StudyRunFile {
     modelCallBudget: number;
     modelTokenBudget: number;
   };
+  /** Absolute path to the study Python runtime generated during prepare. */
+  runtimePython: string;
   manifest: {
     taskId: string;
     sha256: string;

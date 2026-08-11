@@ -15,6 +15,9 @@
 
   // ─── state ────────────────────────────────────────────────────────────
 
+  let lastRenderedMessageKey = null;
+  let lastRenderedMessageBranchId = null;
+
   let state = {
     condition: 'branched',
     providerReady: false,
@@ -76,6 +79,8 @@
         case 'decompositionResult': handleDecompositionResult(msg.result); break;
         case 'mergePreview': handleMergePreview(msg.preview, msg.sourceBranchId, msg.targetBranchId); break;
         case 'mergeCompleted': handleMergeCompleted(msg.event, msg.cascadingApplied, msg.conflictsResolved); break;
+        case 'mergeUndone': showStatus(msg.message || 'Merge undone.', 'success'); break;
+        case 'contextWarning': showStatus(msg.message, 'error'); break;
         case 'switchApplied': {
           const parts = [];
           if (msg.wrote) parts.push(`wrote ${msg.wrote}`);
@@ -466,39 +471,62 @@
     $('empty-state').hidden = hasMessages;
     $('messages').hidden = !hasMessages;
 
-    // Messages
+    // Messages: do not rebuild the conversation DOM when only study timer/state
+    // fields changed. Rebuilding it every second resets the scroll position and
+    // makes it impossible to read older messages during a study task.
     const msgs = $('messages');
-    msgs.innerHTML = '';
-    for (const m of state.messages) {
-      const div = document.createElement('div');
-      div.className = `message ${m.role}`;
+    const messageKey = state.messages.map(m => `${m.id}:${m.role}:${m.content}`).join('\u0001');
+    const branchChanged = state.activeBranchId !== lastRenderedMessageBranchId;
+    const messagesChanged = messageKey !== lastRenderedMessageKey || branchChanged;
 
-      const role = document.createElement('div');
-      role.className = 'role-label';
-      role.textContent = m.role;
-      div.appendChild(role);
+    if (messagesChanged) {
+      const wasNearBottom = msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 80;
+      const previousScrollTop = msgs.scrollTop;
 
-      const body = document.createElement('div');
-      body.className = 'message-body';
-      body.innerHTML = renderMessageContent(m.content);
-      div.appendChild(body);
+      msgs.innerHTML = '';
+      for (const m of state.messages) {
+        const div = document.createElement('div');
+        div.className = `message ${m.role}`;
 
-      // Per-message actions
-      if (!state.study && (m.role === 'user' || m.role === 'assistant') && state.condition !== 'linear') {
-        const actions = document.createElement('div');
-        actions.className = 'message-actions';
+        const role = document.createElement('div');
+        role.className = 'role-label';
+        role.textContent = m.role;
+        div.appendChild(role);
 
-        const branchBtn = document.createElement('button');
-        branchBtn.className = 'message-action';
-        branchBtn.textContent = 'Branch from here';
-        branchBtn.addEventListener('click', () => openBranchModal(m.id));
-        actions.appendChild(branchBtn);
+        const body = document.createElement('div');
+        body.className = 'message-body';
+        body.innerHTML = renderMessageContent(m.content);
+        div.appendChild(body);
 
-        div.appendChild(actions);
+        // Per-message actions
+        if (!state.study && (m.role === 'user' || m.role === 'assistant') && state.condition !== 'linear') {
+          const actions = document.createElement('div');
+          actions.className = 'message-actions';
+
+          const branchBtn = document.createElement('button');
+          branchBtn.className = 'message-action';
+          branchBtn.textContent = 'Branch from here';
+          branchBtn.addEventListener('click', () => openBranchModal(m.id));
+          actions.appendChild(branchBtn);
+
+          div.appendChild(actions);
+        }
+        msgs.appendChild(div);
       }
-      msgs.appendChild(div);
+
+      lastRenderedMessageKey = messageKey;
+      lastRenderedMessageBranchId = state.activeBranchId;
+
+      // New messages should auto-follow only when the user was already at the
+      // bottom. If they intentionally scrolled up, preserve their position.
+      if (hasMessages && (branchChanged || wasNearBottom || previousScrollTop === 0)) {
+        scrollToBottom();
+      } else if (!hasMessages) {
+        msgs.scrollTop = 0;
+      } else {
+        msgs.scrollTop = previousScrollTop;
+      }
     }
-    if (hasMessages) scrollToBottom();
 
     // Action menu enable/disable
     const merge = $('menu-merge');
@@ -655,16 +683,19 @@
       .slice()
       .sort((a, b) => (a.completedAt || a.startedAt || 0) - (b.completedAt || b.startedAt || 0));
 
-    // Match each merge event to its Post-merge checkpoint on the target.
-    // (finalizeMerge labels it `Post-merge of <sourceName>`.)
-    const eventByPostMergeCpId = new Map(); // cpId -> mergeEvent
+    // Match merges to their exact post-merge checkpoint. Older events may not
+    // have this field, so retain the label/time fallback for backwards data.
+    const eventByPostMergeCpId = new Map();
     for (const m of mergeEvents) {
+      if (m.postMergeCheckpointId && cpById.has(m.postMergeCheckpointId)) {
+        eventByPostMergeCpId.set(m.postMergeCheckpointId, m);
+        continue;
+      }
       const sourceName = branchMap.get(m.sourceBranchId)?.name || m.sourceBranchId;
       const want = ('post-merge of ' + sourceName).toLowerCase();
       let best = null;
       for (const cp of (hg.checkpoints || [])) {
-        if (cp.branchId !== m.targetBranchId) continue;
-        if (checkpointKind(cp) !== 'post-merge') continue;
+        if (cp.branchId !== m.targetBranchId || checkpointKind(cp) !== 'post-merge') continue;
         if ((cp.label || '').toLowerCase() !== want) continue;
         const dt = Math.abs((cp.createdAt || 0) - (m.completedAt || m.startedAt || 0));
         if (!best || dt < best.dt) best = { cp, dt };
@@ -757,11 +788,14 @@
     }
     for (const [cpId, m] of eventByPostMergeCpId.entries()) {
       const when = m.completedAt || m.startedAt || 0;
-      edges.push({
-        from: sourceTipNode(m.sourceBranchId, when),
-        to: 'cp:' + cpId,
-        kind: 'merge',
-      });
+      const sourceTip = sourceTipNode(m.sourceBranchId, when);
+      edges.push({ from: sourceTip, to: 'cp:' + cpId, kind: 'merge' });
+      // An undone merge remains in history, but its reverse edge makes the
+      // current graph state explicit: the source line is live again instead
+      // of looking permanently consumed by the merge.
+      if (m.undoneAt) {
+        edges.push({ from: 'cp:' + cpId, to: sourceTip, kind: 'undo' });
+      }
     }
 
     return { nodes, edges, branchMap, mergeEvents };
@@ -821,7 +855,7 @@ function layoutGraph(model) {
   const parentOf = new Map();
 
   for (const e of model.edges) {
-    if (e.kind === 'merge') continue;            // overlay, not a layout edge
+    if (e.kind === 'merge' || e.kind === 'undo') continue;            // overlay, not a layout edge
     if (!nodeById.has(e.from) || !nodeById.has(e.to)) continue;
     childrenOf.get(e.from).push(e.to);
     parentOf.set(e.to, e.from);
@@ -883,10 +917,10 @@ function layoutGraph(model) {
   for (const e of model.edges) {
     const from = posById.get(e.from), to = posById.get(e.to);
     if (!from || !to) continue;
-    const le = buildLaneEdge(from, to);
+    const le = e.kind === 'undo' ? buildUndoLaneEdge(from, to) : buildLaneEdge(from, to);
     positionedEdges.push({
       kind: e.kind,
-      type: e.kind === 'merge' ? 'merge' : (e.kind === 'fork' ? 'fork' : 'parent'),
+      type: e.kind === 'merge' ? 'merge' : (e.kind === 'undo' ? 'undo' : (e.kind === 'fork' ? 'fork' : 'parent')),
       pathData: le.d,
       arrow: { x: le.mx, y: le.my, deg: le.deg },
     });
@@ -921,6 +955,19 @@ function buildLaneEdge(from, to) {
   const deg = Math.atan2(dy, dx) * 180 / Math.PI;
   return { d: `M ${x1} ${y1} C ${x1} ${cy}, ${x2} ${cy}, ${x2} ${y2}`, mx, my, deg };
 }
+function buildUndoLaneEdge(from, to) {
+  const fr = nodeRadius(from), tr = nodeRadius(to);
+  const x1 = from.x, x2 = to.x;
+  const y1 = from.y - fr;
+  const y2 = to.y + tr + 5;
+  const cy = (y1 + y2) / 2;
+  const mx = (x1 + x2) / 2;
+  const my = cy;
+  const dx = 2 * (x2 - x1), dy = (y2 - y1);
+  const deg = Math.atan2(dy, dx) * 180 / Math.PI;
+  return { d: `M ${x1} ${y1} C ${x1} ${cy}, ${x2} ${cy}, ${x2} ${y2}`, mx, my, deg };
+}
+
 // ------------------------------------------------------------
 // Bulletproof Edge Routing
 // ------------------------------------------------------------
@@ -1158,6 +1205,11 @@ for (const e of g.edges) {
     path.setAttribute('stroke-dasharray', '4,4');
     path.style.setProperty('stroke-width', '1.6', 'important');
     path.setAttribute('opacity', '0.75');
+  } else if (e.type === 'undo') {
+    col = '#d98a8a';
+    path.setAttribute('stroke-dasharray', '2,5');
+    path.style.setProperty('stroke-width', '1.8', 'important');
+    path.setAttribute('opacity', '0.85');
   } else if (e.type === 'fork') {
     col = '#6f9bd1';
     path.style.setProperty('stroke-width', '2', 'important');
@@ -1178,7 +1230,7 @@ for (const e of g.edges) {
     tri.setAttribute('transform', `translate(${e.arrow.x}, ${e.arrow.y}) rotate(${e.arrow.deg})`);
     tri.style.setProperty('fill', col, 'important');
     tri.style.setProperty('stroke', 'none', 'important');
-    tri.setAttribute('opacity', e.type === 'merge' ? '0.9' : '0.85');
+    tri.setAttribute('opacity', e.type === 'merge' || e.type === 'undo' ? '0.9' : '0.85');
     camera.appendChild(tri);
   }
 }
@@ -1318,7 +1370,7 @@ function tooltipFor(n) {
     const cp = n.checkpoint;
     const when = new Date((cp && cp.createdAt) || (ev && (ev.completedAt || ev.startedAt)) || 0).toLocaleString();
     if (ev) {
-      return `Merge: ${n.sourceBranchName} → ${n.targetBranchName}\nStatus: ${ev.verification?.status || 'unknown'}${ev.verification?.forced ? ' (forced)' : ''}\n${when}\nClick for details`;
+      return `Merge: ${n.sourceBranchName} → ${n.targetBranchName}\nStatus: ${ev.verification?.status || 'unknown'}${ev.verification?.forced ? ' (forced)' : ''}${ev.undoneAt ? ' · UNDONE' : ''}\n${when}\nClick for details`;
     }
     return `Merge into ${n.targetBranchName}\n${when}\nClick for details`;
   }
@@ -1513,7 +1565,7 @@ function renderMergeCard(node, title, body) {
 
   if (ev) {
     const v = ev.verification || {};
-    appendP(body, `Status: ${v.status || 'unknown'}${v.forced ? ' (forced)' : ''}`);
+    appendP(body, `Status: ${v.status || 'unknown'}${v.forced ? ' (forced)' : ''}${ev.undoneAt ? ' · UNDONE' : ''}`);
     if (ev.rebaseNotes && ev.rebaseNotes.length) {
       appendP(body, ev.rebaseNotes.join('; '), 'muted');
     }
@@ -1521,6 +1573,21 @@ function renderMergeCard(node, title, body) {
 
   if (isActive) {
     appendP(body, '(target branch is currently active)', 'muted');
+  }
+
+  if (ev && !ev.undoneAt) {
+    const undo = document.createElement('button');
+    undo.className = 'btn-danger';
+    undo.textContent = 'Undo this merge';
+    undo.title = 'Restore the target to the exact pre-merge checkpoint if no later target work exists.';
+    undo.addEventListener('click', () => {
+      undo.disabled = true;
+      send({ type: 'undoMerge', mergeEventId: ev.id });
+    });
+    body.appendChild(undo);
+    appendP(body, 'Undo is only allowed while the target still exactly matches the post-merge checkpoint.', 'muted');
+  } else if (ev?.undoneAt) {
+    appendP(body, `Undone ${new Date(ev.undoneAt).toLocaleString()} — source branch is available again.`, 'muted');
   }
 
   // ── The two snapshots this merge produced on the target branch ──
@@ -1545,6 +1612,14 @@ function renderMergeCard(node, title, body) {
     appendP(body, `Post-merge — ${targetName} after absorbing ${sourceName} (this diamond)`, 'muted');
     appendP(body, `${postCp.artifactIds?.length ?? 0} files · ${postCp.messageIds?.length ?? 0} messages`);
     appendCpSwitch(body, postCp, targetName, 'Switch to post-merge state');
+  }
+  if (ev?.undoneAt && ev.undoTargetCheckpointId) {
+    const undoCp = allCps.find(c => c.id === ev.undoTargetCheckpointId);
+    if (undoCp) {
+      appendP(body, `After undo — ${targetName} restored to the pre-merge state`, 'muted');
+      appendP(body, `${undoCp.artifactIds?.length ?? 0} files · ${undoCp.messageIds?.length ?? 0} messages`);
+      appendCpSwitch(body, undoCp, targetName, 'Switch to restored state');
+    }
   }
 
   // Switch to the target branch head (lands on its latest state).
@@ -2110,7 +2185,7 @@ function findNextInstanceTime(branchId, instanceIdx) {
     const canFinalize = !testsFailed && unresolved.length === 0;
 
     $('merge-confirm').hidden = !canFinalize;
-    $('merge-force').hidden = Boolean(state.study) || canFinalize;
+    $('merge-force').hidden = Boolean(state.study) || canFinalize || unresolved.length > 0;
   }
 
   // ─── dropdowns ────────────────────────────────────────────────────────

@@ -23,6 +23,8 @@ export interface LLMRequestOptions {
 
 export interface LLMStreamEvent {
   type: 'delta' | 'done' | 'error' | 'usage';
+  /** Provider explicitly stopped because the output limit was reached. */
+  truncated?: boolean;
   text?: string;
   inputTokens?: number;
   outputTokens?: number;
@@ -54,6 +56,7 @@ export class AnthropicProvider implements LLMProvider {
       .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
 
     let inputTokens = 0, outputTokens = 0;
+    let truncated = false;
 
     try {
       const stream = await client.messages.stream({
@@ -71,15 +74,17 @@ export class AnthropicProvider implements LLMProvider {
         }
         if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
           yield { type: 'delta', text: event.delta.text };
-        } else if (event.type === 'message_delta' && (event as any).usage) {
-          outputTokens = (event as any).usage.output_tokens ?? outputTokens;
+        } else if (event.type === 'message_delta') {
+          if ((event as any).usage) outputTokens = (event as any).usage.output_tokens ?? outputTokens;
+          const stopReason = (event as any).delta?.stop_reason;
+          if (stopReason === 'max_tokens' || stopReason === 'length') truncated = true;
         } else if (event.type === 'message_start' && (event as any).message?.usage) {
           inputTokens = (event as any).message.usage.input_tokens ?? 0;
         }
       }
 
       yield { type: 'usage', inputTokens, outputTokens };
-      yield { type: 'done' };
+      yield { type: 'done', truncated };
     } catch (err: any) {
       yield { type: 'error', error: err.message ?? String(err) };
     }
@@ -129,6 +134,7 @@ export class OpenAIProvider implements LLMProvider {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       let sawDelta = false;
       let inputTokens = 0, outputTokens = 0;
+      let truncated = false;
       try {
         const stream = await client.chat.completions.create({
           model: opts.model ?? this.pinnedModel ?? this.defaultModel,
@@ -144,7 +150,9 @@ export class OpenAIProvider implements LLMProvider {
             yield { type: 'error', error: 'aborted' };
             return;
           }
-          const delta = chunk.choices[0]?.delta?.content;
+          const choice = chunk.choices[0];
+          if (choice?.finish_reason === 'length') truncated = true;
+          const delta = choice?.delta?.content;
           if (delta) { sawDelta = true; yield { type: 'delta', text: delta }; }
           if (chunk.usage) {
             inputTokens = chunk.usage.prompt_tokens ?? 0;
@@ -153,7 +161,7 @@ export class OpenAIProvider implements LLMProvider {
         }
 
         yield { type: 'usage', inputTokens, outputTokens };
-        yield { type: 'done' };
+        yield { type: 'done', truncated };
         return;
       } catch (err: any) {
         const canRetry = !sawDelta && attempt < maxAttempts && isTransientError(err);
@@ -248,6 +256,7 @@ export class GeminiProvider implements LLMProvider {
       const isLast = i === candidates.length - 1;
       let sawDelta = false;
       let caught: any = null;
+      let truncated = false;
 
       try {
         const model = client.getGenerativeModel({
@@ -279,9 +288,11 @@ export class GeminiProvider implements LLMProvider {
         const usage = finalResp.usageMetadata;
         const inputTokens = usage?.promptTokenCount ?? 0;
         const outputTokens = usage?.candidatesTokenCount ?? 0;
+        const finishReason = String(finalResp.candidates?.[0]?.finishReason ?? '');
+        truncated = /MAX_TOKENS|LENGTH/i.test(finishReason);
 
         yield { type: 'usage', inputTokens, outputTokens };
-        yield { type: 'done' };
+        yield { type: 'done', truncated };
         return; // success — exit the entire stream
       } catch (err: any) {
         caught = err;

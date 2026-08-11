@@ -191,6 +191,10 @@ function prepare(participantId, periodText, options) {
     throw new Error(`Task bundle missing: ${participantBundle}. Run npm run study:build-tasks first.`);
   }
   const profile = studyProfile(runsRoot, options);
+  const runtimePython = path.join(runtimeRoot, 'bin', 'python');
+  if (!fs.existsSync(runtimePython)) {
+    throw new Error(`Study Python runtime is missing (${runtimePython}). Run npm run study:setup-runtime first.`);
+  }
   const manifestPath = path.join(manifestsDir, `${assignment.taskId}.json`);
   const manifest = readJson(manifestPath);
   const runId = `${participantId}-period${period}-${assignment.taskId}-${assignment.condition}`;
@@ -217,6 +221,10 @@ function prepare(participantId, periodText, options) {
       modelCallBudget: profile.modelCallBudget,
       modelTokenBudget: profile.modelTokenBudget,
     },
+    // The prepared run is portable across the participant workspace location:
+    // the runtime path is generated on the current machine rather than guessed
+    // from /tmp or hard-coded to an operator's home directory.
+    runtimePython: path.resolve(runtimePython),
     manifest: {
       taskId: manifest.taskId,
       sha256: sha256File(manifestPath),

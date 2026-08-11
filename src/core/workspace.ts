@@ -298,6 +298,18 @@ export class Workspace {
     return removed;
   }
 
+  /** Tally the separate Context Agent call used to route workspace files. */
+  recordContextApiUsage(inputTokens = 0, outputTokens = 0): void {
+    this.state.telemetry.totalApiCalls += 1;
+    this.state.telemetry.totalInputTokens += inputTokens || 0;
+    this.state.telemetry.totalOutputTokens += outputTokens || 0;
+    this.save();
+    this.storage.appendTelemetry({
+      type: 'context_api_call', branchId: this.state.activeBranchId,
+      inputTokens, outputTokens,
+    });
+  }
+
   /** Tally an LLM call made by the merge engine itself (analyst / resolver). */
   recordMergeApiUsage(inputTokens = 0, outputTokens = 0): void {
     const t = this.state.telemetry as any;
