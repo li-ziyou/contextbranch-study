@@ -14,3 +14,4 @@ task-cache/**
 *.log
 AGENTS.md
 .contextbranch/
+tmp/

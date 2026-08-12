@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "taskId": "markdown-command-template-library",
-  "participantTitle": "Markdown Command Template Library",
+  "participantTitle": "Scoped Markdown Command Library",
   "provenance": {
     "type": "FeatureBench-derived curated study task",
     "sourceInstanceId": "mlflow__mlflow.93dab383.test_ai_command_utils.85dcb487.lv1",
@@ -9,9 +9,9 @@
     "sourceRepository": "mlflow/mlflow",
     "sourceCommit": "93dab383a1a3fc9882ebc32283ad2a05d79ff70f",
     "derivedBehaviour": [
-      "optional Markdown metadata",
-      "recursive template discovery",
-      "template retrieval with or without metadata"
+      "validated Markdown metadata",
+      "recursive scoped template discovery",
+      "metadata-aware template retrieval and rendering"
     ],
     "construction": "The study baseline is purpose-built; it does not reproduce the upstream FeatureBench patch or test suite."
   },
@@ -20,24 +20,24 @@
     "referenceDirectory": "task-assets/markdown-command-template-library/reference"
   },
   "ticket": {
-    "summary": "Build a Markdown command-template library.",
+    "summary": "Build a scoped Markdown command-template library.",
     "requirements": [
-      "Read optional YAML metadata at the start of a Markdown template.",
-      "Discover Markdown templates in nested folders and list slash-separated keys.",
-      "Retrieve complete template content and retrieve a version without metadata."
+      "Parse an optional YAML header into validated namespace, description, and tag metadata.",
+      "Build a recursive Markdown catalog with canonical keys and safe template lookup.",
+      "List templates by metadata and render {{name}} placeholders from the indexed template body."
     ]
   },
   "rootBrief": {
     "visibleInBothConditions": true,
     "implementationIntentLabels": [
-      "Parse Markdown metadata",
-      "Index and retrieve template files"
+      "Parse and validate template metadata",
+      "Build the scoped template catalog"
     ]
   },
   "contextBranch": {
     "siblingStates": [
-      { "id": "metadata", "label": "Parse Markdown metadata" },
-      { "id": "catalog", "label": "Index and retrieve template files" }
+      { "id": "metadata", "label": "Parse and validate template metadata" },
+      { "id": "catalog", "label": "Build the scoped template catalog" }
     ]
   },
   "runner": {
@@ -47,8 +47,8 @@
   },
   "submission": {
     "allowedProductionPaths": [
-      "template_library/frontmatter.py",
-      "template_library/catalog.py"
+      "template_library/metadata/frontmatter.py",
+      "template_library/catalog/index.py"
     ],
     "finalState": "main"
   },

@@ -1,13 +1,25 @@
-from template_library.frontmatter import parse_frontmatter
+import pytest
+
+from template_library.metadata import parse_template
 
 
-def test_malformed_or_non_mapping_frontmatter_fails_closed():
-    malformed = "---\nkey: value: [\n---\ncontent"
-    assert parse_frontmatter(malformed) == ({}, malformed)
-    list_metadata = "---\n- first\n- second\n---\ncontent"
-    assert parse_frontmatter(list_metadata) == ({}, list_metadata)
+def test_no_header_has_empty_metadata_and_an_unchanged_body():
+    parsed = parse_template("# Plain command\n")
+    assert parsed.metadata.namespace == ""
+    assert parsed.metadata.description == ""
+    assert parsed.metadata.tags == ()
+    assert parsed.body == "# Plain command\n"
 
 
-def test_document_without_frontmatter_is_unchanged():
-    content = "# Plain Markdown\n"
-    assert parse_frontmatter(content) == ({}, content)
+@pytest.mark.parametrize(
+    "source",
+    [
+        "---\nnamespace: [not-a-string]\n---\nbody",
+        "---\ntags: [valid, 7]\n---\nbody",
+        "---\nkey: value: [\n---\nbody",
+        "---\nnamespace: data\nbody",
+    ],
+)
+def test_invalid_headers_are_rejected(source: str):
+    with pytest.raises(ValueError):
+        parse_template(source)

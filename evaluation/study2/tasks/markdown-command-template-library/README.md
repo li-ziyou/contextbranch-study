@@ -1,16 +1,20 @@
-# Markdown Command Template Library
+# Scoped Markdown Command Library
 
 This curated task is derived from the MLflow command-template feature at
 `93dab383a1a3fc9882ebc32283ad2a05d79ff70f`. Its frozen contract is
 [`../../manifests/markdown-command-template-library.json`](../../manifests/markdown-command-template-library.json).
 
 The participant package contains a small `template_library` package. The
-provided `library.py` façade composes two initially incomplete modules:
+provided `TemplateLibrary` façade composes two initially incomplete packages:
 
-- `frontmatter.py` parses optional metadata and returns the Markdown body.
-- `catalog.py` finds Markdown files and retrieves a selected template.
+- `metadata/frontmatter.py` defines validated template metadata and parses a
+  Markdown header into a document contract.
+- `catalog/index.py` recursively builds a canonical template index and safely
+  resolves an indexed template.
 
-The modules do not overlap. After both contributions are integrated into main,
-the supplied façade exposes listing, filtering, complete retrieval, and
-body-only retrieval. The task's reference implementation and private checks
-remain outside the participant bundle.
+The two responsibilities live in separate folders and interact through the
+`ParsedTemplate` and `TemplateEntry` data contracts. After both contributions
+are integrated into main, the supplied façade exposes metadata filtering,
+complete retrieval, body-only retrieval, and placeholder rendering. The task's
+reference implementation and private checks remain outside the participant
+bundle.

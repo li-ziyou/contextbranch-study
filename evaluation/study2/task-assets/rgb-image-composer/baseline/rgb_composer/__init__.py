@@ -1,5 +1,5 @@
-"""Public API for the RGB image-composer study task."""
+"""Public API for the configurable RGB image-composer study task."""
 
-from .composer import make_rgb
+from .composer import RGBComposer, make_rgb
 
-__all__ = ["make_rgb"]
+__all__ = ["RGBComposer", "make_rgb"]

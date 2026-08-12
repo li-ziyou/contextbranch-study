@@ -1,5 +1,5 @@
-"""Public API for the Markdown template-library study task."""
+"""Public API for the scoped Markdown command-library study task."""
 
-from .library import get_template, get_template_body, list_templates
+from .library import TemplateLibrary, open_library
 
-__all__ = ["get_template", "get_template_body", "list_templates"]
+__all__ = ["TemplateLibrary", "open_library"]

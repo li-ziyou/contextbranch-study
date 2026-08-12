@@ -11,7 +11,7 @@ only after both contributions are present in `main`.
 Each task package contains:
 
 1. a stable, prewritten composition layer;
-2. exactly two incomplete production modules with non-overlapping allowed
+2. exactly two incomplete production responsibilities in separate folders with non-overlapping allowed
    paths;
 3. one public check per module and one public end-to-end check; and
 4. three hidden behavioural groups: the two module behaviours and their
@@ -28,8 +28,8 @@ participant may integrate either state into `main` when it is useful.
 
 | Task | Module A | Module B | Prewritten composition layer | Complete behaviour after integration |
 |---|---|---|---|---|
-| Markdown Command Template Library | `frontmatter.py`: optional YAML metadata and body | `catalog.py`: recursive discovery and key-based retrieval | `library.py` | list/filter templates and return complete or body-only content |
-| RGB Image Composer | `normalization.py`: channel validation and normalization | `encoding.py`: RGB stacking and output conversion | `composer.py` | return a normalized float or 8-bit RGB image |
+| Scoped Markdown Command Library | `metadata/frontmatter.py`: parsed metadata data contract and validation | `catalog/index.py`: recursive index and safe key lookup | `library.py` | filter, retrieve, and render indexed templates |
+| Configurable RGB Image Composer | `transforms/channel_transform.py`: aligned-channel interval and stretch contract | `output/encoder.py`: RGB stacking and output encoding contract | `composer.py` | return a transformed float or 8-bit RGB image |
 
 The two themes retain traceable links to the MLflow and Astropy FeatureBench
 instances recorded in their manifests. The task packages are intentionally

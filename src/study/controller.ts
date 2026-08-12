@@ -48,7 +48,9 @@ export class StudyController {
     ws.appendMessage(root.id, 'system', this.rootBriefMessage());
     const siblingIds: string[] = [];
     if (this.isContextBranch) {
-      for (const sibling of this.run.manifest.contextBranch.siblingStates) {
+      const siblings = this.run.manifest.contextBranch.siblingStates;
+      for (const [index, sibling] of siblings.entries()) {
+        const other = siblings[(index + 1) % siblings.length];
         const branch = ws.createBranch({
           name: sibling.label,
           description: `Study implementation area: ${sibling.label}`,
@@ -56,8 +58,9 @@ export class StudyController {
           tags: ['study-sibling', sibling.id],
         });
         ws.appendMessage(branch.id, 'system',
-          `[study] This is the “${sibling.label}” implementation state. ` +
-          'It starts with the same task and code as the other state. Use it if useful; work may be compared or integrated later by you.'
+          `[study] ContextBranch created this isolated state for “${sibling.label}”. ` +
+          `It and “${other.label}” start from the same checkpoint because the feature has two ` +
+          'cooperating implementation responsibilities. This state keeps its own conversation, code candidate, and test evidence while you work.'
         );
         ws.storage.appendTelemetry({
           type: 'study_state_created',
@@ -72,6 +75,7 @@ export class StudyController {
       if (siblingIds[0]) {
         const fromStateId = ws.activeBranchId;
         ws.switchBranch(siblingIds[0], { actor: 'system', reason: 'study_initialization' });
+        ws.appendMessage(siblingIds[0], 'system', this.contextBranchGuidanceMessage());
         this.recordStateSwitch(ws, fromStateId, siblingIds[0], 'system', 'study_initialization');
       }
     }
@@ -274,7 +278,12 @@ export class StudyController {
     const ticket = this.run.manifest.ticket;
     const labels = this.run.manifest.rootBrief.implementationIntentLabels.map(label => `- ${label}`).join('\n');
     const requirements = ticket.requirements.map(item => `- ${item}`).join('\n');
-    return `[study] Task: ${ticket.summary}\n\nRequirements:\n${requirements}\n\nImplementation areas:\n${labels}\n\nUse the task ticket and public tests as the working specification. The implementation areas are available in both conditions; they are not required steps.`;
+    return `[study] Task: ${ticket.summary}\n\nRequirements:\n${requirements}\n\nImplementation responsibilities:\n${labels}\n\nUse the task ticket and public tests as the working specification. The responsibilities are available in both conditions; they are suggestions, not required steps. The supplied composition layer connects their contracts, so submit the final feature from main.`;
+  }
+
+  private contextBranchGuidanceMessage(): string {
+    const labels = this.run.manifest.contextBranch.siblingStates.map(state => `“${state.label}”`).join(' and ');
+    return `[study] Two sibling states are ready: ${labels}. A practical starting point is to read the ticket and tests, then focus in the state whose responsibility you want to investigate first. You may switch whenever another responsibility becomes relevant, compare the separate evidence, or work in only one state. When work from an active sibling state belongs in the final implementation, select “Integrate this state into main”, review the merge preview, and confirm it. This is a suggested workflow, not a required sequence.`;
   }
 
   private elapsedSeconds(): number {

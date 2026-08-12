@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "taskId": "rgb-image-composer",
-  "participantTitle": "RGB Image Composer",
+  "participantTitle": "Configurable RGB Image Composer",
   "provenance": {
     "type": "FeatureBench-derived curated study task",
     "sourceInstanceId": "astropy__astropy.b0db0daa.test_basic_rgb.067e927c.lv1",
@@ -9,9 +9,9 @@
     "sourceRepository": "astropy/astropy",
     "sourceCommit": "b0db0daac6b851596851cb43e5456fb6c916c071",
     "derivedBehaviour": [
-      "per-channel normalization",
+      "per-channel interval normalization and stretch",
       "same-shape channel validation",
-      "floating-point and 8-bit RGB composition"
+      "floating-point and 8-bit RGB encoding"
     ],
     "construction": "The study baseline is purpose-built; it does not reproduce the upstream FeatureBench patch or test suite."
   },
@@ -20,24 +20,24 @@
     "referenceDirectory": "task-assets/rgb-image-composer/reference"
   },
   "ticket": {
-    "summary": "Build an RGB image composer.",
+    "summary": "Build a configurable RGB image composer.",
     "requirements": [
-      "Accept three same-sized grayscale image arrays.",
-      "Normalize each channel into a displayable range and combine them into an RGB image.",
-      "Support floating-point and 8-bit output."
+      "Validate three aligned grayscale channels and transform them using shared or per-channel intervals.",
+      "Support linear and square-root display stretches while keeping transformed values in the display range.",
+      "Compose the transformed channels into floating-point or 8-bit RGB output through the supplied composer class."
     ]
   },
   "rootBrief": {
     "visibleInBothConditions": true,
     "implementationIntentLabels": [
-      "Normalize and validate image channels",
-      "Compose and encode the RGB image"
+      "Transform and validate image channels",
+      "Encode configurable RGB output"
     ]
   },
   "contextBranch": {
     "siblingStates": [
-      { "id": "normalize", "label": "Normalize and validate image channels" },
-      { "id": "encode", "label": "Compose and encode the RGB image" }
+      { "id": "transform", "label": "Transform and validate image channels" },
+      { "id": "encode", "label": "Encode configurable RGB output" }
     ]
   },
   "runner": {
@@ -47,14 +47,14 @@
   },
   "submission": {
     "allowedProductionPaths": [
-      "rgb_composer/normalization.py",
-      "rgb_composer/encoding.py"
+      "rgb_composer/transforms/channel_transform.py",
+      "rgb_composer/output/encoder.py"
     ],
     "finalState": "main"
   },
   "privateGrader": {
     "mode": "fresh-clean-baseline",
     "outcome": "verified-feature-delivery",
-    "hiddenGoals": ["normalization", "encoding", "composer_integration"]
+    "hiddenGoals": ["transformation", "encoding", "composer_integration"]
   }
 }

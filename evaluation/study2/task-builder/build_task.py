@@ -77,13 +77,14 @@ code, ask the coding assistant for help, edit files, and run the public tests.
 
 {requirements}
 
-## Implementation areas
+## Implementation responsibilities
 
 {labels}
 
-The two implementation areas are shown to everyone. They are suggestions for
-organizing work, not required steps. A supplied composition layer connects the
-two areas. Submit the final feature from the main state when you are ready.
+The two implementation responsibilities are shown to everyone. They are
+suggestions for organizing work, not required steps. They live in separate
+folders and communicate through the supplied composition layer. Submit the
+final feature from the main state when you are ready.
 
 Only the supplied public tests are available during the task. The final repair
 is checked later on a clean copy of the supplied task baseline.

@@ -1,11 +1,28 @@
-"""Stable composition layer for the RGB image-composer study task."""
+"""Stable façade that composes channel transformation and RGB encoding."""
 
 from collections.abc import Sequence
 
 import numpy as np
 
-from .encoding import encode_rgb
-from .normalization import normalize_channels
+from .output import RGBEncoder
+from .transforms import ChannelTransform
+
+
+class RGBComposer:
+    """Compose aligned grayscale channels using a configurable display pipeline."""
+
+    def __init__(
+        self,
+        ranges: tuple[float, float] | Sequence[tuple[float, float]] | None = None,
+        stretch: str = "linear",
+        output_dtype: type | np.dtype = np.uint8,
+    ) -> None:
+        self._transform = ChannelTransform(ranges=ranges, stretch=stretch)
+        self._encoder = RGBEncoder(output_dtype=output_dtype)
+
+    def compose(self, red: np.ndarray, green: np.ndarray, blue: np.ndarray) -> np.ndarray:
+        """Transform three input channels and encode one RGB image."""
+        return self._encoder.encode(self._transform.apply((red, green, blue)))
 
 
 def make_rgb(
@@ -13,8 +30,8 @@ def make_rgb(
     green: np.ndarray,
     blue: np.ndarray,
     ranges: tuple[float, float] | Sequence[tuple[float, float]] | None = None,
-    output_dtype: type | np.dtype = np.float64,
+    stretch: str = "linear",
+    output_dtype: type | np.dtype = np.uint8,
 ) -> np.ndarray:
-    """Normalize three grayscale channels and return one RGB image."""
-    channels = normalize_channels((red, green, blue), ranges=ranges)
-    return encode_rgb(channels, output_dtype=output_dtype)
+    """Convenience function for one configurable RGB composition."""
+    return RGBComposer(ranges=ranges, stretch=stretch, output_dtype=output_dtype).compose(red, green, blue)

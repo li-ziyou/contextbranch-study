@@ -22,3 +22,4 @@ task-cache/
 .study-venv/
 .study-runtime/
 .study-builder/
+tmp/
