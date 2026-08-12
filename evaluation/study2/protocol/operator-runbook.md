@@ -18,13 +18,18 @@
    tests, state switching/integration where available, and Finish task. The
    operator may repair an environment failure but must not explain code, direct
    an implementation route, or suggest prompts.
-5. At Finish task or timeout, run `npm run study:collect -- RUN_ID`. The
-   extension fixes the final main state at completion, and collection checks
-   its production-file hashes before it copies the final main workspace and
-   ContextBranch telemetry into the run
-   directory. Prepare a new clean workspace for period 2.
-6. After the session, invoke the clean private grader. Store participant ID
-   mappings and recordings separately from pseudonymous run bundles.
+5. At Finish task or timeout, the extension fixes the final main state and
+   automatically writes one ZIP to `<runs root>/participant-exports/`. Its
+   name is `PARTICIPANT_TASK_CONDITION_PERIOD.zip`, for example
+   `P017_rgb-image-composer_contextbranch_2.zip`. The ZIP contains the final
+   allowlisted production files, completion record, task ticket, and the full
+   ContextBranch conversation/state/telemetry store. It excludes API keys,
+   `.git`, private tests, and the private grader. Prepare a new clean workspace
+   for period 2.
+6. After the session, obtain both participant ZIPs and invoke the clean private
+   grader on each extracted `submission/main` directory. Store participant ID
+   mappings, workload forms, interviews, and recordings separately from the
+   pseudonymous ZIPs.
 7. Mark an invalid run only for withdrawal, consent withdrawal, or documented
    infrastructure/data-capture failure. Non-use of a state, an incomplete
    feature, or a slow submission remains valid data.

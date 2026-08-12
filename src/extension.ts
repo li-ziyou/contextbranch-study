@@ -74,6 +74,20 @@ export async function activate(context: vscode.ExtensionContext) {
     } catch { /* non-fatal */ }
   }
 
+  async function recoverFinishedStudyArchive(): Promise<void> {
+    if (!studyController || !workspace || !studyController.isFinished()) return;
+    try {
+      const archive = await studyController.exportFinishedArchive(workspace);
+      if (archive.created) {
+        vscode.window.showInformationMessage(`Study data ZIP recovered: ${archive.fileName}`);
+      }
+    } catch (error: any) {
+      vscode.window.showErrorMessage(
+        `Completed study data could not be archived: ${error.message ?? String(error)}`,
+      );
+    }
+  }
+
   // 2. Initialize storage in workspace (if a folder is open)
   const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   let storage: Storage | null = null;
@@ -96,6 +110,7 @@ export async function activate(context: vscode.ExtensionContext) {
     //     is captured (otherwise only files you later touch get captured).
     runInitialIngest(cbRoot);
     studyController?.initialize(workspace);
+    void recoverFinishedStudyArchive();
   } else {
     vscode.window.showWarningMessage(
       'ContextBranch: open a folder first, then reload the window.'
@@ -127,6 +142,7 @@ export async function activate(context: vscode.ExtensionContext) {
         updateStatusBar();
         runInitialIngest(cbRoot);
         studyController?.initialize(workspace);
+        void recoverFinishedStudyArchive();
         vscode.window.showInformationMessage('ContextBranch: workspace ready.');
       }
     })

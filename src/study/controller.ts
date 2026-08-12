@@ -2,7 +2,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { Workspace } from '../core/workspace';
-import { StudyRunFile, StudyUiState } from './types';
+import { createStudyArchive, defaultStudyExportDirectory, studyArchiveFileName } from './archive';
+import { StudyArchive, StudyFinishedRecord, StudyRunFile, StudyUiState } from './types';
 
 /**
  * StudyController is the single source of truth for a prepared Study 2 run.
@@ -58,9 +59,21 @@ export class StudyController {
           `[study] This is the “${sibling.label}” implementation state. ` +
           'It starts with the same task and code as the other state. Use it if useful; work may be compared or integrated later by you.'
         );
+        ws.storage.appendTelemetry({
+          type: 'study_state_created',
+          actor: 'system',
+          runId: this.run.runId,
+          stateId: branch.id,
+          parentStateId: ws.mainBranchId,
+          stateLabel: sibling.label,
+        });
         siblingIds.push(branch.id);
       }
-      if (siblingIds[0]) ws.switchBranch(siblingIds[0]);
+      if (siblingIds[0]) {
+        const fromStateId = ws.activeBranchId;
+        ws.switchBranch(siblingIds[0], { actor: 'system', reason: 'study_initialization' });
+        this.recordStateSwitch(ws, fromStateId, siblingIds[0], 'system', 'study_initialization');
+      }
     }
     ws.storage.appendTelemetry({
       type: 'study_initialized',
@@ -80,15 +93,18 @@ export class StudyController {
     ws.storage.appendTelemetry({ type: 'study_started', runId: this.run.runId, taskId: this.run.taskId });
   }
 
-  finish(ws: Workspace, stateBeforeFinalization: string = ws.activeBranchId): void {
+  finish(ws: Workspace, stateBeforeFinalization: string = ws.activeBranchId): StudyFinishedRecord {
     const finishedPath = path.join(this.workspaceRoot, '.study', 'finished.json');
-    if (fs.existsSync(finishedPath)) return;
-    const event = {
+    if (fs.existsSync(finishedPath)) return this.readFinishedRecord(finishedPath);
+    const finishedAt = new Date().toISOString();
+    const event: StudyFinishedRecord = {
       schemaVersion: 1,
       runId: this.run.runId,
       taskId: this.run.taskId,
       condition: this.run.condition,
-      finishedAt: new Date().toISOString(),
+      startedAt: this.run.startedAt,
+      finishedAt,
+      durationMs: this.run.startedAt ? Math.max(0, Date.parse(finishedAt) - Date.parse(this.run.startedAt)) : 0,
       timedOut: this.isTimedOut(),
       finalState: this.run.manifest.submission.finalState,
       activeStateAtFinish: stateBeforeFinalization,
@@ -98,6 +114,33 @@ export class StudyController {
     };
     fs.writeFileSync(finishedPath, JSON.stringify(event, null, 2) + '\n', 'utf-8');
     ws.storage.appendTelemetry({ type: 'study_finished', ...event });
+    return event;
+  }
+
+  async exportFinishedArchive(ws: Workspace): Promise<StudyArchive> {
+    const finished = this.readFinishedRecord(path.join(this.workspaceRoot, '.study', 'finished.json'));
+    this.verifyFinalProductionFiles(finished);
+    const exportDirectory = this.run.exportDirectory || defaultStudyExportDirectory(this.workspaceRoot);
+    const fileName = studyArchiveFileName(this.run);
+    const archivePath = path.join(exportDirectory, fileName);
+    if (!fs.existsSync(archivePath)) {
+      ws.storage.appendTelemetry({
+        type: 'study_archive_prepared',
+        actor: 'system',
+        runId: this.run.runId,
+        fileName,
+      });
+    }
+    const archive = await createStudyArchive(this.workspaceRoot, this.run, finished);
+    if (archive.created) {
+      ws.storage.appendTelemetry({
+        type: 'study_archive_created',
+        actor: 'system',
+        runId: this.run.runId,
+        fileName: archive.fileName,
+      });
+    }
+    return archive;
   }
 
   actionError(): string | null {
@@ -134,11 +177,65 @@ export class StudyController {
   recordPublicTest(ws: Workspace, exitCode: number | null, output: string, durationMs: number): void {
     ws.storage.appendTelemetry({
       type: 'study_public_test_run',
+      actor: 'participant',
       runId: this.run.runId,
       stateId: ws.activeBranchId,
       exitCode,
       durationMs,
       output,
+    });
+  }
+
+  recordStateMapOpened(ws: Workspace): void {
+    ws.storage.appendTelemetry({ type: 'study_state_map_opened', actor: 'participant', runId: this.run.runId });
+  }
+
+  recordStateMapClosed(
+    ws: Workspace,
+    durationMs: number,
+    actor: 'participant' | 'system' = 'participant',
+    reason: string = 'participant_closed',
+  ): void {
+    ws.storage.appendTelemetry({
+      type: 'study_state_map_closed', actor, reason, runId: this.run.runId,
+      durationMs: Math.max(0, durationMs),
+    });
+  }
+
+  recordStateMapNodeInspected(
+    ws: Workspace,
+    node: { nodeId: string; nodeKind: string; stateId?: string },
+  ): void {
+    ws.storage.appendTelemetry({
+      type: 'study_state_map_node_inspected', actor: 'participant', runId: this.run.runId,
+      ...node,
+    });
+  }
+
+  recordStateSwitch(
+    ws: Workspace,
+    fromStateId: string,
+    toStateId: string,
+    actor: 'participant' | 'system',
+    reason: string,
+  ): void {
+    ws.storage.appendTelemetry({
+      type: 'study_state_switched', actor, runId: this.run.runId,
+      fromStateId, toStateId, reason,
+    });
+  }
+
+  recordIntegrationOpened(ws: Workspace, sourceStateId: string): void {
+    ws.storage.appendTelemetry({
+      type: 'study_integration_opened', actor: 'participant', runId: this.run.runId,
+      sourceStateId, targetStateId: ws.mainBranchId,
+    });
+  }
+
+  recordIntegrationCompleted(ws: Workspace, sourceStateId: string, eventId: string): void {
+    ws.storage.appendTelemetry({
+      type: 'study_integration_completed', actor: 'participant', runId: this.run.runId,
+      sourceStateId, targetStateId: ws.mainBranchId, eventId,
     });
   }
 
@@ -189,8 +286,27 @@ export class StudyController {
     return Boolean(this.run.startedAt) && this.elapsedSeconds() >= this.run.timeLimitSeconds;
   }
 
-  private isFinished(): boolean {
+  isFinished(): boolean {
     return fs.existsSync(path.join(this.workspaceRoot, '.study', 'finished.json'));
+  }
+
+  private readFinishedRecord(finishedPath: string): StudyFinishedRecord {
+    return JSON.parse(fs.readFileSync(finishedPath, 'utf-8')) as StudyFinishedRecord;
+  }
+
+  private verifyFinalProductionFiles(finished: StudyFinishedRecord): void {
+    for (const relativePath of this.run.manifest.submission.allowedProductionPaths) {
+      const file = path.join(this.workspaceRoot, relativePath);
+      const expectedHash = finished.productionFileHashes[relativePath];
+      const stat = fs.existsSync(file) ? fs.lstatSync(file) : null;
+      if (!stat?.isFile() || stat.isSymbolicLink()) {
+        throw new Error(`Final main state is not a regular file: ${relativePath}`);
+      }
+      const actualHash = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+      if (!expectedHash || actualHash !== expectedHash) {
+        throw new Error(`Final main state changed after Finish task: ${relativePath}`);
+      }
+    }
   }
 
   private modelCallsUsed(ws: Workspace): number {
@@ -207,8 +323,9 @@ export class StudyController {
     const hashes: Record<string, string> = {};
     for (const relativePath of this.run.manifest.submission.allowedProductionPaths) {
       const file = path.join(this.workspaceRoot, relativePath);
-      if (!fs.existsSync(file)) {
-        throw new Error(`Required production file is missing at finish: ${relativePath}`);
+      const stat = fs.existsSync(file) ? fs.lstatSync(file) : null;
+      if (!stat?.isFile() || stat.isSymbolicLink()) {
+        throw new Error(`Required production file is missing or unsafe at finish: ${relativePath}`);
       }
       hashes[relativePath] = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
     }

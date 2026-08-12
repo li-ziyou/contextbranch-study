@@ -37,6 +37,7 @@
     pendingMerge: null,
     manualMergeResolution: null,
     historyOpen: false,
+    stateMapOpenedAt: null,
     historyGraph: null,
     selectedHistoryNodeId: null,
     checkpoints: [],
@@ -135,6 +136,9 @@
           hidePreviewBar();
           showStatus('Preview dismissed — files reverted.', 'info');
           break;
+        case 'studyArchiveReady':
+          showStatus(`Study data saved as ${msg.fileName}.`, 'success');
+          break;
         case 'studyStarted':
           showStatus('Task started.', 'success');
           break;
@@ -164,10 +168,12 @@
           });
           break;
         case 'studyFinished':
-          showStatus('Task finished. The operator can now collect the final main state.', 'success');
+          recordStateMapClosed();
+          showStatus('Task finished. The final main state and study data ZIP were recorded.', 'success');
           render();
           break;
         case 'studyTimedOut':
+          recordStateMapClosed();
           showStatus('Time is up. The final main state has been recorded.', 'info');
           render();
           break;
@@ -555,13 +561,17 @@
     abandon.disabled = state.isMain;
 
     const studyActive = Boolean(state.study);
+    const showStudyStateMap = !studyActive || state.study.condition === 'contextbranch';
     $('btn-menu').hidden = studyActive;
     $('btn-checkpoint').hidden = studyActive;
-    $('btn-toggle-history').hidden = studyActive;
-    if (studyActive) {
+    $('btn-toggle-history').hidden = !showStudyStateMap;
+    $('btn-toggle-history').title = studyActive ? 'Show state map' : 'Show history graph';
+    $('history-title').textContent = studyActive ? 'State map' : 'Development history';
+    if (!showStudyStateMap) {
       $('history-pane').hidden = true;
       $('pane-resizer').hidden = true;
       state.historyOpen = false;
+      state.stateMapOpenedAt = null;
     }
     renderStudyControls();
 
@@ -609,6 +619,10 @@
 
     const svg = $('history-svg');
     const empty = $('history-empty');
+    const emptyHint = $('history-empty-hint');
+    emptyHint.textContent = state.study
+      ? 'This study condition has no additional states to display.'
+      : 'Create a branch or save a checkpoint to see it here.';
 
     if (!hg) {
       console.log('[history] bailing: historyGraph is null/undefined');
@@ -1373,15 +1387,16 @@ function shortenEnd(from, to, r) {
 }
 
 function tooltipFor(n) {
+  const studyHint = state.study ? '\nClick to inspect details' : '';
   if (n.kind === 'branch') {
     const b = n.branch;
-    return `Branch: ${b.name}\nStatus: ${b.status}\n${b.messageCount ?? b.messageIds?.length ?? 0} messages`;
+    return `Branch: ${b.name}\nStatus: ${b.status}\n${b.messageCount ?? b.messageIds?.length ?? 0} messages${studyHint}`;
   }
   if (n.kind === 'checkpoint') {
     const cp = n.checkpoint;
     const when = new Date(cp.createdAt || 0).toLocaleString();
     const kind = n.cpKind || 'manual';
-    return `Checkpoint (${kind})\n${cp.label || '(no label)'}\n${when}\n${cp.messageIds?.length ?? 0} msgs · ${cp.artifactIds?.length ?? 0} files\nClick to switch here`;
+    return `Checkpoint (${kind})\n${cp.label || '(no label)'}\n${when}\n${cp.messageIds?.length ?? 0} msgs · ${cp.artifactIds?.length ?? 0} files${state.study ? studyHint : '\nClick to switch here'}`;
   }
   if (n.kind === 'merge') {
     const ev = n.mergeEvent;
@@ -1403,6 +1418,20 @@ function tooltipFor(n) {
   detail.hidden = false;
   body.innerHTML = '';
 
+  if (state.study?.condition === 'contextbranch') {
+    send({
+      type: 'studyStateMapNodeInspected',
+      nodeId: node.id,
+      nodeKind: node.kind,
+      stateId: historyNodeStateId(node),
+    });
+  }
+
+  if (state.study) {
+    renderStudyHistoryCard(node, title, body);
+    return;
+  }
+
   if (node.kind === 'branch') {
     renderBranchCard(node, title, body);
   } else if (node.kind === 'merge') {
@@ -1413,6 +1442,44 @@ function tooltipFor(n) {
     title.textContent = 'Unknown';
     body.textContent = 'No details available.';
   }
+}
+
+function historyNodeStateId(node) {
+  if (node.kind === 'branch') return node.branch?.id;
+  if (node.kind === 'checkpoint') return node.checkpoint?.branchId;
+  if (node.kind === 'merge') return node.targetBranchId || node.mergeEvent?.targetBranchId || node.checkpoint?.branchId;
+  return undefined;
+}
+
+/** Study Mode state-map cards deliberately expose provenance only. */
+function renderStudyHistoryCard(node, title, body) {
+  if (node.kind === 'branch') {
+    const branch = node.branch;
+    title.textContent = branch.name;
+    appendP(body, `${branch.status} · ${branch.messageCount ?? branch.messageIds?.length ?? 0} messages`, 'muted');
+    if (branch.description) appendP(body, branch.description);
+    if (branch.id === state.activeBranchId) appendP(body, '(currently active)', 'muted');
+  } else if (node.kind === 'checkpoint') {
+    const checkpoint = node.checkpoint;
+    const branch = (state.historyGraph?.branches || []).find((candidate) => candidate.id === checkpoint.branchId);
+    title.textContent = checkpoint.label || 'Checkpoint';
+    appendP(body, `${node.cpKind || 'checkpoint'} · ${branch?.name || checkpoint.branchId}`, 'muted');
+    appendP(body, `${checkpoint.messageIds?.length ?? 0} messages · ${checkpoint.artifactIds?.length ?? 0} files`);
+    appendP(body, new Date(checkpoint.createdAt || 0).toLocaleString(), 'muted');
+  } else if (node.kind === 'merge') {
+    const event = node.mergeEvent;
+    const checkpoint = node.checkpoint;
+    title.textContent = `Merge → ${node.targetBranchName || event?.targetBranchId || 'main'}`;
+    appendP(body, `${node.sourceBranchName || event?.sourceBranchId || 'state'} → ${node.targetBranchName || event?.targetBranchId || 'main'}`);
+    if (event?.verification?.status) appendP(body, `Status: ${event.verification.status}`, 'muted');
+    const when = (checkpoint && checkpoint.createdAt) || event?.completedAt || event?.startedAt;
+    if (when) appendP(body, new Date(when).toLocaleString(), 'muted');
+  } else {
+    title.textContent = 'State';
+    appendP(body, 'No additional details are available.', 'muted');
+  }
+
+  appendP(body, 'This map is view-only during the study. Use the state selector to change states.', 'muted');
 }
 
 /**
@@ -2575,7 +2642,10 @@ function findNextInstanceTime(branchId, instanceIdx) {
   $('study-start').addEventListener('click', () => send({ type: 'startStudyTask' }));
   $('study-run-tests').addEventListener('click', () => send({ type: 'runStudyTests' }));
   $('study-integrate').addEventListener('click', () => send({ type: 'openStudyIntegration' }));
-  $('study-finish').addEventListener('click', () => send({ type: 'finishStudyTask' }));
+  $('study-finish').addEventListener('click', () => {
+    recordStateMapClosed();
+    send({ type: 'finishStudyTask' });
+  });
 
   $('composer-input').addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
@@ -2610,21 +2680,36 @@ function findNextInstanceTime(branchId, instanceIdx) {
       render();
     });
   }
-   $('btn-toggle-history').addEventListener('click', (e) => {
+  $('btn-toggle-history').addEventListener('click', (e) => {
     e.stopPropagation();
     state.historyOpen = !state.historyOpen;
     $('history-pane').hidden = !state.historyOpen;
     $('pane-resizer').hidden = !state.historyOpen;   // ← this line
     $('btn-toggle-history').classList.toggle('active', state.historyOpen);
-    if (state.historyOpen) renderHistoryView();
+    if (state.historyOpen) {
+      if (state.study?.condition === 'contextbranch') {
+        state.stateMapOpenedAt = Date.now();
+        send({ type: 'studyStateMapOpened' });
+      }
+      renderHistoryView();
+    } else {
+      recordStateMapClosed();
+    }
   });
 
  $('btn-history-close').addEventListener('click', () => {
+    recordStateMapClosed();
     state.historyOpen = false;
     $('history-pane').hidden = true;
     $('pane-resizer').hidden = true;                 // ← this line
     $('btn-toggle-history').classList.remove('active');
   });
+
+  function recordStateMapClosed() {
+    if (state.study?.condition !== 'contextbranch' || state.stateMapOpenedAt == null) return;
+    send({ type: 'studyStateMapClosed', durationMs: Date.now() - state.stateMapOpenedAt });
+    state.stateMapOpenedAt = null;
+  }
   $('history-detail-close').addEventListener('click', () => {
     state.selectedHistoryNodeId = null;
     $('history-detail').hidden = true;

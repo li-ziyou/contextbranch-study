@@ -214,6 +214,7 @@ function prepare(participantId, periodText, options) {
     condition: assignment.condition,
     createdAt: new Date().toISOString(),
     startedAt: null,
+    exportDirectory: path.join(runsRoot, 'participant-exports'),
     timeLimitSeconds: profile.timeLimitSeconds,
     model: {
       provider: profile.provider,
@@ -292,7 +293,9 @@ function collect(runId, options) {
     runId,
     collectedAt: new Date().toISOString(),
     finalState: finished.finalState,
+    startedAt: finished.startedAt,
     finishedAt: finished.finishedAt,
+    durationMs: finished.durationMs,
     submission: destination,
   }, null, 2) + '\n');
   console.log(JSON.stringify({ runId, submission: destination, telemetry: fs.existsSync(telemetryDestination) ? telemetryDestination : null }, null, 2));

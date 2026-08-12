@@ -485,7 +485,10 @@ export class Workspace {
 
   // ─── switching ────────────────────────────────────────────────────────────
 
-  switchBranch(branchId: string): void {
+  switchBranch(
+    branchId: string,
+    context: { actor?: 'participant' | 'system'; reason?: string } = {},
+  ): void {
     const b = this.getBranch(branchId);
     if (!b) throw new Error(`Branch ${branchId} not found`);
     if (this.state.activeBranchId === branchId) return;
@@ -493,6 +496,8 @@ export class Workspace {
     this.storage.appendTelemetry({
       type: 'branch_switched',
       from: this.state.activeBranchId, to: branchId,
+      actor: context.actor ?? 'participant',
+      reason: context.reason,
     });
 
     this.state.activeBranchId = branchId;

@@ -191,6 +191,7 @@
     "study:grade": "python3 evaluation/study2/private-grader/grade_submission.py"
   },
   "devDependencies": {
+    "@types/archiver": "^6.0.4",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^2.24.0",
@@ -199,8 +200,9 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.30.0",
-    "openai": "^4.50.0",
     "@google/generative-ai": "^0.21.0",
-    "diff3": "^0.0.4"
+    "archiver": "^7.0.1",
+    "diff3": "^0.0.4",
+    "openai": "^4.50.0"
   }
 }
