@@ -13,13 +13,15 @@
    `npm run study:prepare -- P017 1 --provider FIXED_PROVIDER --model FIXED_MODEL`. Do not improvise task
    or condition allocation during a session. This first command freezes the
    profile in `runs/study-profile.json`; every later run must match its provider,
-   model, time limit, and pooled budgets. Open only the printed workspace.
+   model, time limit, and pooled budgets. It also creates a fresh participant
+   session folder named `P017_YYYYMMDDTHHMMSSZ`. Period 2 for that participant
+   is created in the same session folder. Open only the printed workspace.
 4. The participant opens `.study/TASK.md`, then uses Start task, Run public
    tests, state switching/integration where available, and Finish task. The
    operator may repair an environment failure but must not explain code, direct
    an implementation route, or suggest prompts.
 5. At Finish task or timeout, the extension fixes the final main state and
-   automatically writes one ZIP to `<runs root>/participant-exports/`. Its
+   automatically writes one ZIP to `<participant session folder>/participant-exports/`. Its
    name is `PARTICIPANT_TASK_CONDITION_PERIOD.zip`, for example
    `P017_rgb-image-composer_contextbranch_2.zip`. The ZIP contains the final
    allowlisted production files, completion record, task ticket, and the full
