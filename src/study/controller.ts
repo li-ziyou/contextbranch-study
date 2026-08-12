@@ -291,7 +291,20 @@ export class StudyController {
   }
 
   private readFinishedRecord(finishedPath: string): StudyFinishedRecord {
-    return JSON.parse(fs.readFileSync(finishedPath, 'utf-8')) as StudyFinishedRecord;
+    const parsed = JSON.parse(fs.readFileSync(finishedPath, 'utf-8')) as Partial<StudyFinishedRecord>;
+    const startedAt = parsed.startedAt ?? this.run.startedAt;
+    const durationMs = typeof parsed.durationMs === 'number'
+      ? parsed.durationMs
+      : (startedAt && parsed.finishedAt ? Math.max(0, Date.parse(parsed.finishedAt) - Date.parse(startedAt)) : 0);
+    const record: StudyFinishedRecord = {
+      ...(parsed as StudyFinishedRecord),
+      startedAt,
+      durationMs,
+    };
+    if (parsed.startedAt !== startedAt || parsed.durationMs !== durationMs) {
+      fs.writeFileSync(finishedPath, JSON.stringify(record, null, 2) + '\n', 'utf-8');
+    }
+    return record;
   }
 
   private verifyFinalProductionFiles(finished: StudyFinishedRecord): void {
