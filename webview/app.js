@@ -511,15 +511,35 @@
       for (const m of state.messages) {
         const div = document.createElement('div');
         div.className = `message ${m.role}`;
+        const studyKind = getStudyMessageKind(m.content);
+        if (studyKind) div.classList.add('study-message', `study-${studyKind}`);
 
         const role = document.createElement('div');
         role.className = 'role-label';
-        role.textContent = m.role;
+        role.textContent = studyKind === 'main-ticket'
+          ? 'Study task'
+          : studyKind === 'branch-ticket'
+            ? 'Branch ticket'
+            : studyKind
+              ? 'ContextBranch'
+              : m.role;
         div.appendChild(role);
 
         const body = document.createElement('div');
         body.className = 'message-body';
-        body.innerHTML = renderMessageContent(m.content);
+        const displayContent = studyKind ? stripStudyMessageMarker(m.content) : m.content;
+        if (studyKind === 'main-ticket') {
+          const [title, ...details] = displayContent.split('\n');
+          const heading = document.createElement('div');
+          heading.className = 'study-main-ticket-title';
+          heading.textContent = title;
+          body.appendChild(heading);
+          const detail = document.createElement('div');
+          detail.innerHTML = renderMessageContent(details.join('\n').trim());
+          body.appendChild(detail);
+        } else {
+          body.innerHTML = renderMessageContent(displayContent);
+        }
         div.appendChild(body);
 
         // Per-message actions
@@ -1845,6 +1865,18 @@ function findNextInstanceTime(branchId, instanceIdx) {
       `<pre><code>${body}</code></pre>`);
     html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
     return html;
+  }
+
+  function getStudyMessageKind(content) {
+    const tagged = content.match(/^\[study\]\[([a-z-]+)\]\s*/);
+    if (tagged) return tagged[1];
+    return content.startsWith('[study]') ? 'note' : null;
+  }
+
+  function stripStudyMessageMarker(content) {
+    return content
+      .replace(/^\[study\]\[([a-z-]+)\]\s*/, '')
+      .replace(/^\[study\]\s*/, '');
   }
 
   function scrollToBottom() {

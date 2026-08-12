@@ -132,7 +132,9 @@ states. The main state keeps the complete feature ticket and a recommended
 merge route. Each sibling begins from the same root checkpoint and receives a
 ContextBranch-generated, branch-specific ticket with its goal, focused
 requirements, and suggested validation. The route is guidance: participants
-may still inspect, switch, compare, or integrate states when useful.
+may still inspect, switch, compare, or integrate states when useful. The
+system remains in `main` after creating the sibling states; it does not switch
+the participant into either branch automatically.
 
 The participant may work in either state, switch between them, compare code
 changes or test evidence, ignore one state, or work in only one state. If work

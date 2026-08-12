@@ -55,10 +55,11 @@ export class StudyController {
           name: sibling.label,
           description: `Study branch ticket: ${sibling.label}`,
           parentBranchId: ws.mainBranchId,
+          inheritMessages: false,
           tags: ['study-sibling', sibling.id],
         });
         ws.appendMessage(branch.id, 'system',
-          `[study] ContextBranch created this isolated state for “${sibling.label}”. ` +
+          `[study][branch-context] ContextBranch created this isolated state for “${sibling.label}”. ` +
           `It and “${other.label}” start from the same checkpoint because the feature has two ` +
           'cooperating implementation responsibilities. This state keeps its own conversation, code candidate, and test evidence while you work.'
         );
@@ -74,11 +75,6 @@ export class StudyController {
         siblingIds.push(branch.id);
       }
       ws.appendMessage(root.id, 'system', this.mainContextBranchPlanMessage());
-      if (siblingIds[0]) {
-        const fromStateId = ws.activeBranchId;
-        ws.switchBranch(siblingIds[0], { actor: 'system', reason: 'study_initialization' });
-        this.recordStateSwitch(ws, fromStateId, siblingIds[0], 'system', 'study_initialization');
-      }
     }
     ws.storage.appendTelemetry({
       type: 'study_initialized',
@@ -278,7 +274,7 @@ export class StudyController {
   private rootTaskMessage(): string {
     const ticket = this.run.manifest.ticket;
     const requirements = ticket.requirements.map(item => `- ${item}`).join('\n');
-    return `[study] Task: ${ticket.summary}\n\nRequirements:\n${requirements}\n\nUse this total feature ticket and the public tests as the working specification. Submit the final feature from main.`;
+    return `[study][main-ticket] ${ticket.summary}\n\nRequirements:\n${requirements}\n\nUse this total feature ticket and the public tests as the working specification. Submit the final feature from main.`;
   }
 
   private mainContextBranchPlanMessage(): string {
@@ -288,12 +284,12 @@ export class StudyController {
       return `${index + 1}. “${state?.label ?? step.stateId}”: ${step.instruction}`;
     }).join('\n');
     const labels = this.run.manifest.contextBranch.siblingStates.map(state => `“${state.label}”`).join(' and ');
-    return `[study] ContextBranch created two sibling states: ${labels}. Each state has its own branch-specific ticket, conversation, code candidate, and test evidence.\n\nRecommended work and merge route:\n${route}\n\nFinal check: ${this.run.manifest.contextBranch.finalVerification}\n\nThis route is a recommendation. You may inspect, switch, compare, or integrate states when useful.`;
+    return `[study][main-plan] ContextBranch created two sibling states: ${labels}. Each state has its own branch-specific ticket, conversation, code candidate, and test evidence.\n\nRecommended work and merge route:\n${route}\n\nFinal check: ${this.run.manifest.contextBranch.finalVerification}\n\nThis route is a recommendation. You may inspect, switch, compare, or integrate states when useful.`;
   }
 
   private branchTicketMessage(sibling: StudyRunFile['manifest']['contextBranch']['siblingStates'][number]): string {
     const requirements = sibling.ticket.requirements.map(item => `- ${item}`).join('\n');
-    return `[study] Branch ticket: ${sibling.label}\n\nGoal: ${sibling.ticket.goal}\n\nFocus in this state:\n${requirements}\n\nSuggested validation: ${sibling.ticket.validation}\n\nWhen this contribution is ready for the final feature, select “Integrate this state into main”, review the merge preview, and confirm the integration.`;
+    return `[study][branch-ticket] ${sibling.label}\n\nGoal: ${sibling.ticket.goal}\n\nFocus in this state:\n${requirements}\n\nSuggested validation: ${sibling.ticket.validation}\n\nWhen this contribution is ready for the final feature, select “Integrate this state into main”, review the merge preview, and confirm the integration.`;
   }
 
   private elapsedSeconds(): number {

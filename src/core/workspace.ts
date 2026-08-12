@@ -392,6 +392,8 @@ export class Workspace {
     description?: string;
     parentBranchId?: string;     // defaults to active branch
     fromMessageId?: string;      // defaults to tip
+    /** Keep the fork's code checkpoint but start with a separate conversation. */
+    inheritMessages?: boolean;
     tags?: string[];
   }): Branch {
     const parentId = opts.parentBranchId ?? this.activeBranchId;
@@ -415,6 +417,7 @@ export class Workspace {
       inheritedMessageIds = [...parent.messageIds];
       inheritedArtifactIds = [...parent.artifactIds];
     }
+    if (opts.inheritMessages === false) inheritedMessageIds = [];
 
     // Create a checkpoint at the fork point on the parent.
     const checkpoint = this.createCheckpoint(parentId, `Fork point: ${opts.name}`);
