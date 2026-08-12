@@ -45,10 +45,11 @@ In VS Code, open the Command Palette and run `ContextBranch: Set API Key`.
 Select `openrouter` and enter the research team API key before the participant
 arrives. The participant must not see or enter the key.
 
-Each prepared study workspace places the primary Side Bar on the right. On
-activation, ContextBranch focuses its own panel and closes VS Code's built-in
-Chat auxiliary bar, so the participant starts in the study interface rather
-than File Explorer or Chat. If VS Code restores an earlier layout, run
+Each prepared study workspace uses VS Code's standard two-sidebar layout:
+the Activity Bar and File Explorer remain on the left, while ContextBranch
+opens in the right Secondary Side Bar. On activation, ContextBranch closes any
+restored auxiliary view and focuses its own panel, so VS Code's built-in Chat
+is not shown to the participant. If VS Code restores an earlier layout, run
 `Developer: Reload Window` before the participant arrives.
 
 Record the extension commit, the prepared task manifests, provider, model,

@@ -90,11 +90,13 @@ export async function activate(context: vscode.ExtensionContext) {
 
   async function focusStudyPanel(): Promise<void> {
     if (!studyController) return;
-    // In a prepared study workspace, keep the participant in ContextBranch,
-    // not VS Code's own Chat. The workspace settings place the primary Side
-    // Bar on the right; this command focuses the contributed view there.
+    // A prepared study workspace uses the standard two-sidebar layout: the
+    // Explorer remains in the left Side Bar and ContextBranch occupies the
+    // right Secondary Side Bar. Close any restored auxiliary view first so
+    // VS Code's own Chat is not shown to the participant.
     try {
       await vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar');
+      await vscode.commands.executeCommand('workbench.view.explorer');
       await vscode.commands.executeCommand('contextbranch.sidebar.focus');
     } catch {
       // Focus is presentation-only. The study remains usable if a host build

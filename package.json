@@ -49,7 +49,7 @@
       ]
     },
     "viewsContainers": {
-      "activitybar": [
+      "secondarySidebar": [
         {
           "id": "contextbranch",
           "title": "ContextBranch",
