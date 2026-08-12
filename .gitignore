@@ -22,3 +22,6 @@ task-cache/
 .study-venv/
 .study-runtime/
 .study-builder/
+
+# Local technical rehearsals. These can contain generated workspaces and logs.
+tmp/
