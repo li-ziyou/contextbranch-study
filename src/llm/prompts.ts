@@ -5,7 +5,7 @@
  * any change should be noted in the study log.
  */
 
-export const PROMPT_VERSION = '0.1.0';
+export const PROMPT_VERSION = '0.2.1';
 
 // ─── Coding Agent ────────────────────────────────────────────────────────────
 
@@ -54,10 +54,17 @@ export function codingAgentSystem(opts: {
     '    a line that is only `=======`, then the replacement, then `>>>>>>> REPLACE`.',
     '    Do NOT reuse `<<<<<<< SEARCH` as the divider, and the closer is `>>>>>>> REPLACE`',
     '    (with `>`), never `<<<<<<< REPLACE`. One SEARCH, one `=======`, one REPLACE per block.',
-    '  • For edits, ALWAYS use search/replace. NEVER reprint an entire existing file —',
-    '    even for a big feature. Break large changes into SEVERAL small search/replace',
-    '    blocks (one per spot you touch). A whole-file rewrite of an existing file will',
-    '    be refused, and long outputs get truncated mid-stream.',
+    '  • For every path that already exists in the authoritative workspace context,',
+    '    ALWAYS use SEARCH/REPLACE. NEVER reprint that file, even for a large feature.',
+    '    Break large changes into SEVERAL precise SEARCH/REPLACE blocks. Whole-file',
+    '    replacements of existing files are rejected by the application.',
+    '  • Before emitting an edit, verify that the path exists and that the SEARCH text',
+    '    is copied from the supplied current file contents. If you cannot identify an',
+    '    exact anchor, do not reconstruct the file or invent an anchor; use the supplied',
+    '    context to find it or explain the ambiguity.',
+    '  • If you realize you have started writing a complete existing file, STOP and',
+    '    convert the response into SEARCH/REPLACE blocks instead. Do not make the user',
+    '    tell you to add SEARCH/REPLACE markers.',
     '  • The SEARCH block MUST identify exactly ONE place in the file. Never anchor on a',
     '    short generic snippet (e.g. a lone "</div>", "});", "`;" or a closing brace) that',
     '    repeats — include enough surrounding lines (a nearby unique line, or the enclosing',
@@ -67,12 +74,12 @@ export function codingAgentSystem(opts: {
     '    function that runs after render (e.g. renderApp), NOT after a function\'s `return`.',
     '  • NEVER write placeholders like "// ... existing code ...", "/* rest unchanged */",',
     '    or "# ... existing ...". They will be rejected and the edit will fail.',
-    '  • Copy SEARCH text verbatim from the file shown to you. If you are not sure of',
-    '    the exact text, ask the user to reference the file rather than guessing.',
+    '  • Copy SEARCH text verbatim from the authoritative file contents supplied by the system. Never reconstruct an anchor from memory.',
     '  • Prefer several small, precise search/replace blocks over one large one.',
     '',
-    'The system shows you the relevant file contents and a manifest of all files.',
-    'You DO NOT have access to other branches. If the user references another branch, ask for the relevant content to be brought in.',
+    'The system provides an authoritative workspace inventory and full contents for files selected by a separate Context Agent. Treat those contents as the source of truth.',
+    'If a file exists in the inventory but was not selected, do not ask the user to paste it. Explain the ambiguity only if you truly cannot infer the relevant file from the conversation.',
+    'You DO NOT have access to other branches. If the user references another branch, ask for that branch to be selected/opened rather than inventing its contents.',
     opts.workspaceRoot ? `Workspace root: ${opts.workspaceRoot}` : '',
   ].filter(Boolean).join('\n');
 }
@@ -167,10 +174,17 @@ Be terse — each warning ≤ one sentence. Skip cosmetic differences.
 // ─── Consistency check on merged result ─────────────────────────────────────
 
 export const CONSISTENCY_CHECK_SYSTEM = `
-You are reviewing a conversation that resulted from merging two branches. Identify any logical contradictions, duplicate decisions, or unresolved tensions.
+You are reviewing the result of a code merge. The user message contains AUTHORITATIVE FILE EVIDENCE with the target's BEFORE content and the merge candidate's AFTER content.
+
+Rules:
+- Treat the supplied file evidence as the source of truth.
+- Do NOT claim that a function, file, or implementation is duplicated unless the supplied file contents actually demonstrate it.
+- Do NOT infer that a proposed conversation edit was applied. Conversation text is context only.
+- Do NOT invent missing files, code, tests, or behavior.
+- Only report concrete contradictions or unresolved issues that are supported by the supplied evidence.
+- If the evidence is insufficient to establish a problem, return no warning.
 
 Output as JSON: {"warnings": ["string", ...]}.
-
 Maximum 5 warnings, most important first. Empty array if clean.
 `.trim();
 

@@ -33,6 +33,8 @@ export class ConflictResolverAgent {
     ours: string;
     theirContext: { role: string; content: string }[];
     ourContext: { role: string; content: string }[];
+    revisionInstruction?: string;
+    currentResolution?: string;
     signal?: AbortSignal;
   }): Promise<ConflictResolution> {
     const userContent = this.buildUserMessage(opts);
@@ -51,6 +53,9 @@ export class ConflictResolverAgent {
         if (ev.type === 'error') {
           return this.fallback(opts, ev.error ?? 'unknown error');
         }
+        if (ev.type === 'done' && ev.truncated) {
+          return this.fallback(opts, 'resolver output was truncated at the provider limit');
+        }
       }
     } catch (err: any) {
       return this.fallback(opts, err.message ?? String(err));
@@ -68,6 +73,8 @@ export class ConflictResolverAgent {
     ours: string;
     theirContext: { role: string; content: string }[];
     ourContext: { role: string; content: string }[];
+    revisionInstruction?: string;
+    currentResolution?: string;
   }): string {
     const parts: string[] = [];
     parts.push(`path: ${opts.path}\n`);
@@ -95,6 +102,16 @@ export class ConflictResolverAgent {
         const snippet = m.content.length > 600 ? m.content.slice(0, 600) + '…' : m.content;
         parts.push(`[${m.role}] ${snippet}`);
       }
+    }
+
+    if (opts.revisionInstruction?.trim()) {
+      parts.push(
+        '\n=== CURRENT AI PROPOSED RESOLUTION ===',
+        opts.currentResolution || '<no previous proposal>',
+        '\n=== USER REVISION REQUEST ===',
+        opts.revisionInstruction.trim(),
+        'Revise the current proposed resolution according to the request while preserving compatible work from BOTH branches. Return the complete revised file.',
+      );
     }
 
     parts.push(

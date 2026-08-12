@@ -82,7 +82,7 @@
           "enumDescriptions": [
             "Anthropic (Claude). Key from console.anthropic.com",
             "OpenAI. Key from platform.openai.com",
-            "OpenRouter \u2014 one key, many vendors' models (openai/*, anthropic/*, google/*). Key from openrouter.ai/keys",
+            "OpenRouter — one key, many vendors' models (openai/*, anthropic/*, google/*). Key from openrouter.ai/keys",
             "Google Gemini. Free tier with flash fallback. Key from aistudio.google.com"
           ]
         },
@@ -129,7 +129,7 @@
         "contextbranch.semanticMerge": {
           "type": "boolean",
           "default": true,
-          "description": "Run the MergeAnalystAgent during merge preview. The agent reads all artifacts in both branches and proposes cascading edits to UNCHANGED target files that may need updates to remain consistent with the changes. Disable to run the textual-only merge baseline (used as the ablation condition in the study)."
+          "description": "Allow the MergeAnalystAgent to propose cascading edits. Each merge has an explicit opt-in checkbox; every proposed edit is separately opt-in. Disable this setting to remove cascade analysis entirely (used as the textual-only merge baseline in the study)."
         },
         "contextbranch.autoApplyOnSwitch": {
           "type": "boolean",
@@ -144,27 +144,32 @@
         "contextbranch.captureNewFiles": {
           "type": "boolean",
           "default": true,
-          "description": "When a NEW file appears in the workspace (created outside the AI conversation), claim it as an artifact in the active branch. Off by default because new-file claiming is surprising \u2014 turn on if you want full git-checkout semantics."
+          "description": "When a NEW file appears in the workspace (created outside the AI conversation), claim it as an artifact in the active branch. Off by default because new-file claiming is surprising — turn on if you want full git-checkout semantics."
         },
         "contextbranch.hotContextChars": {
           "type": "number",
           "default": 14000,
-          "description": "Max characters of file content inlined into the coding prompt when your message references specific files. Lower = cheaper, but the model sees less."
+          "description": "Deprecated: file context is now selected by the Context Agent and small workspaces are sent in full."
         },
         "contextbranch.coldContextChars": {
           "type": "number",
           "default": 6000,
-          "description": "Max characters of file content inlined when your message references NO specific file (only the most recently changed files are sent). Lower = cheaper."
+          "description": "Deprecated: file context is now selected by the Context Agent and small workspaces are sent in full."
         },
         "contextbranch.maxHistoryMessages": {
           "type": "number",
-          "default": 16,
-          "description": "How many of the most recent chat messages to send to the coding agent each turn. The full file state is sent separately, so older turns mostly just cost tokens."
+          "default": 32,
+          "description": "How many recent chat messages to send to the coding agent each turn. The separate Context Agent sees a longer conversational window so short follow-ups such as “fix it then” can resolve earlier references."
         },
         "contextbranch.reviewEdits": {
           "type": "boolean",
           "default": true,
           "description": "Show proposed file edits for review (accept/reject per change) before they are written. Turn off to auto-apply edits (still fail-safe: edits that can't be located are skipped, never guessed)."
+        },
+        "contextbranch.contextAgentEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use a separate Context Agent to infer which existing workspace files the coding agent should read from the full conversation. Disable only if you need to minimize one routing model call per turn."
         }
       }
     }

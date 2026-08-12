@@ -15,6 +15,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import { Workspace } from './workspace';
 import { Storage } from './storage';
 import {
@@ -23,11 +24,18 @@ import {
 } from './types';
 import { CascadingEditProposal } from '../agents/merge-analyst';
 import { ConflictResolution } from '../agents/conflict-resolver';
-import { merge3 } from './edits';
+import { merge3, looksElided } from './edits';
 
 const execAsync = promisify(exec);
 
 // ─── public API ──────────────────────────────────────────────────────────────
+
+export interface ConsistencyEvidence {
+  path: string;
+  status: 'add' | 'modify' | 'conflict';
+  before: string;
+  after: string;
+}
 
 export interface MergeOptions {
   sourceBranchId: string;
@@ -57,7 +65,7 @@ export interface MergeOptions {
   rebaseCheck?: (source: Branch, target: Branch,
                  sourceMessages: Message[], targetMessages: Message[]) => Promise<string[]>;
   /** Hook for AI consistency check on the merge result. */
-  consistencyCheck?: (target: Branch, mergedMessages: Message[]) => Promise<string[]>;
+  consistencyCheck?: (target: Branch, mergedMessages: Message[], evidence: ConsistencyEvidence[]) => Promise<string[]>;
   /**
    * NEW: hook for cascading-edit analysis. Given the source and target
    * branches and the textual diff, returns proposed edits to OTHER files
@@ -98,6 +106,8 @@ export interface MergeOptions {
    * version is written instead.
    */
   acceptedConflictPaths?: string[];
+  /** Exact user-resolved file contents from the IDE conflict editor. */
+  manualResolvedContents?: Record<string, string>;
 }
 
 export interface MergePreview {
@@ -112,9 +122,30 @@ export interface MergePreview {
   cascadingSummary?: string;
   /** NEW: AI-mediated resolution candidates for each conflict (user opts in). */
   conflictResolutions?: ConflictResolution[];
+  /** Fingerprint of source/target state when this preview was generated. */
+  stateFingerprint: string;
+  /** Target branch state immediately before the preview was generated. */
+  targetHeadFingerprint: string;
 }
 
 // ─── merge implementation ────────────────────────────────────────────────────
+
+export function branchStateFingerprint(ws: Workspace, branchId: string): string {
+  const b = ws.getBranch(branchId);
+  if (!b) throw new Error(`Branch ${branchId} not found`);
+  return Storage.hash(JSON.stringify({
+    branchId: b.id,
+    status: b.status,
+    parentCheckpointId: b.parentCheckpointId,
+    activeCheckpointId: b.activeCheckpointId,
+    messageIds: b.messageIds,
+    artifactIds: b.artifactIds,
+  }));
+}
+
+function mergeStateFingerprint(ws: Workspace, sourceId: string, targetId: string): string {
+  return Storage.hash(`${branchStateFingerprint(ws, sourceId)}|${branchStateFingerprint(ws, targetId)}`);
+}
 
 export async function previewMerge(
   ws: Workspace,
@@ -157,6 +188,18 @@ export async function previewMerge(
   const { changes, conflicts } = computeArtifactDiff(ws, source, target);
 
   // 3. Verification
+  // Give the consistency checker the actual candidate content for each changed
+  // artifact. It must never infer file changes from conversation history alone.
+  const consistencyEvidence: ConsistencyEvidence[] = changes.map(change => {
+    const targetArtifact = ws.getArtifacts(target.id).find(a => a.path === change.path);
+    return {
+      path: change.path,
+      status: change.status,
+      before: targetArtifact?.content ?? '',
+      after: mergedContentFor(ws, source, target, change),
+    };
+  });
+
   let verification: VerificationResult;
   if (opts.skipVerification) {
     verification = {
@@ -171,6 +214,7 @@ export async function previewMerge(
       testCommand: opts.testCommand,
       lintCommand: opts.lintCommand,
       consistencyCheck: opts.consistencyCheck,
+      consistencyEvidence,
     });
   }
 
@@ -291,6 +335,8 @@ export async function previewMerge(
     cascadingProposals,
     cascadingSummary,
     conflictResolutions,
+    stateFingerprint: mergeStateFingerprint(ws, source.id, target.id),
+    targetHeadFingerprint: branchStateFingerprint(ws, target.id),
   };
 }
 
@@ -299,66 +345,103 @@ export async function finalizeMerge(
   opts: MergeOptions,
   preview: MergePreview
 ): Promise<MergeEvent> {
-  const source = ws.getBranch(opts.sourceBranchId)!;
-  const target = ws.getBranch(opts.targetBranchId)!;
+  const source = ws.getBranch(opts.sourceBranchId);
+  const target = ws.getBranch(opts.targetBranchId);
+  if (!source || !target) throw new Error('Merge branch no longer exists');
+  if (source.status === 'merged') throw new Error('Source already merged');
 
-  // Re-evaluate whether anything is still blocking after the user's
-  // accepted conflict resolutions have been applied.
-
-  const accepted = new Set(opts.acceptedConflictPaths ?? []);
-  const conflicts = preview.verification.artifactConflicts ?? [];
-
-  // Only conflicts that were NOT accepted remain blocking.
-  const unresolvedConflicts = conflicts.filter(
-    c => !accepted.has(c.path)
-  );
-
-  // Preserve test failures as blocking.
-  const testFailed =
-    typeof preview.verification.testOutput === 'string' &&
-    /FAIL:/i.test(preview.verification.testOutput);
-
-  const blockingFailure =
-    unresolvedConflicts.length > 0 || testFailed;
-
-  if (blockingFailure && !opts.force) {
-    throw new Error(
-      'Merge verification failed. Resolve conflicts, fix tests, or pass force=true.'
-    );
+  // The user reviewed this exact preview. If either branch moved afterwards,
+  // never silently recompute a different preview and merge that instead.
+  const nowFingerprint = mergeStateFingerprint(ws, source.id, target.id);
+  if (nowFingerprint !== preview.stateFingerprint) {
+    throw new Error('Merge preview is stale because the source or target branch changed after preview. Preview the merge again before finalizing.');
   }
 
-  // Pre-merge snapshot of target — for undo
-  const targetSnapshot = ws.createCheckpoint(target.id, `Pre-merge of ${source.name}`);
+  const acceptedConflicts = new Set(opts.acceptedConflictPaths ?? []);
+  const manualResolved = opts.manualResolvedContents ?? {};
+  const acceptedCascades = new Set(opts.acceptedCascadePaths ?? []);
+  const conflicts = preview.verification.artifactConflicts ?? [];
+  const unresolved = conflicts.filter(c => !acceptedConflicts.has(c.path));
+  if (unresolved.length > 0) {
+    // Force is intentionally NOT allowed to bypass unresolved file conflicts.
+    throw new Error(`Merge blocked: ${unresolved.length} unresolved file conflict${unresolved.length === 1 ? '' : 's'} remain. Resolve or explicitly reject them before merging.`);
+  }
 
-  // Apply artifact changes onto target
-  applyArtifactChanges(ws, source, target, preview, opts.acceptedConflictPaths);
-
-  // NEW: apply any accepted cascading-edit proposals. These are EDITS to
-  // unchanged target files that the analyst flagged as needing updates.
-  // Each accepted proposal becomes an artifact in the target (with the
-  // current target content as the new baseContent, so future merges
-  // 3-way-diff cleanly against this state).
-  const acceptedSet = new Set(opts.acceptedCascadePaths ?? []);
-  let cascadingAppliedCount = 0;
-  if (preview.cascadingProposals && acceptedSet.size > 0) {
-    for (const proposal of preview.cascadingProposals) {
-      if (!acceptedSet.has(proposal.path)) continue;
-      ws.upsertArtifact(
-        target.id,
-        proposal.path,
-        proposal.proposedContent,
-        proposal.currentContent,
-        'merge',
-      );
-      cascadingAppliedCount++;
+  const resolutionByPath = new Map((preview.conflictResolutions ?? []).map(r => [r.path, r]));
+  const conflictPaths = new Set(conflicts.map(c => c.path));
+  for (const p of acceptedConflicts) {
+    if (!conflictPaths.has(p)) {
+      throw new Error(`Merge blocked: ${p} is not one of the conflicts in the reviewed preview.`);
+    }
+    if (Object.prototype.hasOwnProperty.call(manualResolved, p)) {
+      const content = manualResolved[p];
+      if (/<{7}|>{7}|^={7}$/m.test(content)) {
+        throw new Error(`Merge blocked: ${p} still contains unresolved conflict markers. Resolve all incoming/current sections in the editor first.`);
+      }
+      continue;
+    }
+    const resolution = resolutionByPath.get(p);
+    if (!resolution || resolution.path !== p || /<{5,}|>{5,}/.test(resolution.resolvedContent) || looksElided(resolution.resolvedContent, resolution.originalContent)) {
+      throw new Error(`Merge blocked: accepted conflict resolution for ${p} is missing or unsafe.`);
     }
   }
 
-  // Append messages: in linear append-only model, source messages flow into target.
-  // BUT — to honor the consolidation finding (Laban), we replace the raw
-  // source-message stream with a single synthesis turn unless the caller
-  // explicitly opts out. The raw history remains in storage attached to the
-  // (now-merged) source branch.
+  for (const p of Object.keys(manualResolved)) {
+    if (!conflictPaths.has(p)) {
+      throw new Error(`Merge blocked: manual resolution for ${p} is not part of the reviewed conflict set.`);
+    }
+    if (!acceptedConflicts.has(p)) {
+      throw new Error(`Merge blocked: manual resolution for ${p} was supplied without accepting that conflict.`);
+    }
+  }
+
+  const cascadeByPath = new Map((preview.cascadingProposals ?? []).map(p => [p.path, p]));
+  for (const p of acceptedCascades) {
+    const proposal = cascadeByPath.get(p);
+    if (!proposal) throw new Error(`Merge blocked: cascade proposal for ${p} is not part of the reviewed preview.`);
+    const currentTarget = ws.getArtifacts(target.id).find(a => a.path === p)?.content ?? '';
+    if (currentTarget !== proposal.currentContent) {
+      throw new Error(`Merge blocked: cascade proposal for ${p} is stale because that target file changed after preview.`);
+    }
+    if (/<{5,}|>{5,}/.test(proposal.proposedContent) || /\.\.\.\s*(rest|existing|unchanged)/i.test(proposal.proposedContent)) {
+      throw new Error(`Merge blocked: cascade proposal for ${p} contains unsafe placeholder/conflict content.`);
+    }
+  }
+
+  const candidate = buildCandidateFiles(ws, source, target, preview, acceptedConflicts, acceptedCascades, manualResolved);
+
+  // Verify the ACTUAL candidate that is about to be committed, not the current
+  // workspace before applying it. This catches test failures introduced by the
+  // merge, including accepted conflict/cascade resolutions.
+  let candidateVerification: VerificationResult = {
+    status: 'skipped', ranAt: Date.now(), forced: false,
+    artifactConflicts: [],
+  };
+  if (!opts.skipVerification) {
+    candidateVerification = await runCandidateVerification({
+      workspaceRoot: opts.workspaceRoot,
+      testCommand: opts.testCommand,
+      lintCommand: opts.lintCommand,
+      candidate,
+    });
+    if (candidateVerification.status === 'fail' && !opts.force) {
+      throw new Error('Merge blocked: tests failed against the exact candidate merge. Fix the candidate or explicitly force a test failure (file conflicts can never be forced).');
+    }
+  }
+
+  // Snapshot target immediately before the actual mutation. This checkpoint is
+  // the exact state undoMerge will restore; it is never deleted by undo.
+  const targetSnapshot = ws.createCheckpoint(target.id, `Pre-merge of ${source.name}`);
+
+  applyArtifactChanges(ws, source, target, preview, opts.acceptedConflictPaths, manualResolved);
+
+  let cascadingAppliedCount = 0;
+  for (const p of acceptedCascades) {
+    const proposal = cascadeByPath.get(p)!;
+    ws.upsertArtifact(target.id, proposal.path, proposal.proposedContent, proposal.currentContent, 'merge');
+    cascadingAppliedCount++;
+  }
+
   let synthesisMessageId: string | undefined;
   if (preview.synthesisDraft) {
     const synth = ws.appendMessage(
@@ -369,27 +452,26 @@ export async function finalizeMerge(
     );
     synthesisMessageId = synth.id;
   } else {
-    // Fallback: append raw messages (study linear-condition behavior)
     const sourceMessages = ws.getMessages(source.id);
-    // Skip messages inherited from parent — only append what the branch added.
     const baseSize = source.forkedAtMessageCount;
     const newMessages = sourceMessages.slice(baseSize);
-    for (const m of newMessages) {
-      ws.appendMessage(target.id, m.role, m.content, m.meta);
-    }
+    for (const m of newMessages) ws.appendMessage(target.id, m.role, m.content, m.meta);
   }
 
-  // Snapshot the finalized merged state so the branch head and graph stay aligned.
   const postMergeCheckpoint = ws.createCheckpoint(target.id, `Post-merge of ${source.name}`);
-
-  // Mark source branch as merged
+  const previousSourceStatus = source.status;
   source.status = 'merged';
   source.mergedIntoBranchId = target.id;
   source.mergedAt = Date.now();
   source.mergedAsCheckpointId = postMergeCheckpoint.id;
   ws.storage.saveBranch(source);
 
-  // Build merge event
+  const verification = {
+    ...candidateVerification,
+    // Preserve the preview's rebase/conflict metadata for history.
+    artifactConflicts: preview.verification.artifactConflicts,
+    forced: !!opts.force && candidateVerification.status === 'fail',
+  };
   const event: MergeEvent = {
     id: preview.mergeEventId,
     sourceBranchId: source.id,
@@ -397,8 +479,10 @@ export async function finalizeMerge(
     taskId: opts.taskId,
     startedAt: preview.verification.ranAt,
     completedAt: Date.now(),
-    verification: { ...preview.verification, forced: !!opts.force && preview.verification.status === 'fail' },
+    verification,
     targetSnapshotCheckpointId: targetSnapshot.id,
+    postMergeCheckpointId: postMergeCheckpoint.id,
+    sourcePreviousStatus: previousSourceStatus,
     synthesisMessageId,
     rebaseNotes: preview.rebaseNotes,
   };
@@ -410,7 +494,7 @@ export async function finalizeMerge(
     type: 'merge_finalized',
     eventId: event.id,
     sourceBranchId: source.id, targetBranchId: target.id,
-    verificationStatus: preview.verification.status,
+    verificationStatus: verification.status,
     forced: event.verification.forced,
     cascadingProposalsTotal: preview.cascadingProposals?.length ?? 0,
     cascadingProposalsAccepted: cascadingAppliedCount,
@@ -418,6 +502,146 @@ export async function finalizeMerge(
 
   return event;
 }
+
+function buildCandidateFiles(
+  ws: Workspace,
+  source: Branch,
+  target: Branch,
+  preview: MergePreview,
+  acceptedConflicts: Set<string>,
+  acceptedCascades: Set<string>,
+  manualResolved: Record<string, string> = {},
+): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const a of ws.getArtifacts(target.id)) out.set(a.path, a.content);
+  const resolutionByPath = new Map((preview.conflictResolutions ?? []).map(r => [r.path, r]));
+  for (const change of preview.artifactChanges) {
+    const sa = ws.getArtifacts(source.id).find(a => a.path === change.path);
+    if (!sa || sa.mergeIntent === 'discard') continue;
+    const ta = ws.getArtifacts(target.id).find(a => a.path === change.path);
+    if (change.status === 'add' || !ta) out.set(change.path, sa.content);
+    else if (change.status === 'modify') out.set(change.path, mergedContentFor(ws, source, target, change));
+    else if (acceptedConflicts.has(change.path)) {
+      if (Object.prototype.hasOwnProperty.call(manualResolved, change.path)) {
+        out.set(change.path, manualResolved[change.path]);
+      } else {
+        out.set(change.path, resolutionByPath.get(change.path)!.resolvedContent);
+      }
+    }
+  }
+  for (const p of acceptedCascades) {
+    const proposal = (preview.cascadingProposals ?? []).find(x => x.path === p);
+    if (proposal) out.set(p, proposal.proposedContent);
+  }
+  return out;
+}
+
+interface CandidateVerificationInput {
+  workspaceRoot?: string;
+  testCommand?: string;
+  lintCommand?: string;
+  candidate: Map<string, string>;
+}
+
+async function runCandidateVerification(input: CandidateVerificationInput): Promise<VerificationResult> {
+  const result: VerificationResult = { status: 'skipped', ranAt: Date.now(), forced: false, artifactConflicts: [] };
+  let ranVerification = false;
+  if (!input.workspaceRoot) { result.status = 'skipped'; return result; }
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'contextbranch-merge-'));
+  try {
+    fs.cpSync(input.workspaceRoot, temp, {
+      recursive: true,
+      force: true,
+      filter: (src) => {
+        const rel = path.relative(input.workspaceRoot!, src);
+        if (!rel) return true;
+        const first = rel.split(path.sep)[0];
+        return first !== '.git' && first !== '.contextbranch' && first !== '.study' && first !== 'node_modules';
+      },
+    });
+    const nodeModules = path.join(input.workspaceRoot, 'node_modules');
+    if (fs.existsSync(nodeModules)) {
+      try { fs.symlinkSync(nodeModules, path.join(temp, 'node_modules'), 'junction'); } catch { /* optional */ }
+    }
+    for (const [rel, content] of input.candidate) {
+      const full = path.join(temp, rel);
+      const safe = path.relative(temp, full);
+      if (safe.startsWith('..') || path.isAbsolute(safe)) throw new Error(`Unsafe candidate path: ${rel}`);
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, content, 'utf8');
+    }
+
+    const run = async (command: string, label: 'test' | 'lint') => {
+      try {
+        const { stdout, stderr } = await execAsync(command, { cwd: temp, timeout: 90_000, maxBuffer: 1_000_000 });
+        const text = `${stdout}\n${stderr}`.trim();
+        if (label === 'test') { result.testOutput = text; ranVerification = true; }
+        else { result.lintOutput = text; ranVerification = true; }
+      } catch (err: any) {
+        const detail = `${err.message ?? ''}\n${err.stderr ?? ''}`;
+        const missing = err.code === 127 || err.code === 'ENOENT' || /command not found|ENOENT|no such file/i.test(detail);
+        const text = missing
+          ? `SKIPPED: ${command} is not available in the candidate workspace.`
+          : `FAIL: ${err.message}\n${err.stdout ?? ''}\n${err.stderr ?? ''}`;
+        if (label === 'test') {
+          result.testOutput = text;
+          if (!missing) result.status = 'fail';
+        } else {
+          result.lintOutput = text;
+        }
+      }
+    };
+    if (input.testCommand) await run(input.testCommand, 'test');
+    if (input.lintCommand) await run(input.lintCommand, 'lint');
+    if (ranVerification && result.status !== 'fail') result.status = 'pass';
+    else if (!ranVerification && result.status !== 'fail') result.status = 'skipped';
+  } catch (err: any) {
+    result.status = 'fail';
+    result.testOutput = `FAIL: candidate verification setup failed: ${err.message ?? String(err)}`;
+  } finally {
+    try { fs.rmSync(temp, { recursive: true, force: true }); } catch {}
+  }
+  return result;
+}
+
+export async function undoMerge(ws: Workspace, mergeEventId: string): Promise<MergeEvent> {
+  const event = ws.storage.loadMergeEvent(mergeEventId);
+  if (!event) throw new Error(`Merge event ${mergeEventId} not found`);
+  if (event.undoneAt) throw new Error('This merge has already been undone.');
+  const target = ws.getBranch(event.targetBranchId);
+  const source = ws.getBranch(event.sourceBranchId);
+  if (!target || !source) throw new Error('Merge branches no longer exist.');
+  if (!event.postMergeCheckpointId) throw new Error('This merge predates safe undo metadata and cannot be automatically undone.');
+
+  const post = ws.storage.loadCheckpoint(event.postMergeCheckpointId);
+  const pre = ws.storage.loadCheckpoint(event.targetSnapshotCheckpointId);
+  if (!post || !pre) throw new Error('Merge checkpoints are missing; automatic undo is unsafe.');
+  if (!branchMatchesCheckpoint(target, post)) {
+    throw new Error('Cannot undo this merge safely: the target branch has changed since the merge. Create a checkpoint or revert those later changes first.');
+  }
+
+  ws.restoreCheckpoint(target.id, pre.id);
+  const undoCheckpoint = ws.createCheckpoint(target.id, `Undo merge of ${source.name}`);
+  source.status = event.sourcePreviousStatus ?? 'active';
+  source.mergedIntoBranchId = undefined;
+  source.mergedAt = undefined;
+  source.mergedAsCheckpointId = undefined;
+  ws.storage.saveBranch(source);
+
+  event.undoneAt = Date.now();
+  event.undoTargetCheckpointId = undoCheckpoint.id;
+  event.undoSourceBranchStatus = source.status;
+  ws.storage.saveMergeEvent(event);
+  ws.storage.appendTelemetry({ type: 'merge_undone', eventId: event.id, sourceBranchId: source.id, targetBranchId: target.id });
+  return event;
+}
+
+function branchMatchesCheckpoint(branch: Branch, cp: { messageIds: string[]; artifactIds: string[] }): boolean {
+  return JSON.stringify(branch.messageIds) === JSON.stringify(cp.messageIds) &&
+    JSON.stringify(branch.artifactIds) === JSON.stringify(cp.artifactIds);
+}
+
+
 
 // ─── 3-way artifact merge ────────────────────────────────────────────────────
 
@@ -520,6 +744,7 @@ function applyArtifactChanges(
   target: Branch,
   preview: MergePreview,
   acceptedConflictPaths?: string[],
+  manualResolved: Record<string, string> = {},
 ): void {
   const sourceArtifacts = ws.getArtifacts(source.id);
   const targetArtifacts = ws.getArtifacts(target.id);
@@ -548,7 +773,10 @@ function applyArtifactChanges(
       const resolution = resolutionByPath.get(sa.path);
       let finalContent: string;
       let mergeIntent: Artifact['mergeIntent'];
-      if (resolution && acceptedConflicts.has(sa.path)) {
+      if (acceptedConflicts.has(sa.path) && Object.prototype.hasOwnProperty.call(manualResolved, sa.path)) {
+        finalContent = manualResolved[sa.path];
+        mergeIntent = 'merge';
+      } else if (resolution && acceptedConflicts.has(sa.path)) {
         finalContent = resolution.resolvedContent;
         mergeIntent = 'merge';
       } else {
@@ -583,7 +811,8 @@ interface VerificationInput {
   workspaceRoot?: string;
   testCommand?: string;
   lintCommand?: string;
-  consistencyCheck?: (target: Branch, mergedMessages: Message[]) => Promise<string[]>;
+  consistencyCheck?: (target: Branch, mergedMessages: Message[], evidence: ConsistencyEvidence[]) => Promise<string[]>;
+  consistencyEvidence: ConsistencyEvidence[];
 }
 
 async function runVerification(input: VerificationInput): Promise<VerificationResult> {
@@ -642,14 +871,14 @@ async function runVerification(input: VerificationInput): Promise<VerificationRe
   // AI consistency check
   if (input.consistencyCheck) {
     try {
-      const warnings = await input.consistencyCheck(input.target, input.mergedMessages);
+      const warnings = await input.consistencyCheck(input.target, input.mergedMessages, input.consistencyEvidence);
       result.consistencyWarnings = warnings;
     } catch (err: any) {
       result.consistencyWarnings = [`Consistency check failed: ${err.message}`];
     }
   }
 
-  if (result.status === 'pending') result.status = 'pass';
+  if (result.status === 'pending') result.status = 'skipped';
   return result;
 }
 

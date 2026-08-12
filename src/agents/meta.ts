@@ -10,6 +10,13 @@ import {
 import { Branch, Message } from '../core/types';
 import { diffLines } from '../core/edits';
 
+export interface ConsistencyEvidence {
+  path: string;
+  status: 'add' | 'modify' | 'conflict';
+  before: string;
+  after: string;
+}
+
 export type MetaTrigger =
   | 'branch_created'
   | 'merge_attempted'
@@ -158,10 +165,23 @@ export class MetaAgent {
   // consistency check on merged state
 
   async consistencyCheck(target: Branch, mergedMessages: Message[],
+                          evidence: ConsistencyEvidence[],
                           signal?: AbortSignal): Promise<string[]> {
+    const fileBlocks = evidence.map(f => {
+      const before = f.before.length > 12000 ? f.before.slice(0, 12000) + '\n…(before truncated)' : f.before;
+      const after = f.after.length > 12000 ? f.after.slice(0, 12000) + '\n…(after truncated)' : f.after;
+      return `--- ${f.path} (${f.status}) ---\nBEFORE (target):\n${before || '(file absent)'}\n\nAFTER (merge candidate):\n${after || '(empty file)'}`;
+    }).join('\n\n');
+
+    const transcript = mergedMessages.slice(-12)
+      .map(m => `${m.role}: ${m.content.slice(0, 500)}${m.content.length > 500 ? '…' : ''}`)
+      .join('\n');
+
     const userContent =
       `Target branch after merge: ${target.name}\n\n` +
-      mergedMessages.slice(-25).map(m => `${m.role}: ${m.content}`).join('\n');
+      `AUTHORITATIVE FILE EVIDENCE (use this as the source of truth):\n${fileBlocks || '(no changed-file evidence supplied)'}\n\n` +
+      `Conversation is context only; do NOT infer that a file was changed, duplicated, or merged unless the file evidence above supports that claim.\n` +
+      `Conversation:\n${transcript}`;
 
     let raw = '';
     for await (const ev of this.provider.stream({

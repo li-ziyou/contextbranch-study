@@ -1127,6 +1127,20 @@ button:disabled {
   opacity: 0.6;
 }
 
+
+.merge-manual-help {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--vscode-inputValidation-warningBorder, #cca700);
+  background: var(--vscode-inputValidation-warningBackground);
+  color: var(--vscode-inputValidation-warningForeground);
+  line-height: 1.45;
+}
+
+#merge-resolve-in-ide, #merge-cancel-ide {
+  margin: 6px 0 8px 0;
+}
+
 .info-block pre {
   white-space: pre-wrap;
   background: var(--vscode-textCodeBlock-background);
@@ -1647,3 +1661,36 @@ button:disabled {
   white-space: pre-wrap;
   border: 1px solid var(--vscode-panel-border, #3a3a3a);
 }
+
+/* Merge safety / review controls */
+.merge-cascade-optin {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 10px 0;
+  padding: 9px 10px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px;
+}
+.merge-cascade-optin input { margin-top: 3px; }
+.merge-cascade-optin span { display: flex; flex-direction: column; gap: 3px; }
+.merge-cascade-optin small { color: var(--vscode-descriptionForeground); }
+.conflict-revise {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.conflict-revise-input {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border);
+  padding: 6px;
+  font: inherit;
+}
+.conflict-revise-btn { align-self: flex-start; }
+
+.conflict-full-resolution { max-height: 420px; overflow: auto; }

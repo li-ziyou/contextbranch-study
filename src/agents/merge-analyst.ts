@@ -87,6 +87,9 @@ export class MergeAnalystAgent {
         if (ev.type === 'error') {
           return { summary: '', proposals: [], error: ev.error };
         }
+        if (ev.type === 'done' && ev.truncated) {
+          return { summary: '', proposals: [], error: 'model output was truncated at the provider limit; no merge proposals were accepted' };
+        }
       }
     } catch (err: any) {
       return { summary: '', proposals: [], error: err.message ?? String(err) };

@@ -239,16 +239,17 @@ export function applyEdits(ops: EditOp[], currentByPath: Map<string, string>): A
 
     for (const op of fileOps) {
       if (op.kind === 'create') {
-        // Whole-file. Allowed for NEW files always; for EXISTING files only if
-        // it doesn't look elided (guard against the placeholder bug).
         const content = op.content ?? '';
-        const elide = isNew ? null : elisionReason(content, before);
-        if (op.malformed && !isNew) {
-          applied.push({ index: idx, kind: 'replace', ok: false,
-            reason: 'edit was malformed or truncated (stray SEARCH/REPLACE marker). Use exactly `<<<<<<< SEARCH` / `=======` / `>>>>>>> REPLACE`, and resend if it was cut off. Not applied.' });
-          failed++;
-        } else if (elide) {
-          applied.push({ index: idx, kind: 'create', ok: false, reason: elide });
+        // Existing files are NEVER allowed to cross the edit boundary as a
+        // whole-file replacement. This is the key distinction that the old
+        // size heuristic could not make: a 20-line legitimate edit and a
+        // 20-line hallucinated reconstruction are indistinguishable by size.
+        // Existing files must use exact SEARCH/REPLACE anchors.
+        if (!isNew) {
+          const reason = op.malformed
+            ? 'edit was malformed or truncated. Existing files must use `<<<<<<< SEARCH` / `=======` / `>>>>>>> REPLACE` blocks; the partial block was not applied.'
+            : 'whole-file replacement of an existing file was refused. Existing files must use SEARCH/REPLACE blocks so unchanged content cannot be lost. Resend the change as an anchored edit.';
+          applied.push({ index: idx, kind: 'replace', ok: false, reason });
           failed++;
         } else {
           working = content;
@@ -312,14 +313,63 @@ export function looksElided(proposed: string, current: string): boolean {
 /** Like looksElided, but returns WHY (for an actionable message) or null. */
 export function elisionReason(proposed: string, current: string): string | null {
   const placeholderRe =
-    /(\/\*|#|\/\/|<!--)\s*\.{2,}\s*(existing|rest|unchanged|previous|original|same as before|your)|(\bexisting (code|styles|content)\b)|(\brest of (the )?(file|code)\b)|(\.\.\.\s*(rest|existing|unchanged))/i;
+    /(\/\*|#|\/\/|<!--)\s*\.{2,}\s*(existing|rest|unchanged|previous|original|same as before|your)|\bexisting (code|styles|content)\b|\brest of (the )?(file|code)\b|(\.\.\.\s*(rest|existing|unchanged))/i;
   if (placeholderRe.test(proposed)) {
-    return 'whole-file content has a placeholder like "...existing..." — provide the COMPLETE file, or (better) use small search/replace edits';
+    return 'whole-file content has a placeholder like "...existing..." — provide the COMPLETE file, or use precise search/replace edits';
   }
-  if (current.length > 400 && proposed.length < current.length * 0.5) {
-    return 'the new version is much smaller than the current file (likely truncated or dropping code) — refused to avoid losing work. Ask for targeted search/replace edits instead of a whole-file rewrite';
+  if (!current || proposed.length >= current.length * 0.30) return null;
+
+  // A very large shrink is suspicious only when the result also looks
+  // structurally incomplete. Balanced, coherent small files are allowed to
+  // become dramatically smaller — e.g. a requested deletion/refactor.
+  const balance = structuralBalance(proposed);
+  if (balance.unclosed > 0 || balance.unclosedStrings || /```$/.test(proposed.trim())) {
+    return 'the proposed whole-file content is extremely smaller than the current file and appears structurally incomplete; it may have been truncated';
+  }
+
+  // If most of the old file's distinctive lines disappeared, a short,
+  // balanced reconstruction is still suspicious. This is intentionally a
+  // secondary signal, not a size-only refusal.
+  const oldLines = current.split('\n').map(x => x.trim()).filter(Boolean);
+  const newLines = new Set(proposed.split('\n').map(x => x.trim()).filter(Boolean));
+  if (oldLines.length >= 12) {
+    let overlap = 0;
+    for (const line of oldLines) if (newLines.has(line)) overlap++;
+    const ratio = overlap / oldLines.length;
+    if (ratio < 0.05) {
+      return 'the proposed whole-file content is extremely smaller than the current file and shares almost none of its existing structure; it may be an incomplete reconstruction';
+    }
   }
   return null;
+}
+
+function structuralBalance(text: string): { unclosed: number; unclosedStrings: boolean } {
+  const stack: string[] = [];
+  let quote: string | null = null;
+  let escaped = false;
+  let lineComment = false;
+  let blockComment = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i], n = text[i + 1];
+    if (lineComment) { if (c === '\n') lineComment = false; continue; }
+    if (blockComment) { if (c === '*' && n === '/') { blockComment = false; i++; } continue; }
+    if (quote) {
+      if (escaped) { escaped = false; continue; }
+      if (c === '\\') { escaped = true; continue; }
+      if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '/' && n === '/') { lineComment = true; i++; continue; }
+    if (c === '/' && n === '*') { blockComment = true; i++; continue; }
+    if (c === '"' || c === "'" || c === '`') { quote = c; continue; }
+    if (c === '{' || c === '(' || c === '[') stack.push(c);
+    else if (c === '}' || c === ')' || c === ']') {
+      const expected = c === '}' ? '{' : c === ')' ? '(' : '[';
+      if (stack[stack.length - 1] === expected) stack.pop();
+      else if (stack.length) stack.pop();
+    }
+  }
+  return { unclosed: stack.length, unclosedStrings: quote !== null || blockComment };
 }
 
 // ─── line diff (for review display) ─────────────────────────────────────────

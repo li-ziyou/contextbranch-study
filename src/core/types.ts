@@ -175,6 +175,14 @@ export interface MergeEvent {
   verification: VerificationResult;
   /** Pre-merge snapshot of target — for undo. */
   targetSnapshotCheckpointId: string;
+  /** Exact post-merge checkpoint. Undo is only safe while target still matches it. */
+  postMergeCheckpointId: string;
+  /** Source status before it was marked merged, so undo can restore it exactly. */
+  sourcePreviousStatus?: BranchStatus;
+  /** Populated when this historical merge is later undone. The original merge event remains immutable history. */
+  undoneAt?: number;
+  undoTargetCheckpointId?: string;
+  undoSourceBranchStatus?: BranchStatus;
   /** AI-generated synthesis turn that summarizes what was merged. */
   synthesisMessageId?: string;
   /** Lazy-rebase log: did the source branch need adjustment for current target? */

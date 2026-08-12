@@ -17,14 +17,34 @@ def read_json(path: Path) -> dict:
 
 
 def runtime_python(workspace: Path) -> str:
+    # Operator/rehearsal override remains useful, but prepared participant
+    # workspaces also carry the absolute runtime path generated on the current
+    # machine. This avoids guessing from /tmp.
     configured = os.environ.get("CONTEXTBRANCH_STUDY_PYTHON")
     if configured:
-        return configured
+        candidate = Path(configured).expanduser()
+        if candidate.is_file():
+            return str(candidate)
+
+    run_path = workspace / ".study" / "run.json"
+    try:
+        run = read_json(run_path)
+        configured_run = run.get("runtimePython")
+        if configured_run:
+            candidate = Path(configured_run).expanduser()
+            if candidate.is_file():
+                return str(candidate)
+    except (OSError, ValueError, TypeError):
+        pass
+
     resolved_workspace = workspace.resolve()
     for parent in [resolved_workspace, *resolved_workspace.parents]:
         candidate = parent / ".study-runtime" / "bin" / "python"
         if candidate.is_file():
             return str(candidate)
+
+    # Last-resort fallback preserves the old behavior, but the operator
+    # preflight/prepare path should normally make this unnecessary.
     return sys.executable
 
 

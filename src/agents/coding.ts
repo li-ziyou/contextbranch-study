@@ -10,6 +10,7 @@
 import { LLMProvider, LLMMessage, LLMStreamEvent } from '../llm/provider';
 import { codingAgentSystem } from '../llm/prompts';
 import { Branch, Message, Artifact } from '../core/types';
+import { WorkspaceFileCandidate } from './context';
 
 export interface ArtifactCandidate {
   path: string;
@@ -29,12 +30,16 @@ export class CodingAgent {
     signal?: AbortSignal;
     model?: string;
     artifacts?: Artifact[];
-    /** Char budget for files the user referenced this turn. */
-    hotContextChars?: number;
-    /** Char budget when the user referenced no file (vague request). */
-    coldContextChars?: number;
+    /** Actual workspace inventory, including files never touched by ContextBranch. */
+    workspaceFiles?: WorkspaceFileCandidate[];
+    /** Full contents selected by the Context Agent for this turn. */
+    selectedFiles?: { path: string; content: string }[];
+    contextRationale?: string;
+    contextSummary?: string;
     /** How many of the most recent messages to send. */
     maxHistory?: number;
+    /** One-shot corrective instruction for an automatically retried response. */
+    repairInstruction?: string;
   }): AsyncIterable<LLMStreamEvent> {
     const baseSystem = codingAgentSystem({
       branchName: opts.branch.name,
@@ -43,16 +48,12 @@ export class CodingAgent {
       isMain: opts.isMain,
       workspaceRoot: opts.workspaceRoot,
     });
-    const recentUserText = opts.history
-      .filter(m => m.role === 'user')
-      .slice(-3)
-      .map(m => m.content)
-      .join('\n');
     const system = baseSystem + buildArtifactContext(
       opts.artifacts ?? [],
-      recentUserText,
-      opts.hotContextChars ?? DEFAULT_HOT_BUDGET,
-      opts.coldContextChars ?? DEFAULT_COLD_BUDGET,
+      opts.workspaceFiles ?? [],
+      opts.selectedFiles ?? [],
+      opts.contextRationale,
+      opts.contextSummary,
     );
 
     // Only send the most recent turns. The authoritative file state travels in
@@ -72,6 +73,9 @@ export class CodingAgent {
       role: m.role === 'system' ? 'user' : m.role,
       content: m.role === 'system' ? `[context: ${m.content}]` : m.content,
     }));
+    if (opts.repairInstruction) {
+      messages.push({ role: 'user', content: opts.repairInstruction });
+    }
 
     yield* this.provider.stream({
       system,
@@ -83,121 +87,66 @@ export class CodingAgent {
   }
 }
 
-// ─── bounded artifact context ────────────────────────────────────────────────
-const DEFAULT_HOT_BUDGET = 14_000;  // chars of file content when files are referenced
-const DEFAULT_COLD_BUDGET = 6_000;  // chars when the request names no file
-const DEFAULT_MAX_HISTORY = 16;     // most recent messages to send
-const MAX_MANIFEST_ENTRIES = 200;   // cap the cheap file list for huge repos
+// ─── authoritative workspace context ───────────────────────────────────────
+const MAX_MANIFEST_ENTRIES = 5_000;
+const MAX_FULL_FILE_CHARS = 500_000;
+const MAX_TOTAL_SELECTED_CHARS = 300_000;
+const DEFAULT_MAX_HISTORY = 32;
 
-// Stopwords so common English/instruction words don't match every file.
-const REF_STOPWORDS = new Set([
-  'please','update','change','make','file','code','using','where','which','that',
-  'this','with','from','into','your','have','should','would','could','about',
-  'style','styles','styling','color','colour','button','buttons','these','those',
-  'their','there','here','when','what','then','than','also','like','need','want',
-  'function','const','class','return','import','export','value','values','consistent',
-]);
-
-/**
- * Pull distinctive tokens out of the user's text for content-based file routing:
- *   • CSS-ish selectors: ".move-btn", "#sidebar"
- *   • code-like identifiers: snake_case, kebab-case, camelCase, dotted members
- * Plain English words are dropped (stopwords / not code-like) so we don't end up
- * matching every file.
- */
-function extractRefTokens(text: string): string[] {
-  const out = new Set<string>();
-  // selectors / dotted members like .move-btn, #app, obj.method
-  for (const m of text.matchAll(/[.#]([A-Za-z][\w-]{2,})/g)) out.add(m[1].toLowerCase());
-  // bare identifiers
-  for (const m of text.matchAll(/\b([A-Za-z_][\w-]{3,})\b/g)) {
-    const tok = m[1];
-    const low = tok.toLowerCase();
-    if (REF_STOPWORDS.has(low)) continue;
-    const codey = /[_-]/.test(tok) || /[a-z][A-Z]/.test(tok); // snake/kebab/camel
-    if (codey || tok.length >= 5) out.add(low);
-  }
-  return [...out].filter(t => t.length >= 3);
-}
-
-function fileBlock(a: Artifact): string {
-  return `### ${a.path}\n\`\`\`\n${a.content}\n\`\`\``;
+function fileBlock(path: string, content: string): string {
+  return `### ${path}\n\`\`\`\n${content}\n\`\`\``;
 }
 
 function buildArtifactContext(
   artifacts: Artifact[],
-  recentUserText: string,
-  hotBudget: number,
-  coldBudget: number,
+  workspaceFiles: WorkspaceFileCandidate[],
+  selectedFiles: { path: string; content: string }[],
+  contextRationale?: string,
+  contextSummary?: string,
 ): string {
-  if (!artifacts.length) return '';
+  if (!workspaceFiles.length && !artifacts.length) return '';
 
-  // 1) Manifest of tracked files — cheap, so the model always knows what
-  //    exists even when we don't inline content.
-  const sorted = artifacts.slice().sort((a, b) => a.path.localeCompare(b.path));
-  const manifestList = sorted.slice(0, MAX_MANIFEST_ENTRIES)
-    .map(a => `  • ${a.path} (${a.content.length} bytes)`)
+  const branchByPath = new Map(artifacts.map(a => [a.path, a]));
+  const inventory = workspaceFiles.slice(0, MAX_MANIFEST_ENTRIES).map(f => {
+    const branch = branchByPath.get(f.path);
+    return `  • ${f.path} (${f.size} bytes)${branch ? ' [branch version available]' : ''}${f.symbols.length ? ` — ${f.symbols.join(', ')}` : ''}`;
+  }).join('\n');
+
+  const branchOnly = artifacts
+    .filter(a => !workspaceFiles.some(f => f.path === a.path))
+    .slice(0, MAX_MANIFEST_ENTRIES)
+    .map(a => `  • ${a.path} (${a.content.length} bytes) [branch-only]`)
     .join('\n');
-  const manifest = sorted.length > MAX_MANIFEST_ENTRIES
-    ? `${manifestList}\n  • …and ${sorted.length - MAX_MANIFEST_ENTRIES} more`
-    : manifestList;
 
-  // 2) Which files did the user actually reference this turn? Match by path,
-  //    by basename, AND by distinctive code tokens (CSS selectors, identifiers,
-  //    function names) found in file CONTENTS — so ".move-btn" pulls in the
-  //    file that defines/uses it even if the path was never typed.
-  const lower = recentUserText.toLowerCase();
-  const tokens = extractRefTokens(recentUserText);
-  const referenced = new Set<string>();
-  for (const a of artifacts) {
-    const base = (a.path.split('/').pop() ?? a.path).toLowerCase();
-    if (lower.includes(a.path.toLowerCase()) || lower.includes(base)) {
-      referenced.add(a.id);
-      continue;
-    }
-    const hay = a.content.toLowerCase();
-    for (const tok of tokens) {
-      if (hay.includes(tok)) { referenced.add(a.id); break; }
-    }
-  }
-
-  const byRecent = artifacts.slice().sort((a, b) => b.updatedAt - a.updatedAt);
-  const included: string[] = [];
-  let note: string;
-
-  if (referenced.size > 0) {
-    // HOT path: inline ONLY the referenced files (no padding with unrelated
-    // files — that was the main token waste).
-    let budget = hotBudget;
-    for (const a of byRecent) {
-      if (!referenced.has(a.id)) continue;
-      if (a.content.length > budget) continue;
-      budget -= a.content.length;
-      included.push(fileBlock(a));
-    }
-    note = 'Inlined the file(s) you referenced. Everything else is in the manifest above — name a file to pull its full contents in.';
-  } else {
-    // COLD path: no file named → inline only a small slice of the most
-    // recently changed files, within a tight budget.
-    let budget = coldBudget;
-    for (const a of byRecent) {
-      if (a.content.length > budget) continue;
-      budget -= a.content.length;
-      included.push(fileBlock(a));
-    }
-    note = 'No specific file was referenced, so only the most recently changed file(s) are inlined (small budget). Name a file to pull its full contents in.';
+  const blocks: string[] = [];
+  let total = 0;
+  for (const selected of selectedFiles) {
+    if (selected.content.length > MAX_FULL_FILE_CHARS) continue;
+    if (total + selected.content.length > MAX_TOTAL_SELECTED_CHARS) continue;
+    // Branch artifacts are authoritative over disk for the same path.
+    const content = branchByPath.get(selected.path)?.content ?? selected.content;
+    blocks.push(fileBlock(selected.path, content));
+    total += content.length;
   }
 
   return [
     '',
-    'TRACKED FILES IN THIS BRANCH (authoritative — prefer these over memory):',
-    manifest,
+    'WORKSPACE FILE INVENTORY (authoritative — these files actually exist in the current workspace):',
+    inventory || '  (no readable workspace files)',
+    branchOnly ? `\nBRANCH-ONLY FILES:\n${branchOnly}` : '',
     '',
-    'CONTENTS OF THE RELEVANT TRACKED FILES:',
-    included.length ? included.join('\n\n') : '  (none inlined this turn)',
+    'FILES SELECTED BY THE CONTEXT AGENT — READ THESE AS AUTHORITATIVE CURRENT CONTENT:',
+    blocks.length ? blocks.join('\n\n') : '  (none selected)',
+    contextSummary ? `CONTEXT AGENT SUMMARY OF THE CONVERSATION: ${contextSummary}` : '',
+    contextRationale ? `CONTEXT AGENT RATIONALE: ${contextRationale}` : '',
     '',
-    note,
-  ].join('\n');
+    'CONTEXT RULES:',
+    '  • The workspace inventory is real; do not ask the user to paste a file that appears there.',
+    '  • The selected file blocks contain the actual contents you must use for SEARCH anchors.',
+    '  • If a path is branch-owned, the branch version above overrides the on-disk version.',
+    '  • Follow-up requests such as "fix it then" refer to the conversation history supplied in the messages; infer the relevant files from that context.',
+    '  • If you still cannot safely identify the relevant file, say what is ambiguous, but do NOT ask the user to paste contents of a file that is listed in the inventory.',
+  ].filter(Boolean).join('\n');
 }
 
 // ─── artifact extraction ─────────────────────────────────────────────────────
