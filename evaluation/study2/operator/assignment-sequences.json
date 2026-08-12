@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "rule": "Assign valid participant numbers cyclically after recruitment order is frozen. Do not replace a withdrawn participant by reusing their run ID.",
+  "rule": "P000 is reserved for technical rehearsals and maps to S1. Assign formal participant IDs P001 and above cyclically after recruitment order is frozen. Do not replace a withdrawn participant by reusing their run ID.",
   "sequences": [
     {
       "id": "S1",

@@ -94,6 +94,9 @@ function assign(participantId) {
 
 function assignmentFor(participantNumber) {
   const sequences = readJson(sequencesPath).sequences;
+  // P000 is reserved for technical rehearsals and uses the first frozen
+  // sequence. Formal participant IDs start at P001.
+  if (participantNumber === 0) return sequences[0];
   return sequences[(participantNumber - 1) % sequences.length];
 }
 
@@ -143,6 +146,16 @@ function cpDirectory(from, to, filter) {
   fs.cpSync(from, to, { recursive: true, errorOnExist: true, filter });
 }
 
+function writeJson(file, value) {
+  fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n');
+}
+
+function utcFolderTimestamp(date = new Date()) {
+  return date.toISOString()
+    .replace(/[-:]/g, '')
+    .replace(/\.\d{3}Z$/, 'Z');
+}
+
 function studyProfile(runsRoot, options) {
   const profilePath = path.join(runsRoot, 'study-profile.json');
   if (fs.existsSync(profilePath)) {
@@ -174,8 +187,41 @@ function studyProfile(runsRoot, options) {
     modelTokenBudget: positiveInteger(options['model-tokens'] ?? '120000', 'model-token budget'),
   };
   fs.mkdirSync(runsRoot, { recursive: true });
-  fs.writeFileSync(profilePath, JSON.stringify(profile, null, 2) + '\n');
+  writeJson(profilePath, profile);
   return profile;
+}
+
+function sessionRootFor(runsRoot, profile, participantId) {
+  const profilePath = path.join(runsRoot, 'study-profile.json');
+  const sessions = profile.sessions ?? {};
+  if (sessions[participantId]) return path.join(runsRoot, sessions[participantId]);
+
+  const timestamp = utcFolderTimestamp();
+  const baseName = `${participantId}_${timestamp}`;
+  let sessionName = baseName;
+  let duplicate = 2;
+  while (fs.existsSync(path.join(runsRoot, sessionName))) {
+    sessionName = `${baseName}-${duplicate}`;
+    duplicate += 1;
+  }
+  profile.sessions = { ...sessions, [participantId]: sessionName };
+  writeJson(profilePath, profile);
+  return path.join(runsRoot, sessionName);
+}
+
+function findRunDirectory(runsRoot, runId) {
+  const legacyDirectory = path.join(runsRoot, runId);
+  if (fs.existsSync(legacyDirectory)) return legacyDirectory;
+
+  const candidates = fs.readdirSync(runsRoot, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .map(entry => path.join(runsRoot, entry.name, runId))
+    .filter(candidate => fs.existsSync(candidate));
+  if (candidates.length === 1) return candidates[0];
+  if (candidates.length > 1) {
+    throw new Error(`More than one prepared run matches ${runId}; specify a separate runs directory.`);
+  }
+  throw new Error(`Prepared run not found: ${runId}`);
 }
 
 function prepare(participantId, periodText, options) {
@@ -198,7 +244,8 @@ function prepare(participantId, periodText, options) {
   const manifestPath = path.join(manifestsDir, `${assignment.taskId}.json`);
   const manifest = readJson(manifestPath);
   const runId = `${participantId}-period${period}-${assignment.taskId}-${assignment.condition}`;
-  const runDir = path.join(runsRoot, runId);
+  const sessionRoot = sessionRootFor(runsRoot, profile, participantId);
+  const runDir = path.join(sessionRoot, runId);
   if (fs.existsSync(runDir)) throw new Error(`Run directory already exists: ${runDir}`);
   const workspace = path.join(runDir, 'workspace');
   fs.mkdirSync(runDir, { recursive: true });
@@ -214,6 +261,7 @@ function prepare(participantId, periodText, options) {
     condition: assignment.condition,
     createdAt: new Date().toISOString(),
     startedAt: null,
+    exportDirectory: path.join(sessionRoot, 'participant-exports'),
     timeLimitSeconds: profile.timeLimitSeconds,
     model: {
       provider: profile.provider,
@@ -236,7 +284,7 @@ function prepare(participantId, periodText, options) {
     },
   };
   const studyDir = path.join(workspace, '.study');
-  fs.writeFileSync(path.join(studyDir, 'run.json'), JSON.stringify(run, null, 2) + '\n');
+  writeJson(path.join(studyDir, 'run.json'), run);
   const vscodeDir = path.join(workspace, '.vscode');
   fs.mkdirSync(vscodeDir, { recursive: true });
   const settings = {
@@ -252,14 +300,14 @@ function prepare(participantId, periodText, options) {
     'contextbranch.captureNewFiles': true,
     'contextbranch.reviewEdits': true,
   };
-  fs.writeFileSync(path.join(vscodeDir, 'settings.json'), JSON.stringify(settings, null, 2) + '\n');
-  fs.writeFileSync(path.join(runDir, 'run.json'), JSON.stringify(run, null, 2) + '\n');
-  console.log(JSON.stringify({ runId, workspace, taskId: assignment.taskId, condition: assignment.condition, profile }, null, 2));
+  writeJson(path.join(vscodeDir, 'settings.json'), settings);
+  writeJson(path.join(runDir, 'run.json'), run);
+  console.log(JSON.stringify({ runId, sessionRoot, workspace, taskId: assignment.taskId, condition: assignment.condition, profile }, null, 2));
 }
 
 function collect(runId, options) {
   const runsRoot = path.resolve(options.runs ?? defaultRunsRoot);
-  const runDir = path.join(runsRoot, runId);
+  const runDir = findRunDirectory(runsRoot, runId);
   const workspace = path.join(runDir, 'workspace');
   const finishedPath = path.join(workspace, '.study', 'finished.json');
   if (!fs.existsSync(finishedPath)) {
@@ -292,7 +340,9 @@ function collect(runId, options) {
     runId,
     collectedAt: new Date().toISOString(),
     finalState: finished.finalState,
+    startedAt: finished.startedAt,
     finishedAt: finished.finishedAt,
+    durationMs: finished.durationMs,
     submission: destination,
   }, null, 2) + '\n');
   console.log(JSON.stringify({ runId, submission: destination, telemetry: fs.existsSync(telemetryDestination) ? telemetryDestination : null }, null, 2));

@@ -56,6 +56,8 @@ export interface StudyRunFile {
   condition: StudyCondition;
   createdAt: string;
   startedAt: string | null;
+  /** Shared folder containing one ZIP per completed task in this session. */
+  exportDirectory?: string;
   timeLimitSeconds: number;
   model: {
     provider: StudyProvider;
@@ -74,6 +76,28 @@ export interface StudyRunFile {
     runner: StudyTaskManifest['runner'];
     submission: StudyTaskManifest['submission'];
   };
+}
+
+export interface StudyFinishedRecord {
+  schemaVersion: 1;
+  runId: string;
+  taskId: string;
+  condition: StudyCondition;
+  startedAt: string | null;
+  finishedAt: string;
+  durationMs: number;
+  timedOut: boolean;
+  finalState: 'main';
+  activeStateAtFinish: string;
+  modelCallsUsed: number;
+  modelTokensUsed: number;
+  productionFileHashes: Record<string, string>;
+}
+
+export interface StudyArchive {
+  filePath: string;
+  fileName: string;
+  created: boolean;
 }
 
 export interface StudyUiState {

@@ -206,7 +206,7 @@
       <!-- Right side: collapsible history graph panel -->
       <aside class="history-pane" id="history-pane" hidden>
         <div class="history-toolbar">
-          <span class="history-title">Development history</span>
+          <span class="history-title" id="history-title">Development history</span>
           <div class="history-toolbar-actions">
             <button class="icon-btn" id="btn-history-refresh" title="Refresh">↻</button>
             <button class="icon-btn" id="btn-history-close" title="Close panel">×</button>
@@ -217,7 +217,7 @@
           <svg id="history-svg" xmlns="http://www.w3.org/2000/svg"></svg>
           <div class="history-empty" id="history-empty" hidden>
             <p class="muted">No history yet.</p>
-            <p class="muted">Create a branch or save a checkpoint to see it here.</p>
+            <p class="muted" id="history-empty-hint">Create a branch or save a checkpoint to see it here.</p>
           </div>
 
           <!-- Navigation controls (bottom-left) — compact. Pan by dragging. -->

@@ -43,6 +43,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
   private pendingMergeContextAbort?: AbortController;
   /** Manual IDE conflict-resolution session for the currently reviewed merge. */
   private pendingManualMerge?: { sourceBranchId: string; targetBranchId: string; paths: string[]; acceptedCascadePaths: string[] };
+  private studyStateMapOpenedAt?: number;
 
   /** Git-style highlights for lines added/changed by the last artifact apply. */
   private decorations?: ChangeDecorations;
@@ -181,6 +182,9 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       case 'runStudyTests': return this.handleRunStudyTests();
       case 'openStudyIntegration': return this.handleOpenStudyIntegration();
       case 'finishStudyTask': return this.handleFinishStudyTask();
+      case 'studyStateMapOpened': return this.handleStudyStateMapOpened();
+      case 'studyStateMapClosed': return this.handleStudyStateMapClosed(msg.durationMs);
+      case 'studyStateMapNodeInspected': return this.handleStudyStateMapNodeInspected(msg.nodeId, msg.nodeKind, msg.stateId);
       case 'createBranch': return this.handleCreateBranch(msg.name, msg.description, msg.fromMessageId, msg.parentBranchId, msg.select);
       case 'switchBranch': return this.handleSwitchBranch(msg.branchId);
       case 'abandonBranch': return this.handleAbandonBranch(msg.branchId);
@@ -694,7 +698,11 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     this.pushState();
   }
 
-  private async handleSwitchBranch(branchId: string): Promise<void> {
+  private async handleSwitchBranch(
+    branchId: string,
+    actor: 'participant' | 'system' = 'participant',
+    reason: string = 'state_selector',
+  ): Promise<void> {
     if (this.currentAbort) {
       this.currentAbort.abort();
     }
@@ -720,7 +728,11 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     const oldBranchId = ws.activeBranchId;
     const oldPaths: Set<string> = new Set<string>(ws.getArtifacts(oldBranchId).map(a => a.path));
 
-    ws.switchBranch(branchId);
+    ws.switchBranch(branchId, { actor, reason });
+    const study = this.getStudyController();
+    if (study && oldBranchId !== branchId) {
+      study.recordStateSwitch(ws, oldBranchId, branchId, actor, reason);
+    }
 
     if (autoApply && workspaceRoot && oldBranchId !== branchId) {
       const newArtifacts = ws.getArtifacts(branchId);
@@ -1074,7 +1086,9 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       await this.getDecorations().dismissAllPreviews();
       this.pendingManualMerge = undefined;
       this.pendingMergePreview = undefined;
-      if (ws.activeBranchId === cached.sourceBranchId) await this.handleSwitchBranch(cached.targetBranchId);
+      if (ws.activeBranchId === cached.sourceBranchId) {
+        await this.handleSwitchBranch(cached.targetBranchId, 'system', 'merge_finalization');
+      }
       this.pushState();
       this.postMessage({
         type: 'mergeCompleted',
@@ -1216,7 +1230,10 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       }, cached.preview);
 
       this.pendingMergePreview = undefined;
-      if (ws.activeBranchId === sourceBranchId) await this.handleSwitchBranch(targetBranchId);
+      if (study) study.recordIntegrationCompleted(ws, sourceBranchId, event.id);
+      if (ws.activeBranchId === sourceBranchId) {
+        await this.handleSwitchBranch(targetBranchId, 'system', 'merge_finalization');
+      }
       this.pushState();
       this.postMessage({
         type: 'mergeCompleted',
@@ -1244,7 +1261,9 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       const event = await undoMerge(ws, mergeEventId);
       this.pendingMergePreview = undefined;
       const target = ws.getBranch(event.targetBranchId);
-      if (target && ws.activeBranchId !== target.id) await this.handleSwitchBranch(target.id);
+      if (target && ws.activeBranchId !== target.id) {
+        await this.handleSwitchBranch(target.id, 'system', 'merge_undo');
+      }
       this.pushState();
       this.postMessage({ type: 'mergeUndone', event, message: 'Merge undone. The target was restored to its pre-merge checkpoint and the source branch is active again.' });
     } catch (err: any) {
@@ -1457,10 +1476,42 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       this.postMessage({ type: 'error', message: 'Only the active automatic state can be integrated into main.' });
       return;
     }
+    study.recordIntegrationOpened(ws, ws.activeBranchId);
     this.postMessage({
       type: 'openStudyIntegration',
       sourceBranchId: ws.activeBranchId,
       targetBranchId: ws.mainBranchId,
+    });
+  }
+
+  private handleStudyStateMapOpened(): void {
+    const ws = this.requireWorkspace();
+    const study = this.getStudyController();
+    if (!ws || !study || !study.isContextBranch) return;
+    this.studyStateMapOpenedAt = Date.now();
+    study.recordStateMapOpened(ws);
+  }
+
+  private handleStudyStateMapClosed(durationMs: unknown): void {
+    const ws = this.requireWorkspace();
+    const study = this.getStudyController();
+    if (!ws || !study || !study.isContextBranch) return;
+    const duration = typeof durationMs === 'number' && Number.isFinite(durationMs)
+      ? durationMs
+      : (this.studyStateMapOpenedAt ? Date.now() - this.studyStateMapOpenedAt : 0);
+    study.recordStateMapClosed(ws, duration);
+    this.studyStateMapOpenedAt = undefined;
+  }
+
+  private handleStudyStateMapNodeInspected(nodeId: unknown, nodeKind: unknown, stateId: unknown): void {
+    const ws = this.requireWorkspace();
+    const study = this.getStudyController();
+    if (!ws || !study || !study.isContextBranch) return;
+    if (typeof nodeId !== 'string' || typeof nodeKind !== 'string') return;
+    study.recordStateMapNodeInspected(ws, {
+      nodeId,
+      nodeKind,
+      stateId: typeof stateId === 'string' ? stateId : undefined,
     });
   }
 
@@ -1481,9 +1532,11 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
         'Cancel',
       );
       if (choice !== 'Finish from main') return;
-      await this.handleSwitchBranch(ws.mainBranchId);
+      await this.handleSwitchBranch(ws.mainBranchId, 'system', 'finish_task');
     }
     study.finish(ws, activeStateAtFinish);
+    this.closeStateMapForCompletion(study, ws, 'task_finished');
+    await this.writeStudyArchive(study, ws);
     this.postMessage({ type: 'studyFinished' });
     this.pushState();
   }
@@ -1501,9 +1554,11 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     try {
       const activeStateAtFinish = ws.activeBranchId;
       if (activeStateAtFinish !== ws.mainBranchId) {
-        await this.handleSwitchBranch(ws.mainBranchId);
+        await this.handleSwitchBranch(ws.mainBranchId, 'system', 'timeout_finalization');
       }
       study.finish(ws, activeStateAtFinish);
+      this.closeStateMapForCompletion(study, ws, 'task_timeout');
+      await this.writeStudyArchive(study, ws);
       this.postMessage({ type: 'studyTimedOut' });
       this.pushState();
     } catch (error: any) {
@@ -1511,6 +1566,26 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     } finally {
       this.finishingTimedOutStudy = false;
     }
+  }
+
+  private async writeStudyArchive(study: StudyController, ws: Workspace): Promise<void> {
+    try {
+      const archive = await study.exportFinishedArchive(ws);
+      this.postMessage({ type: 'studyArchiveReady', fileName: archive.fileName, filePath: archive.filePath });
+      if (archive.created) {
+        vscode.window.showInformationMessage(`Study data ZIP saved: ${archive.fileName}`);
+      }
+    } catch (error: any) {
+      const message = `Task finished, but the study data ZIP could not be created: ${error.message ?? String(error)}`;
+      this.postMessage({ type: 'error', message });
+      vscode.window.showErrorMessage(message);
+    }
+  }
+
+  private closeStateMapForCompletion(study: StudyController, ws: Workspace, reason: string): void {
+    if (this.studyStateMapOpenedAt === undefined) return;
+    study.recordStateMapClosed(ws, Date.now() - this.studyStateMapOpenedAt, 'system', reason);
+    this.studyStateMapOpenedAt = undefined;
   }
 
   // ─── HTML scaffolding ─────────────────────────────────────────────────────

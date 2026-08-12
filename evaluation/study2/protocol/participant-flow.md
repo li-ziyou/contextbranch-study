@@ -29,9 +29,13 @@ The participant never has to use both states, write two patches, merge, or
 state why they chose a route. The submitted artifact is always the final main
 state; unmerged candidate work is not included.
 
-## After the second task
+## After each task
 
-The operator runs the clean private grader on each submitted patch and retains
-the pseudonymous telemetry bundle. A short interview asks about concrete
-implementation, evidence, switching, and integration moments. Study 2 does
-not collect SUS.
+The system automatically saves one pseudonymous ZIP in the shared participant
+export folder. The file name combines participant ID, task, condition, and task
+period. It contains the final main implementation and ContextBranch process
+data, but not API keys or private tests. After the second task, the participant
+shares both ZIPs with the research team. The team runs the clean private grader
+on each submitted patch. A short interview asks about concrete implementation,
+evidence, state switching, and integration moments. Study 2 does not collect
+SUS.
