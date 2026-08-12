@@ -88,7 +88,7 @@ locks the assignment. The first prepared run creates `runs/study-profile.json`
 with its provider, model, time limit, and model budgets; later runs must match
 that profile, so the two conditions cannot silently receive different
 resources. It also creates a new participant session directory named
-`P017_YYYYMMDDTHHMMSSZ`; both periods for that participant, including their
+`<participant-id>_YYYYMMDDTHHMMSSZ`; both periods for that participant, including their
 automatic ZIP exports, are kept inside that directory. Before a session, configure the matching provider API key with
 `ContextBranch: Set API Key` on the research machine.
 
@@ -101,7 +101,7 @@ After the participant presses `Finish task`, collect and grade the main state:
 ```bash
 npm run study:collect -- RUN_ID
 npm run study:grade -- --bundle participant-bundles/TASK_ID \
-  --submission evaluation/study2/runs/P017_YYYYMMDDTHHMMSSZ/RUN_ID/submission/main \
+  --submission evaluation/study2/runs/<participant-id>_YYYYMMDDTHHMMSSZ/RUN_ID/submission/main \
   --result evaluation/study2/private-results/RUN_ID.json
 ```
 
