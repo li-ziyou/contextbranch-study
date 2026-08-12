@@ -306,6 +306,10 @@ function prepare(participantId, periodText, options) {
   const vscodeDir = path.join(workspace, '.vscode');
   fs.mkdirSync(vscodeDir, { recursive: true });
   const settings = {
+    // Study workspaces start with ContextBranch in the primary Side Bar on the
+    // right. The extension focuses its view and closes the built-in Chat when
+    // it activates, so the participant does not begin in Explorer or Chat.
+    'workbench.sideBar.location': 'right',
     'contextbranch.studyMode': true,
     'contextbranch.participantId': participantId,
     'contextbranch.condition': assignment.condition,

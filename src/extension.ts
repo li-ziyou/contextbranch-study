@@ -88,6 +88,20 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   }
 
+  async function focusStudyPanel(): Promise<void> {
+    if (!studyController) return;
+    // In a prepared study workspace, keep the participant in ContextBranch,
+    // not VS Code's own Chat. The workspace settings place the primary Side
+    // Bar on the right; this command focuses the contributed view there.
+    try {
+      await vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar');
+      await vscode.commands.executeCommand('contextbranch.sidebar.focus');
+    } catch {
+      // Focus is presentation-only. The study remains usable if a host build
+      // does not expose one of the workbench commands.
+    }
+  }
+
   // 2. Initialize storage in workspace (if a folder is open)
   const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   let storage: Storage | null = null;
@@ -111,6 +125,7 @@ export async function activate(context: vscode.ExtensionContext) {
     runInitialIngest(cbRoot);
     studyController?.initialize(workspace);
     void recoverFinishedStudyArchive();
+    void focusStudyPanel();
   } else {
     vscode.window.showWarningMessage(
       'ContextBranch: open a folder first, then reload the window.'
@@ -143,6 +158,7 @@ export async function activate(context: vscode.ExtensionContext) {
         runInitialIngest(cbRoot);
         studyController?.initialize(workspace);
         void recoverFinishedStudyArchive();
+        void focusStudyPanel();
         vscode.window.showInformationMessage('ContextBranch: workspace ready.');
       }
     })

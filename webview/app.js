@@ -99,10 +99,7 @@
         case 'mergeUndone': showStatus(msg.message || 'Merge undone.', 'success'); break;
         case 'contextWarning': showStatus(msg.message, 'error'); break;
         case 'switchApplied': {
-          const parts = [];
-          if (msg.wrote) parts.push(`wrote ${msg.wrote}`);
-          if (msg.removed) parts.push(`removed ${msg.removed}`);
-          showStatus(`Switched to ${msg.branchName} — ${parts.join(', ')} files on disk.`, 'info');
+          showStatus(`Switched to ${msg.branchName}.`, 'info');
           break;
         }
         case 'checkpointCreated':
@@ -437,7 +434,7 @@
     } else if (state.condition === 'linear') {
       bannerHtml = '⚠ Study mode: linear condition — branching is disabled.';
     } else if (state.study && !state.isMain) {
-      bannerHtml = `Working in isolated state <strong>${escapeHtml(state.activeBranchName)}</strong>. Switching states swaps the workspace files.`;
+      bannerHtml = `Working in isolated state <strong>${escapeHtml(state.activeBranchName)}</strong>.`;
     } else if (!state.isMain) {
       bannerHtml = `Editing branch <strong>${escapeHtml(state.activeBranchName)}</strong>. Workspace files are not changed unless you click Apply in the ⋯ menu.`;
     }
