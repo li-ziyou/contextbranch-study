@@ -63,7 +63,6 @@ def copy_allowed_files(source: Path, destination: Path, allowed_paths: list[str]
 def participant_task_card(manifest: dict) -> str:
     ticket = manifest["ticket"]
     requirements = "\n".join(f"- {item}" for item in ticket["requirements"])
-    labels = "\n".join(f"- {item}" for item in manifest["rootBrief"]["implementationIntentLabels"])
     return f"""# {manifest['participantTitle']}
 
 ## Ticket
@@ -77,14 +76,7 @@ code, ask the coding assistant for help, edit files, and run the public tests.
 
 {requirements}
 
-## Implementation responsibilities
-
-{labels}
-
-The two implementation responsibilities are shown to everyone. They are
-suggestions for organizing work, not required steps. They live in separate
-folders and communicate through the supplied composition layer. Submit the
-final feature from the main state when you are ready.
+Submit the final feature from the main state when you are ready.
 
 Only the supplied public tests are available during the task. The final repair
 is checked later on a clean copy of the supplied task baseline.
@@ -97,8 +89,6 @@ def public_manifest(manifest: dict) -> dict:
         "taskId": manifest["taskId"],
         "participantTitle": manifest["participantTitle"],
         "ticket": manifest["ticket"],
-        "rootBrief": manifest["rootBrief"],
-        "contextBranch": manifest["contextBranch"],
         "runner": manifest["runner"],
         "submission": manifest["submission"],
     }

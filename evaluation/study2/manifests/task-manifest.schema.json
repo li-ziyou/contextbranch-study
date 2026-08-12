@@ -4,7 +4,7 @@
   "type": "object",
   "required": [
     "schemaVersion", "taskId", "participantTitle", "provenance", "assets",
-    "ticket", "rootBrief", "contextBranch", "runner", "submission", "privateGrader"
+    "ticket", "contextBranch", "runner", "submission", "privateGrader"
   ],
   "properties": {
     "schemaVersion": { "const": 1 },
@@ -19,13 +19,14 @@
       "required": ["baselineDirectory", "referenceDirectory"]
     },
     "ticket": { "type": "object" },
-    "rootBrief": { "type": "object" },
     "contextBranch": {
       "type": "object",
       "properties": {
-        "siblingStates": { "type": "array", "minItems": 2, "maxItems": 2 }
+        "siblingStates": { "type": "array", "minItems": 2, "maxItems": 2 },
+        "recommendedMergeRoute": { "type": "array", "minItems": 2, "maxItems": 2 },
+        "finalVerification": { "type": "string" }
       },
-      "required": ["siblingStates"]
+      "required": ["siblingStates", "recommendedMergeRoute", "finalVerification"]
     },
     "runner": {
       "type": "object",

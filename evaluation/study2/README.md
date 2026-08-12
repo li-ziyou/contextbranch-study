@@ -47,9 +47,11 @@ invocation, and export. The participant controls prompts, local edits, test
 runs, state switching, and whether to initiate an integration.
 
 In the ContextBranch condition, the system automatically creates exactly two
-sibling states from the same root checkpoint. It does not autonomously write a
-repair, pick a candidate, or merge code. In the Linear condition, the two same
-implementation-intent labels appear in a single conversation and code state.
+sibling states from the same root checkpoint. The main state retains the full
+feature ticket and gives a recommended merge route; each sibling receives a
+branch-specific ticket. The system does not autonomously write a repair, pick
+a candidate, or merge code. In the Linear condition, the participant works
+from the full feature ticket in one conversation and one code state.
 
 ## Directory map
 

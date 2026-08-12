@@ -27,18 +27,46 @@
       "Compose the transformed channels into floating-point or 8-bit RGB output through the supplied composer class."
     ]
   },
-  "rootBrief": {
-    "visibleInBothConditions": true,
-    "implementationIntentLabels": [
-      "Transform and validate image channels",
-      "Encode configurable RGB output"
-    ]
-  },
   "contextBranch": {
     "siblingStates": [
-      { "id": "transform", "label": "Transform and validate image channels" },
-      { "id": "encode", "label": "Encode configurable RGB output" }
-    ]
+      {
+        "id": "transform",
+        "label": "Transform and validate image channels",
+        "ticket": {
+          "goal": "Turn three aligned grayscale channels into validated, display-range channel data for the composer.",
+          "requirements": [
+            "Implement ChannelTransform in rgb_composer/transforms/channel_transform.py.",
+            "Validate shape and finite values, support shared or per-channel intervals, and apply linear or square-root stretch.",
+            "Keep this state focused on channel transformation rather than RGB stacking or output conversion."
+          ],
+          "validation": "Run the public tests and use the channel-transformation check as the primary evidence for this state."
+        }
+      },
+      {
+        "id": "encode",
+        "label": "Encode configurable RGB output",
+        "ticket": {
+          "goal": "Turn three normalized channel arrays into a validated floating-point or 8-bit RGB image.",
+          "requirements": [
+            "Implement RGBEncoder in rgb_composer/output/encoder.py.",
+            "Validate the three normalized channels, preserve floating-point output when requested, and convert correctly for 8-bit output.",
+            "Keep this state focused on RGB encoding rather than interval selection or display stretch."
+          ],
+          "validation": "Run the public tests and use the RGB-encoding check as the primary evidence for this state."
+        }
+      }
+    ],
+    "recommendedMergeRoute": [
+      {
+        "stateId": "transform",
+        "instruction": "Implement and validate channel transformation, then integrate this state into main."
+      },
+      {
+        "stateId": "encode",
+        "instruction": "Implement and validate RGB encoding, then integrate this state into main."
+      }
+    ],
+    "finalVerification": "Return to main and run the full public test command after both contributions are integrated."
   },
   "runner": {
     "publicTestCommand": "python3 .study/bin/study_runner.py public --workspace .",

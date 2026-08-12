@@ -45,7 +45,7 @@ export class StudyController {
 
     const root = ws.getBranch(ws.mainBranchId);
     if (!root) throw new Error('Study workspace has no main state.');
-    ws.appendMessage(root.id, 'system', this.rootBriefMessage());
+    ws.appendMessage(root.id, 'system', this.rootTaskMessage());
     const siblingIds: string[] = [];
     if (this.isContextBranch) {
       const siblings = this.run.manifest.contextBranch.siblingStates;
@@ -53,7 +53,7 @@ export class StudyController {
         const other = siblings[(index + 1) % siblings.length];
         const branch = ws.createBranch({
           name: sibling.label,
-          description: `Study implementation area: ${sibling.label}`,
+          description: `Study branch ticket: ${sibling.label}`,
           parentBranchId: ws.mainBranchId,
           tags: ['study-sibling', sibling.id],
         });
@@ -62,6 +62,7 @@ export class StudyController {
           `It and “${other.label}” start from the same checkpoint because the feature has two ` +
           'cooperating implementation responsibilities. This state keeps its own conversation, code candidate, and test evidence while you work.'
         );
+        ws.appendMessage(branch.id, 'system', this.branchTicketMessage(sibling));
         ws.storage.appendTelemetry({
           type: 'study_state_created',
           actor: 'system',
@@ -72,10 +73,10 @@ export class StudyController {
         });
         siblingIds.push(branch.id);
       }
+      ws.appendMessage(root.id, 'system', this.mainContextBranchPlanMessage());
       if (siblingIds[0]) {
         const fromStateId = ws.activeBranchId;
         ws.switchBranch(siblingIds[0], { actor: 'system', reason: 'study_initialization' });
-        ws.appendMessage(siblingIds[0], 'system', this.contextBranchGuidanceMessage());
         this.recordStateSwitch(ws, fromStateId, siblingIds[0], 'system', 'study_initialization');
       }
     }
@@ -85,7 +86,7 @@ export class StudyController {
       taskId: this.run.taskId,
       condition: this.run.condition,
       siblingStateIds: siblingIds,
-      rootBriefHash: this.run.manifest.sha256,
+      taskManifestHash: this.run.manifest.sha256,
     });
   }
 
@@ -274,16 +275,25 @@ export class StudyController {
     };
   }
 
-  private rootBriefMessage(): string {
+  private rootTaskMessage(): string {
     const ticket = this.run.manifest.ticket;
-    const labels = this.run.manifest.rootBrief.implementationIntentLabels.map(label => `- ${label}`).join('\n');
     const requirements = ticket.requirements.map(item => `- ${item}`).join('\n');
-    return `[study] Task: ${ticket.summary}\n\nRequirements:\n${requirements}\n\nImplementation responsibilities:\n${labels}\n\nUse the task ticket and public tests as the working specification. The responsibilities are available in both conditions; they are suggestions, not required steps. The supplied composition layer connects their contracts, so submit the final feature from main.`;
+    return `[study] Task: ${ticket.summary}\n\nRequirements:\n${requirements}\n\nUse this total feature ticket and the public tests as the working specification. Submit the final feature from main.`;
   }
 
-  private contextBranchGuidanceMessage(): string {
+  private mainContextBranchPlanMessage(): string {
+    const statesById = new Map(this.run.manifest.contextBranch.siblingStates.map(state => [state.id, state]));
+    const route = this.run.manifest.contextBranch.recommendedMergeRoute.map((step, index) => {
+      const state = statesById.get(step.stateId);
+      return `${index + 1}. “${state?.label ?? step.stateId}”: ${step.instruction}`;
+    }).join('\n');
     const labels = this.run.manifest.contextBranch.siblingStates.map(state => `“${state.label}”`).join(' and ');
-    return `[study] Two sibling states are ready: ${labels}. A practical starting point is to read the ticket and tests, then focus in the state whose responsibility you want to investigate first. You may switch whenever another responsibility becomes relevant, compare the separate evidence, or work in only one state. When work from an active sibling state belongs in the final implementation, select “Integrate this state into main”, review the merge preview, and confirm it. This is a suggested workflow, not a required sequence.`;
+    return `[study] ContextBranch created two sibling states: ${labels}. Each state has its own branch-specific ticket, conversation, code candidate, and test evidence.\n\nRecommended work and merge route:\n${route}\n\nFinal check: ${this.run.manifest.contextBranch.finalVerification}\n\nThis route is a recommendation. You may inspect, switch, compare, or integrate states when useful.`;
+  }
+
+  private branchTicketMessage(sibling: StudyRunFile['manifest']['contextBranch']['siblingStates'][number]): string {
+    const requirements = sibling.ticket.requirements.map(item => `- ${item}`).join('\n');
+    return `[study] Branch ticket: ${sibling.label}\n\nGoal: ${sibling.ticket.goal}\n\nFocus in this state:\n${requirements}\n\nSuggested validation: ${sibling.ticket.validation}\n\nWhen this contribution is ready for the final feature, select “Integrate this state into main”, review the merge preview, and confirm the integration.`;
   }
 
   private elapsedSeconds(): number {

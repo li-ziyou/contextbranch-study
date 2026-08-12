@@ -27,18 +27,46 @@
       "List templates by metadata and render {{name}} placeholders from the indexed template body."
     ]
   },
-  "rootBrief": {
-    "visibleInBothConditions": true,
-    "implementationIntentLabels": [
-      "Parse and validate template metadata",
-      "Build the scoped template catalog"
-    ]
-  },
   "contextBranch": {
     "siblingStates": [
-      { "id": "metadata", "label": "Parse and validate template metadata" },
-      { "id": "catalog", "label": "Build the scoped template catalog" }
-    ]
+      {
+        "id": "metadata",
+        "label": "Parse and validate template metadata",
+        "ticket": {
+          "goal": "Turn a Markdown template into a validated metadata record and body that another module can consume.",
+          "requirements": [
+            "Implement the parser in template_library/metadata/frontmatter.py.",
+            "Handle an optional YAML header and validate namespace, description, and tags before returning the parsed record.",
+            "Keep this state focused on the metadata contract rather than catalog traversal or rendering."
+          ],
+          "validation": "Run the public tests and use the metadata parsing check as the primary evidence for this state."
+        }
+      },
+      {
+        "id": "catalog",
+        "label": "Build the scoped template catalog",
+        "ticket": {
+          "goal": "Build a safe recursive catalog that consumes parsed templates through the supplied metadata contract.",
+          "requirements": [
+            "Implement discovery and lookup in template_library/catalog/index.py.",
+            "Use canonical nested keys, ignore non-Markdown files, and reject unsafe lookup keys.",
+            "Keep this state focused on catalog behavior rather than changing the metadata parser or the library facade."
+          ],
+          "validation": "Run the public tests and use the recursive catalog check as the primary evidence for this state."
+        }
+      }
+    ],
+    "recommendedMergeRoute": [
+      {
+        "stateId": "metadata",
+        "instruction": "Implement and validate the metadata contract, then integrate this state into main."
+      },
+      {
+        "stateId": "catalog",
+        "instruction": "Implement and validate catalog behavior, then integrate this state into main."
+      }
+    ],
+    "finalVerification": "Return to main and run the full public test command after both contributions are integrated."
   },
   "runner": {
     "publicTestCommand": "python3 .study/bin/study_runner.py public --workspace .",

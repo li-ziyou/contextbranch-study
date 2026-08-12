@@ -17,11 +17,12 @@ task-specific advice from either Study 2 feature.
 
 1. The participant reads a feature ticket and opens its readable public tests.
 2. The participant clicks `Start task`.
-3. The system replays the frozen root brief and starts the timer.
+3. The system shows the complete feature ticket and starts the timer.
 4. In Linear, the participant works in one chat and one code state.
-5. In ContextBranch, the system creates two sibling states with the same task
-   context and one implementation-intent label each. The participant can work
-   in either state, switch, compare evidence, and initiate integration.
+5. In ContextBranch, the system creates two sibling states with the same root
+   checkpoint. The main state shows the recommended merge route, and each
+   sibling receives a branch-specific ticket. The participant can work in
+   either state, switch, compare evidence, and initiate integration.
 6. The participant runs public tests during the task and clicks `Finish task`
    when ready. The system records a timeout if the period ends first.
 

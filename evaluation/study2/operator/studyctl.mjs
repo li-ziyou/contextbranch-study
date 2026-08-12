@@ -19,7 +19,7 @@ const runtimeRoot = path.join(repoRoot, '.study-runtime');
 const builderRoot = path.join(repoRoot, '.study-builder');
 const requiredManifestFields = [
   'schemaVersion', 'taskId', 'participantTitle', 'provenance', 'assets',
-  'ticket', 'rootBrief', 'contextBranch', 'runner', 'submission', 'privateGrader',
+  'ticket', 'contextBranch', 'runner', 'submission', 'privateGrader',
 ];
 
 function readJson(file) {
@@ -43,8 +43,27 @@ function validate() {
     }
     if (seen.has(manifest.taskId)) failures.push(`${path.basename(file)}: duplicate taskId ${manifest.taskId}`);
     seen.add(manifest.taskId);
-    if (manifest.contextBranch?.siblingStates?.length !== 2) {
+    const siblings = manifest.contextBranch?.siblingStates;
+    if (siblings?.length !== 2) {
       failures.push(`${path.basename(file)}: requires exactly two sibling states`);
+    } else {
+      const siblingIds = new Set();
+      for (const sibling of siblings) {
+        siblingIds.add(sibling.id);
+        const ticket = sibling.ticket;
+        if (!sibling.id || !sibling.label || !ticket?.goal || !Array.isArray(ticket.requirements) || !ticket.validation) {
+          failures.push(`${path.basename(file)}: every sibling state requires a complete branch-specific ticket`);
+        }
+      }
+      const route = manifest.contextBranch.recommendedMergeRoute;
+      if (!Array.isArray(route) || route.length !== 2 ||
+        route.some(step => !siblingIds.has(step.stateId) || !step.instruction) ||
+        new Set(route.map(step => step.stateId)).size !== 2) {
+        failures.push(`${path.basename(file)}: requires one recommended merge step for each sibling state`);
+      }
+      if (!manifest.contextBranch.finalVerification) {
+        failures.push(`${path.basename(file)}: requires final verification guidance`);
+      }
     }
     if (manifest.runner?.publicTestCommand?.includes('private')) {
       failures.push(`${path.basename(file)}: public command must not expose private grader`);
@@ -277,7 +296,6 @@ function prepare(participantId, periodText, options) {
       taskId: manifest.taskId,
       sha256: sha256File(manifestPath),
       ticket: manifest.ticket,
-      rootBrief: manifest.rootBrief,
       contextBranch: manifest.contextBranch,
       runner: manifest.runner,
       submission: manifest.submission,

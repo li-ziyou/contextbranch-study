@@ -9,18 +9,26 @@ export type StudyProvider = 'anthropic' | 'openai' | 'openrouter' | 'gemini';
 export interface StudySiblingState {
   id: string;
   label: string;
+  ticket: {
+    goal: string;
+    requirements: string[];
+    validation: string;
+  };
+}
+
+export interface StudyMergeRouteStep {
+  stateId: string;
+  instruction: string;
 }
 
 export interface StudyTaskManifest {
   schemaVersion: 1;
   taskId: string;
   participantTitle: string;
-  rootBrief: {
-    visibleInBothConditions: true;
-    implementationIntentLabels: [string, string];
-  };
   contextBranch: {
     siblingStates: [StudySiblingState, StudySiblingState];
+    recommendedMergeRoute: [StudyMergeRouteStep, StudyMergeRouteStep];
+    finalVerification: string;
   };
   runner: {
     publicTestCommand: string;
@@ -71,7 +79,6 @@ export interface StudyRunFile {
     taskId: string;
     sha256: string;
     ticket: { summary: string; requirements: string[] };
-    rootBrief: StudyTaskManifest['rootBrief'];
     contextBranch: StudyTaskManifest['contextBranch'];
     runner: StudyTaskManifest['runner'];
     submission: StudyTaskManifest['submission'];

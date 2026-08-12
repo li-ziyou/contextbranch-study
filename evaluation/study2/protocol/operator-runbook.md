@@ -128,8 +128,11 @@ Period 2 is RGB Image Composer in the ContextBranch condition.
 
 The participant again reads the ticket and task tests, then clicks `Start
 task`. ContextBranch automatically creates two sibling conversation-code
-states. Each state begins from the same root checkpoint and carries one frozen
-implementation-intent label.
+states. The main state keeps the complete feature ticket and a recommended
+merge route. Each sibling begins from the same root checkpoint and receives a
+ContextBranch-generated, branch-specific ticket with its goal, focused
+requirements, and suggested validation. The route is guidance: participants
+may still inspect, switch, compare, or integrate states when useful.
 
 The participant may work in either state, switch between them, compare code
 changes or test evidence, ignore one state, or work in only one state. If work
