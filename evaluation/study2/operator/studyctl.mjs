@@ -94,6 +94,9 @@ function assign(participantId) {
 
 function assignmentFor(participantNumber) {
   const sequences = readJson(sequencesPath).sequences;
+  // P000 is reserved for technical rehearsals and uses the first frozen
+  // sequence. Formal participant IDs start at P001.
+  if (participantNumber === 0) return sequences[0];
   return sequences[(participantNumber - 1) % sequences.length];
 }
 

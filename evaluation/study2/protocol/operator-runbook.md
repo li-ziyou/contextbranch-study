@@ -1,8 +1,9 @@
 # ContextBranch Study 2: full end-to-end runbook
 
 This runbook describes one complete session. It uses `P001` only as an
-example. Give every participant a new pseudonymous ID, and never reuse an ID
-for a replacement or a repeat session.
+example. `P000` is reserved for technical rehearsals and maps to sequence S1.
+Give every formal participant a new pseudonymous ID starting from `P001`, and
+never reuse an ID for a replacement or a repeat session.
 
 Use one fixed configuration for all participants in the same study profile:
 
