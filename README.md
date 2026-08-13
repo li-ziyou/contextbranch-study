@@ -2,7 +2,7 @@
 
 This private repository is the source of truth for the ContextBranch Study 2
 software and its frozen research artifacts. It includes the VS Code extension,
-two curated FeatureBench-derived task manifests, task-builder contracts, the
+selectable legacy and v2 FeatureBench-derived task manifests, task-builder contracts, the
 clean grader contract, session materials, and analysis-ready event definitions.
 
 It does not store participant-identifying data, recordings, API keys, raw run
@@ -13,8 +13,8 @@ directories, or participant bundles containing private evaluation material.
 ```bash
 npm install
 npm run compile
-npm run study:validate
-npm run study:assign -- P017
+npm run study:validate -- --task-set study2-v2
+npm run study:assign -- P017 --task-set study2-v2
 ```
 
 The participant flow, system boundaries, and implementation sequence are in

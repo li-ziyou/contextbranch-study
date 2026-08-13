@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "taskSetId": "study2-v2",
+  "taskIds": [
+    "tree-node-navigation",
+    "exception-group-matcher"
+  ],
+  "sequences": [
+    {
+      "id": "V1",
+      "period1": { "taskId": "tree-node-navigation", "condition": "linear" },
+      "period2": { "taskId": "exception-group-matcher", "condition": "contextbranch" }
+    },
+    {
+      "id": "V2",
+      "period1": { "taskId": "tree-node-navigation", "condition": "contextbranch" },
+      "period2": { "taskId": "exception-group-matcher", "condition": "linear" }
+    },
+    {
+      "id": "V3",
+      "period1": { "taskId": "exception-group-matcher", "condition": "linear" },
+      "period2": { "taskId": "tree-node-navigation", "condition": "contextbranch" }
+    },
+    {
+      "id": "V4",
+      "period1": { "taskId": "exception-group-matcher", "condition": "contextbranch" },
+      "period2": { "taskId": "tree-node-navigation", "condition": "linear" }
+    }
+  ]
+}

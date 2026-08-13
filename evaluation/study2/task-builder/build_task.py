@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the two curated, FeatureBench-derived Study 2 task bundles.
+"""Build selected curated, FeatureBench-derived Study 2 task bundles.
 
 The source tasks preserve the behavioural themes of pinned FeatureBench
 instances, but they are study-specific baselines rather than literal upstream
@@ -61,6 +61,13 @@ def copy_allowed_files(source: Path, destination: Path, allowed_paths: list[str]
 
 
 def participant_task_card(manifest: dict) -> str:
+    main_ticket_file = manifest["ticket"].get("mainTicketFile")
+    if main_ticket_file:
+        ticket_path = (STUDY_ROOT / main_ticket_file).resolve()
+        tasks_root = (STUDY_ROOT / "tasks").resolve()
+        if tasks_root not in ticket_path.parents or not ticket_path.is_file():
+            raise RuntimeError(f"Main ticket is missing or outside tasks: {main_ticket_file}")
+        return ticket_path.read_text(encoding="utf-8")
     ticket = manifest["ticket"]
     requirements = "\n".join(f"- {item}" for item in ticket["requirements"])
     return f"""# {manifest['participantTitle']}
@@ -113,6 +120,13 @@ def reset_git_baseline(participant: Path, manifest: dict) -> None:
     command(["git", "commit", "--quiet", "-m", f"Study baseline: {manifest['taskId']}"], cwd=participant)
 
 
+def remove_python_caches(root: Path) -> None:
+    for cache in root.rglob("__pycache__"):
+        shutil.rmtree(cache)
+    for bytecode in root.rglob("*.py[co]"):
+        bytecode.unlink()
+
+
 def build_one(manifest: dict, output: Path) -> Path:
     task_root = output / manifest["taskId"]
     if task_root.exists():
@@ -131,7 +145,10 @@ def build_one(manifest: dict, output: Path) -> Path:
     study_dir.mkdir()
     (study_dir / "TASK.md").write_text(participant_task_card(manifest), encoding="utf-8")
     (study_dir / "task.json").write_text(json.dumps(public_manifest(manifest), indent=2) + "\n", encoding="utf-8")
-    shutil.copytree(PUBLIC_TESTS / manifest["taskId"], study_dir / "public_tests")
+    # Public tests are ordinary participant-facing repository files so the
+    # ticket's direct pytest commands and the controlled runner see the same
+    # evidence. Clean grading never trusts or copies this directory.
+    shutil.copytree(PUBLIC_TESTS / manifest["taskId"], participant / "tests")
     (study_dir / "bin").mkdir()
     shutil.copy2(RUNNER, study_dir / "bin" / "study_runner.py")
 
@@ -148,6 +165,7 @@ def build_one(manifest: dict, output: Path) -> Path:
     (private / "provenance.json").write_text(
         json.dumps(manifest["provenance"], indent=2) + "\n", encoding="utf-8"
     )
+    remove_python_caches(task_root)
     reset_git_baseline(participant, manifest)
     print(f"Built {task_root}")
     return task_root
@@ -155,13 +173,13 @@ def build_one(manifest: dict, output: Path) -> Path:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--task", choices=["markdown-command-template-library", "rgb-image-composer"])
-    parser.add_argument("--all", action="store_true", help="Build both task bundles")
+    parser.add_argument("--tasks", nargs="+", help="Stable task IDs to build")
+    parser.add_argument("--all", action="store_true", help="Build every manifest")
     parser.add_argument("--output", type=Path, default=REPO_ROOT / "participant-bundles")
     args = parser.parse_args()
-    if args.all == bool(args.task):
-        parser.error("Use exactly one of --task TASK or --all")
-    task_ids = [args.task] if args.task else ["markdown-command-template-library", "rgb-image-composer"]
+    if args.all == bool(args.tasks):
+        parser.error("Use exactly one of --tasks TASK... or --all")
+    task_ids = sorted(path.stem for path in MANIFEST_DIR.glob("*.json") if path.name != "task-manifest.schema.json") if args.all else args.tasks
     for task_id in task_ids:
         build_one(read_manifest(task_id), args.output)
     return 0

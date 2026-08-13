@@ -1,0 +1,21 @@
+frame_id,allocation,test_file,reason
+TN-F01,public,test_responsibility_a.py,canonical lifecycle example
+TN-F02,public,test_responsibility_a.py,canonical atomic cycle example
+TN-F03,public,test_responsibility_a.py,canonical detach and public error
+TN-F04,private,test_structure_integrity.py,held-out disclosed invalid-name values
+TN-F05,private,test_structure_integrity.py,held-out occupied and self relationships
+TN-F06,private,test_structure_integrity.py,held-out move sequence and insertion order
+TN-F07,private,test_structure_integrity.py,held-out same-parent replacement sequence
+TN-F08,private,test_structure_integrity.py,held-out idempotent lifecycle boundary
+TN-F09,public,test_responsibility_b.py,canonical path round trip
+TN-F10,public,test_responsibility_b.py,canonical traversal ordering
+TN-F11,public,test_responsibility_b.py,canonical disclosed errors
+TN-F12,private,test_path_navigation.py,held-out path forms
+TN-F13,private,test_path_navigation.py,held-out relative relationships
+TN-F14,private,test_path_navigation.py,held-out root boundary
+TN-F15,public,test_integration.py,canonical move-navigation interaction
+TN-F16,public,test_integration.py,canonical remove-detach interaction
+TN-F17,public,test_integration.py,canonical rejected-cycle interaction
+TN-F18,private,test_tree_integration.py,held-out replacement combination
+TN-F19,private,test_tree_integration.py,held-out detach-reattach sequence
+TN-F20,private,test_tree_integration.py,held-out deeper rejected transition

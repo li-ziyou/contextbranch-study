@@ -1,0 +1,22 @@
+frame_id,allocation,test_file,reason
+EG-F01,public,test_responsibility_a.py,canonical leaf success examples
+EG-F02,public,test_responsibility_a.py,canonical structured mismatch
+EG-F03,public,test_responsibility_a.py,canonical group boundary
+EG-F04,private,test_leaf_matching.py,held-out wrong-type members
+EG-F05,private,test_leaf_matching.py,held-out isinstance equivalence classes
+EG-F06,private,test_leaf_matching.py,held-out string-regex boundary
+EG-F07,private,test_leaf_matching.py,held-out predicate sequence
+EG-F08,public,test_responsibility_b.py,canonical preserved nesting
+EG-F09,public,test_responsibility_b.py,canonical mode examples
+EG-F10,public,test_responsibility_b.py,canonical recoverable greedy failure
+EG-F11,private,test_group_matching.py,held-out nested mismatch
+EG-F12,private,test_group_matching.py,held-out deep flatten path
+EG-F13,private,test_group_matching.py,held-out unwrap arity classes
+EG-F14,private,test_group_matching.py,held-out pairing order
+EG-F15,private,test_group_matching.py,held-out count boundaries
+EG-F16,public,test_integration.py,canonical evidence composition
+EG-F17,public,test_integration.py,canonical unwrap delegation
+EG-F18,public,test_integration.py,canonical repeated-type disambiguation
+EG-F19,private,test_matcher_integration.py,held-out protocol implementation
+EG-F20,private,test_matcher_integration.py,held-out nested evidence composition
+EG-F21,private,test_matcher_integration.py,held-out flatten and pairing interaction

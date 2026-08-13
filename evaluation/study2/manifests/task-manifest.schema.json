@@ -18,15 +18,42 @@
       "type": "object",
       "required": ["baselineDirectory", "referenceDirectory"]
     },
-    "ticket": { "type": "object" },
+    "ticket": {
+      "type": "object",
+      "required": ["summary", "requirements"],
+      "properties": {
+        "summary": { "type": "string", "minLength": 1 },
+        "mainTicketFile": { "type": "string", "minLength": 1 },
+        "requirements": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+      }
+    },
     "contextBranch": {
       "type": "object",
       "properties": {
-        "siblingStates": { "type": "array", "minItems": 2, "maxItems": 2 },
-        "recommendedMergeRoute": { "type": "array", "minItems": 2, "maxItems": 2 },
+        "siblingStates": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "required": ["id", "label", "ticket"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "label": { "type": "string", "minLength": 1 },
+              "ticket": {
+                "type": "object",
+                "required": ["requirements"],
+                "properties": {
+                  "requirements": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "finalVerification": { "type": "string" }
       },
-      "required": ["siblingStates", "recommendedMergeRoute", "finalVerification"]
+      "required": ["siblingStates", "finalVerification"]
     },
     "runner": {
       "type": "object",

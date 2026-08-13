@@ -49,6 +49,7 @@ export class StudyController {
     const siblingIds: string[] = [];
     if (this.isContextBranch) {
       const siblings = this.run.manifest.contextBranch.siblingStates;
+      const sharedCheckpoint = ws.createCheckpoint(ws.mainBranchId, 'Study sibling shared fork point');
       for (const [index, sibling] of siblings.entries()) {
         const other = siblings[(index + 1) % siblings.length];
         const branch = ws.createBranch({
@@ -56,6 +57,7 @@ export class StudyController {
           description: `Study branch ticket: ${sibling.label}`,
           parentBranchId: ws.mainBranchId,
           inheritMessages: false,
+          checkpointId: sharedCheckpoint.id,
           tags: ['study-sibling', sibling.id],
         });
         ws.appendMessage(branch.id, 'system',
@@ -273,23 +275,19 @@ export class StudyController {
 
   private rootTaskMessage(): string {
     const ticket = this.run.manifest.ticket;
+    if (ticket.mainMarkdown) return `[study][main-ticket]\n\n${ticket.mainMarkdown}`;
     const requirements = ticket.requirements.map(item => `- ${item}`).join('\n');
     return `[study][main-ticket] ${ticket.summary}\n\nRequirements:\n${requirements}\n\nUse this total feature ticket and the public tests as the working specification. Submit the final feature from main.`;
   }
 
   private mainContextBranchPlanMessage(): string {
-    const statesById = new Map(this.run.manifest.contextBranch.siblingStates.map(state => [state.id, state]));
-    const route = this.run.manifest.contextBranch.recommendedMergeRoute.map((step, index) => {
-      const state = statesById.get(step.stateId);
-      return `${index + 1}. “${state?.label ?? step.stateId}”: ${step.instruction}`;
-    }).join('\n');
     const labels = this.run.manifest.contextBranch.siblingStates.map(state => `“${state.label}”`).join(' and ');
-    return `[study][main-plan] ContextBranch created two sibling states: ${labels}. Each state has its own branch-specific ticket, conversation, code candidate, and test evidence.\n\nRecommended work and merge route:\n${route}\n\nFinal check: ${this.run.manifest.contextBranch.finalVerification}\n\nThis route is a recommendation. You may inspect, switch, compare, or integrate states when useful.`;
+    return `[study][main-plan] ContextBranch created two optional sibling states: ${labels}. Each starts from the same checkpoint and keeps its own focused conversation, code candidate, and test evidence.\n\nYou may use either state, both states, neither state, or work directly in main. There is no required order. Integrate a state into main only when it is useful, after reviewing the merge preview.\n\nFinal check: ${this.run.manifest.contextBranch.finalVerification}`;
   }
 
   private branchTicketMessage(sibling: StudyRunFile['manifest']['contextBranch']['siblingStates'][number]): string {
     const requirements = sibling.ticket.requirements.map(item => `- ${item}`).join('\n');
-    return `[study][branch-ticket] ${sibling.label}\n\nGoal: ${sibling.ticket.goal}\n\nFocus in this state:\n${requirements}\n\nSuggested validation: ${sibling.ticket.validation}\n\nWhen this contribution is ready for the final feature, select “Integrate this state into main”, review the merge preview, and confirm the integration.`;
+    return `[study][branch-ticket] ${sibling.label}\n\nFocus in this state:\n${requirements}\n\nThis state is optional. You may switch states, continue in main, or integrate this state into main after reviewing the merge preview. The final submission is always main.`;
   }
 
   private elapsedSeconds(): number {
