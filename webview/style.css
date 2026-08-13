@@ -287,6 +287,10 @@ html, body {
 
 .branch-row-status.merged { background: var(--vscode-charts-green); }
 .branch-row-status.abandoned { opacity: 0.5; }
+.branch-row-status.generating {
+  background: var(--vscode-progressBar-background);
+  color: var(--vscode-foreground);
+}
 
 .branch-row-count {
   font-size: 0.8em;

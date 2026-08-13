@@ -153,7 +153,7 @@ export class StudyController {
     return null;
   }
 
-  beginModelCall(ws: Workspace): string | null {
+  beginModelCall(ws: Workspace, stateId: string = ws.activeBranchId): string | null {
     const actionError = this.actionError();
     if (actionError) return actionError;
     if (this.modelCallsUsed(ws) >= this.run.model.modelCallBudget) {
@@ -162,14 +162,15 @@ export class StudyController {
     if (this.modelTokensUsed(ws) >= this.run.model.modelTokenBudget) {
       return 'The pooled model-token budget for this task has been reached.';
     }
-    ws.storage.appendTelemetry({ type: 'study_model_call_started', runId: this.run.runId });
+    ws.storage.appendTelemetry({ type: 'study_model_call_started', runId: this.run.runId, stateId });
     return null;
   }
 
-  recordModelUsage(ws: Workspace, inputTokens: number, outputTokens: number, model: string): void {
+  recordModelUsage(ws: Workspace, inputTokens: number, outputTokens: number, model: string, stateId: string = ws.activeBranchId): void {
     ws.storage.appendTelemetry({
       type: 'study_model_call_completed',
       runId: this.run.runId,
+      stateId,
       provider: this.providerName,
       model,
       inputTokens,

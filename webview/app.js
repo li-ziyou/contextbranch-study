@@ -17,6 +17,7 @@
 
   let lastRenderedMessageKey = null;
   let lastRenderedMessageBranchId = null;
+  let lastRenderedEditReviewKey = null;
 
   let state = {
     condition: 'branched',
@@ -29,8 +30,8 @@
     activeBranchStatus: '',
     isMain: true,
     telemetry: null,
-    isStreaming: false,
-    streamingText: '',
+    branchRuns: {},
+    pendingEdits: null,
     decompositionResult: null,
     decomposing: false,
     pendingMergePreview: null,
@@ -65,17 +66,16 @@
     try {
       switch (msg.type) {
         case 'state': handleState(msg); break;
-        case 'streamStart': handleStreamStart(); break;
-        case 'streamDelta': handleStreamDelta(msg.text); break;
-        case 'streamAborted': handleStreamAborted(); break;
-        case 'streamEnd': handleStreamEnd(); break;
+        case 'streamStart': handleStreamStart(msg.branchId); break;
+        case 'streamDelta': handleStreamDelta(msg.branchId, msg.text); break;
+        case 'streamAborted': handleStreamAborted(msg.branchId); break;
+        case 'streamEnd': handleStreamEnd(msg.branchId); break;
         case 'error':
-          showStatus(msg.message, 'error');
+          if (!msg.branchId || msg.branchId === state.activeBranchId) showStatus(msg.message, 'error');
           // Reset transient UI states so we never get stuck spinners
           $('merge-running').hidden = true;
           setMergeUiBusy(false);
           setDecomposeBusy(false);
-          handleStreamEnd();
           break;
         case 'success': showStatus(msg.message, 'success'); break;
         case 'decompositionResult': handleDecompositionResult(msg.result); break;
@@ -97,7 +97,9 @@
           showStatus(msg.message || 'Resolve all conflict markers before finalizing.', 'error');
           break;
         case 'mergeUndone': showStatus(msg.message || 'Merge undone.', 'success'); break;
-        case 'contextWarning': showStatus(msg.message, 'error'); break;
+        case 'contextWarning':
+          if (!msg.branchId || msg.branchId === state.activeBranchId) showStatus(msg.message, 'error');
+          break;
         case 'switchApplied': {
           showStatus(`Switched to ${msg.branchName}.`, 'info');
           break;
@@ -108,17 +110,23 @@
         case 'checkpointRestored':
           showStatus(msg.message || 'Checkpoint restored.', 'success');
           break;
-        case 'proposedEdits': renderEditReview(msg.files); break;
+        case 'proposedEdits':
+          if (msg.branchId === state.activeBranchId) renderEditReview(msg.files, msg.branchId);
+          break;
         case 'editsApplied':
-          clearEditReview();
-          showStatus(
-            `Applied edits to ${msg.applied} file${msg.applied === 1 ? '' : 's'}` +
-            (msg.failures ? ` · ${msg.failures.length} change(s) skipped` : ''),
-            msg.failures ? 'info' : 'success');
+          if (!msg.branchId || msg.branchId === state.activeBranchId) {
+            clearEditReview();
+            showStatus(
+              `Applied edits to ${msg.applied} file${msg.applied === 1 ? '' : 's'}` +
+              (msg.failures ? ` · ${msg.failures.length} change(s) skipped` : ''),
+              msg.failures ? 'info' : 'success');
+          }
           break;
         case 'editsDiscarded':
-          clearEditReview();
-          showStatus('Proposed edits discarded.', 'info');
+          if (!msg.branchId || msg.branchId === state.activeBranchId) {
+            clearEditReview();
+            showStatus('Proposed edits discarded.', 'info');
+          }
           break;
         case 'artifactsPreviewed': {
           if (msg.filesWithChanges > 0) {
@@ -185,13 +193,17 @@
   function clearEditReview() {
     const panel = $('edit-review');
     if (panel) { panel.hidden = true; panel.innerHTML = ''; }
+    lastRenderedEditReviewKey = null;
   }
 
   // Render the proposed-edits review panel. Each file shows its diff; each
   // change (op) has a checkbox so you can accept a subset. Apply / Discard.
-  function renderEditReview(files) {
+  function renderEditReview(files, branchId = state.activeBranchId) {
     const panel = $('edit-review');
     if (!panel) return;
+    const reviewKey = branchId + ':' + JSON.stringify(files);
+    if (lastRenderedEditReviewKey === reviewKey && !panel.hidden) return;
+    lastRenderedEditReviewKey = reviewKey;
     panel.innerHTML = '';
     panel.hidden = false;
 
@@ -277,7 +289,7 @@
     const discard = document.createElement('button');
     discard.className = 'btn-secondary';
     discard.textContent = 'Discard';
-    discard.addEventListener('click', () => send({ type: 'discardProposedEdits' }));
+    discard.addEventListener('click', () => send({ type: 'discardProposedEdits', branchId }));
     const apply = document.createElement('button');
     apply.className = 'btn-primary';
     apply.textContent = 'Apply selected';
@@ -291,7 +303,7 @@
         });
         accepted[p] = idxs;
       });
-      send({ type: 'applyProposedEdits', accepted });
+      send({ type: 'applyProposedEdits', branchId, accepted });
     });
     actions.appendChild(discard);
     actions.appendChild(apply);
@@ -307,40 +319,49 @@
       hidePreviewBar();
     }
     render();
+    if (Array.isArray(state.pendingEdits)) renderEditReview(state.pendingEdits, state.activeBranchId);
+    else clearEditReview();
     if (state.historyOpen && state.historyGraph) {
       renderHistoryView();
     }
   }
 
-  function handleStreamStart() {
-    state.isStreaming = true;
-    state.streamingText = '';
-    $('btn-send').hidden = true;
-    $('btn-stop').hidden = false;
-    $('streaming').hidden = false;
-    $('streaming-text').textContent = '';
-    $('composer-status').textContent = 'Generating...';
-    scrollToBottom();
+  function handleStreamStart(branchId) {
+    if (!branchId) return;
+    state.branchRuns = Object.assign({}, state.branchRuns, { [branchId]: { partialText: '' } });
+    renderActiveRun();
   }
 
-  function handleStreamDelta(text) {
-    state.streamingText += text;
-    $('streaming-text').textContent = state.streamingText;
-    scrollToBottom();
+  function handleStreamDelta(branchId, text) {
+    if (!branchId) return;
+    const current = state.branchRuns[branchId] || { partialText: '' };
+    state.branchRuns = Object.assign({}, state.branchRuns, {
+      [branchId]: { partialText: current.partialText + text },
+    });
+    if (branchId === state.activeBranchId) renderActiveRun(true);
   }
 
-  function handleStreamAborted() {
-    showStatus('Generation stopped.', 'info');
-    handleStreamEnd();
+  function handleStreamAborted(branchId) {
+    if (branchId === state.activeBranchId) showStatus('Generation stopped.', 'info');
   }
 
-  function handleStreamEnd() {
-    state.isStreaming = false;
-    state.streamingText = '';
-    $('btn-send').hidden = false;
-    $('btn-stop').hidden = true;
-    $('streaming').hidden = true;
-    $('composer-status').textContent = '';
+  function handleStreamEnd(branchId) {
+    if (!branchId) return;
+    const next = Object.assign({}, state.branchRuns);
+    delete next[branchId];
+    state.branchRuns = next;
+    renderActiveRun();
+  }
+
+  function renderActiveRun(follow = false) {
+    const run = state.branchRuns?.[state.activeBranchId];
+    const running = Boolean(run);
+    $('btn-send').hidden = running;
+    $('btn-stop').hidden = !running;
+    $('streaming').hidden = !running;
+    $('streaming-text').textContent = run?.partialText || '';
+    $('composer-status').textContent = running ? 'Generating in this state...' : '';
+    if (running && follow) scrollToBottom();
   }
 
   function handleDecompositionResult(result) {
@@ -464,7 +485,8 @@
 
       const status = document.createElement('span');
       status.className = 'branch-row-status ' + b.status;
-      status.textContent = b.status;
+      status.textContent = state.branchRuns?.[b.id] ? 'generating' : b.status;
+      if (state.branchRuns?.[b.id]) status.classList.add('generating');
 
       const count = document.createElement('span');
       count.className = 'branch-row-count';
@@ -593,10 +615,13 @@
     renderStudyControls();
 
     renderCheckpointModal();
+    renderActiveRun();
 
     // Send button enabled state
     const studyBlocked = studyActive && (!state.study.started || state.study.finished || state.study.remainingSeconds === 0);
-    $('btn-send').disabled = !state.providerReady || state.isStreaming || studyBlocked;
+    const activeRun = Boolean(state.branchRuns?.[state.activeBranchId]);
+    const activePendingEdits = Array.isArray(state.pendingEdits);
+    $('btn-send').disabled = !state.providerReady || activeRun || activePendingEdits || studyBlocked;
     $('composer-input').placeholder = studyBlocked
       ? (state.study.finished ? 'Task finished.' : 'Start task to enable the assistant.')
       : state.providerReady
@@ -627,7 +652,8 @@
       study.siblingStateIds.includes(state.activeBranchId);
     $('study-integrate').hidden = !canIntegrate;
     $('study-integrate').disabled = !canIntegrate;
-    $('study-finish').disabled = !started || finished;
+    const anyRuns = Object.keys(state.branchRuns || {}).length > 0;
+    $('study-finish').disabled = !started || finished || anyRuns;
   }
   function renderHistoryView() {
     console.log('[history] renderHistoryView called');
@@ -2662,12 +2688,18 @@ function findNextInstanceTime(branchId, instanceIdx) {
       showStatus('No API key — set one first.', 'error');
       return;
     }
-    send({ type: 'send', content: text });
+    const branchId = state.activeBranchId;
+    if (!branchId || state.branchRuns?.[branchId]) return;
+    if (Array.isArray(state.pendingEdits)) {
+      showStatus('Review or discard this state\'s proposed edits before sending another prompt.', 'info');
+      return;
+    }
+    send({ type: 'send', branchId, content: text });
     c.value = '';
   }
 
   $('btn-send').addEventListener('click', sendMessage);
-  $('btn-stop').addEventListener('click', () => send({ type: 'abortStream' }));
+  $('btn-stop').addEventListener('click', () => send({ type: 'abortStream', branchId: state.activeBranchId }));
   $('study-start').addEventListener('click', () => send({ type: 'startStudyTask' }));
   $('study-run-tests').addEventListener('click', () => send({ type: 'runStudyTests' }));
   $('study-integrate').addEventListener('click', () => send({ type: 'openStudyIntegration' }));
