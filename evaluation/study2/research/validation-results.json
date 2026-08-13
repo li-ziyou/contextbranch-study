@@ -1,0 +1,301 @@
+{
+  "tree-node-navigation": {
+    "incomplete": {
+      "aPublic": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "3 failed in 0.03s"
+      },
+      "bPublic": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "3 failed in 0.02s"
+      },
+      "integrationPublic": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "3 failed in 0.02s"
+      },
+      "private": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "20 failed in 0.08s"
+      }
+    },
+    "aOnly": {
+      "aPublic": {
+        "passed": true,
+        "exitCode": 0,
+        "summary": "3 passed in 0.00s"
+      },
+      "bPublic": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "3 failed in 0.03s"
+      },
+      "integrationPublic": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "3 failed in 0.02s"
+      },
+      "private": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "16 failed, 4 passed in 0.06s"
+      }
+    },
+    "bOnly": {
+      "aPublic": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "3 failed in 0.03s"
+      },
+      "bPublic": {
+        "passed": true,
+        "exitCode": 0,
+        "summary": "3 passed in 0.00s"
+      },
+      "integrationPublic": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "3 failed in 0.03s"
+      },
+      "private": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "12 failed, 8 passed in 0.06s"
+      }
+    },
+    "reference": {
+      "aPublic": {
+        "passed": true,
+        "exitCode": 0,
+        "summary": "3 passed in 0.01s"
+      },
+      "bPublic": {
+        "passed": true,
+        "exitCode": 0,
+        "summary": "3 passed in 0.00s"
+      },
+      "integrationPublic": {
+        "passed": true,
+        "exitCode": 0,
+        "summary": "3 passed in 0.00s"
+      },
+      "private": {
+        "passed": true,
+        "exitCode": 0,
+        "summary": "20 passed in 0.01s"
+      }
+    },
+    "alternatives": {
+      "alternative1": {
+        "public": {
+          "passed": true,
+          "exitCode": 0,
+          "summary": "9 passed in 0.01s"
+        },
+        "private": {
+          "passed": true,
+          "exitCode": 0,
+          "summary": "20 passed in 0.01s"
+        }
+      },
+      "alternative2": {
+        "public": {
+          "passed": true,
+          "exitCode": 0,
+          "summary": "9 passed in 0.01s"
+        },
+        "private": {
+          "passed": true,
+          "exitCode": 0,
+          "summary": "20 passed in 0.01s"
+        }
+      }
+    },
+    "mutants": {
+      "TN-M1": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "1 failed, 7 passed in 0.02s",
+        "killed": true,
+        "detectingFile": "test_structure_integrity.py"
+      },
+      "TN-M2": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "1 failed, 3 passed in 0.03s",
+        "killed": true,
+        "detectingFile": "test_tree_integration.py"
+      },
+      "TN-M3": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "1 failed, 7 passed in 0.02s",
+        "killed": true,
+        "detectingFile": "test_path_navigation.py"
+      },
+      "TN-M4": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "1 failed, 7 passed in 0.03s",
+        "killed": true,
+        "detectingFile": "test_path_navigation.py"
+      }
+    }
+  },
+  "exception-group-matcher": {
+    "incomplete": {
+      "aPublic": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "3 failed in 0.02s"
+      },
+      "bPublic": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "3 failed in 0.02s"
+      },
+      "integrationPublic": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "3 failed in 0.02s"
+      },
+      "private": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "17 failed in 0.05s"
+      }
+    },
+    "aOnly": {
+      "aPublic": {
+        "passed": true,
+        "exitCode": 0,
+        "summary": "3 passed in 0.01s"
+      },
+      "bPublic": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "3 failed in 0.02s"
+      },
+      "integrationPublic": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "3 failed in 0.02s"
+      },
+      "private": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "10 failed, 7 passed in 0.04s"
+      }
+    },
+    "bOnly": {
+      "aPublic": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "3 failed in 0.02s"
+      },
+      "bPublic": {
+        "passed": true,
+        "exitCode": 0,
+        "summary": "3 passed in 0.00s"
+      },
+      "integrationPublic": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "3 failed in 0.03s"
+      },
+      "private": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "7 failed, 10 passed in 0.03s"
+      }
+    },
+    "reference": {
+      "aPublic": {
+        "passed": true,
+        "exitCode": 0,
+        "summary": "3 passed in 0.01s"
+      },
+      "bPublic": {
+        "passed": true,
+        "exitCode": 0,
+        "summary": "3 passed in 0.01s"
+      },
+      "integrationPublic": {
+        "passed": true,
+        "exitCode": 0,
+        "summary": "3 passed in 0.00s"
+      },
+      "private": {
+        "passed": true,
+        "exitCode": 0,
+        "summary": "17 passed in 0.01s"
+      }
+    },
+    "alternatives": {
+      "alternative1": {
+        "public": {
+          "passed": true,
+          "exitCode": 0,
+          "summary": "9 passed in 0.01s"
+        },
+        "private": {
+          "passed": true,
+          "exitCode": 0,
+          "summary": "17 passed in 0.01s"
+        }
+      },
+      "alternative2": {
+        "public": {
+          "passed": true,
+          "exitCode": 0,
+          "summary": "9 passed in 0.01s"
+        },
+        "private": {
+          "passed": true,
+          "exitCode": 0,
+          "summary": "17 passed in 0.01s"
+        }
+      }
+    },
+    "mutants": {
+      "EG-M1": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "1 failed, 6 passed in 0.02s",
+        "killed": true,
+        "detectingFile": "test_leaf_matching.py"
+      },
+      "EG-M2": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "2 failed, 5 passed in 0.02s",
+        "killed": true,
+        "detectingFile": "test_leaf_matching.py"
+      },
+      "EG-M3": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "1 failed, 5 passed in 0.02s",
+        "killed": true,
+        "detectingFile": "test_group_matching.py"
+      },
+      "EG-M4": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "1 failed, 5 passed in 0.02s",
+        "killed": true,
+        "detectingFile": "test_group_matching.py"
+      },
+      "EG-M5": {
+        "passed": false,
+        "exitCode": 1,
+        "summary": "1 failed, 3 passed in 0.02s",
+        "killed": true,
+        "detectingFile": "test_matcher_integration.py"
+      }
+    }
+  }
+}

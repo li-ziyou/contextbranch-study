@@ -22,15 +22,15 @@ after the session and is never shown to the participant.
 ## 1. One-time operator setup
 
 The commands below assume the Study 2 worktree is
-`/Users/zli38/Documents/contextbranch-study2-finalize`.
+`/Users/zli38/Documents/contextbranch-study`.
 
 ```bash
-cd /Users/zli38/Documents/contextbranch-study2-finalize
+cd /Users/zli38/Documents/contextbranch-study
 
-npm run study:build-tasks
+npm run study:build-tasks -- --task-set study2-v2
 npm run study:setup-runtime
-npm run study:preflight
-npm run study:dry-run
+npm run study:preflight -- --task-set study2-v2
+npm run study:dry-run -- --task-set study2-v2
 npm run build
 npm run package
 ```
@@ -38,7 +38,7 @@ npm run package
 Install the generated extension, then reload VS Code:
 
 ```text
-/Users/zli38/Documents/contextbranch-study2-finalize/contextbranch-0.3.0.vsix
+/Users/zli38/Documents/contextbranch-study/contextbranch-0.3.0.vsix
 ```
 
 In VS Code, open the Command Palette and run `ContextBranch: Set API Key`.
@@ -62,12 +62,13 @@ default `evaluation/study2/runs` root can be used instead. The command creates
 a timestamped participant session directory automatically.
 
 ```bash
-cd /Users/zli38/Documents/contextbranch-study2-finalize
+cd /Users/zli38/Documents/contextbranch-study
 
 RUNS_ROOT=$(mktemp -d /tmp/contextbranch-study2-rehearsal.XXXXXX)
 printf '%s\n' "$RUNS_ROOT"
 
 npm run study:prepare -- P001 1 \
+  --task-set study2-v2 \
   --provider openrouter \
   --model anthropic/claude-haiku-4.5 \
   --time-limit 1300 \
@@ -122,7 +123,7 @@ administer SUS or the Study 1 task-reflection questionnaire.
 Keep the same `RUNS_ROOT` and prepare the second period:
 
 ```bash
-cd /Users/zli38/Documents/contextbranch-study2-finalize
+cd /Users/zli38/Documents/contextbranch-study
 
 npm run study:prepare -- P001 2 --runs "$RUNS_ROOT"
 ```
@@ -135,11 +136,10 @@ Period 2 is RGB Image Composer in the ContextBranch condition.
 
 The participant again reads the ticket and task tests, then clicks `Start
 task`. ContextBranch automatically creates two sibling conversation-code
-states. The main state keeps the complete feature ticket and a recommended
-merge route. Each sibling begins from the same root checkpoint and receives a
-ContextBranch-generated, branch-specific ticket with its goal, focused
-requirements, and suggested validation. The route is guidance: participants
-may still inspect, switch, compare, or integrate states when useful. The
+states. The main state keeps the complete feature ticket. Each sibling begins
+from the same root checkpoint and receives only the matching responsibility
+requirements copied from the complete ticket. Participants may inspect,
+switch, compare, ignore, or integrate states in any order. The
 system remains in `main` after creating the sibling states; it does not switch
 the participant into either branch automatically.
 

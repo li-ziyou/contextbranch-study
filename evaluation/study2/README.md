@@ -14,12 +14,14 @@ makes a conflict-free integration both possible and necessary for the complete
 feature. Participants receive a small local task package, not an upstream
 repository or benchmark image.
 
-## Fixed task pair
+## Selectable task sets
 
-| Task ID | Participant-facing name | FeatureBench source |
-|---|---|---|
-| `markdown-command-template-library` | Markdown Command Template Library | MLflow command-template feature |
-| `rgb-image-composer` | RGB Image Composer | Astropy RGB-composition feature |
+| Set | Task ID | Participant-facing name | FeatureBench source |
+|---|---|---|---|
+| `study2-v2` | `tree-node-navigation` | TreeNode Structure and Navigation | Xarray TreeNode feature |
+| `study2-v2` | `exception-group-matcher` | Exception Group Matcher | Pytest RaisesGroup feature |
+| `legacy` | `markdown-command-template-library` | Markdown Command Template Library | MLflow command-template feature |
+| `legacy` | `rgb-image-composer` | RGB Image Composer | Astropy RGB-composition feature |
 
 Every participant completes both tasks. One is assigned to Linear and the
 other to ContextBranch. `operator/assignment-sequences.json` defines the four
@@ -47,9 +49,9 @@ invocation, and export. The participant controls prompts, local edits, test
 runs, state switching, and whether to initiate an integration.
 
 In the ContextBranch condition, the system automatically creates exactly two
-sibling states from the same root checkpoint. The main state retains the full
-feature ticket and gives a recommended merge route; each sibling receives a
-branch-specific ticket. The system does not autonomously write a repair, pick
+optional sibling states from the same root checkpoint. The main state retains
+the full feature ticket; each sibling receives only a literal responsibility
+subset. There is no required branch-use or merge order. The system does not autonomously write a repair, pick
 a candidate, merge code, or switch the participant into a branch. In the
 Linear condition, the participant works
 from the full feature ticket in one conversation and one code state.
@@ -70,13 +72,13 @@ tasks/           Task-specific source and expected code-surface notes.
 ## Operator commands
 
 ```bash
-npm run study:validate
-npm run study:assign -- P017
-npm run study:build-tasks
+npm run study:validate -- --task-set study2-v2
+npm run study:assign -- P017 --task-set study2-v2
+npm run study:build-tasks -- --task-set study2-v2
 npm run study:setup-runtime
-npm run study:preflight
-npm run study:dry-run
-npm run study:prepare -- P017 1 --provider YOUR_FIXED_PROVIDER --model YOUR_FIXED_MODEL
+npm run study:preflight -- --task-set study2-v2
+npm run study:dry-run -- --task-set study2-v2
+npm run study:prepare -- P017 1 --task-set study2-v2 --provider YOUR_FIXED_PROVIDER --model YOUR_FIXED_MODEL
 ```
 
 `study:validate` checks the frozen manifests and the two-module task shape.

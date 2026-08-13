@@ -394,6 +394,8 @@ export class Workspace {
     fromMessageId?: string;      // defaults to tip
     /** Keep the fork's code checkpoint but start with a separate conversation. */
     inheritMessages?: boolean;
+    /** Reuse an already-created checkpoint when sibling states share one fork. */
+    checkpointId?: string;
     tags?: string[];
   }): Branch {
     const parentId = opts.parentBranchId ?? this.activeBranchId;
@@ -419,8 +421,18 @@ export class Workspace {
     }
     if (opts.inheritMessages === false) inheritedMessageIds = [];
 
-    // Create a checkpoint at the fork point on the parent.
-    const checkpoint = this.createCheckpoint(parentId, `Fork point: ${opts.name}`);
+    // Create a checkpoint at the fork point on the parent, or reuse the exact
+    // same immutable checkpoint for controlled sibling-state creation.
+    const checkpoint = opts.checkpointId
+      ? this.storage.loadCheckpoint(opts.checkpointId)
+      : this.createCheckpoint(parentId, `Fork point: ${opts.name}`);
+    if (!checkpoint || checkpoint.branchId !== parentId) {
+      throw new Error(`Checkpoint ${opts.checkpointId} is not a fork point on branch ${parentId}`);
+    }
+    if (opts.checkpointId) {
+      inheritedMessageIds = opts.inheritMessages === false ? [] : [...checkpoint.messageIds];
+      inheritedArtifactIds = [...checkpoint.artifactIds];
+    }
 
     const id = `b_${Storage.hash(`${opts.name}|${Date.now()}|${parentId}`)}`;
     const branch: Branch = {

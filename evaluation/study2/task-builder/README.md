@@ -13,7 +13,7 @@ Build both bundles with the repository command. It creates a local builder
 environment if one is not already present:
 
 ```bash
-npm run study:build-tasks
+npm run study:build-tasks -- --task-set study2-v2
 ```
 
 The manifests retain the FeatureBench instance ID and upstream commit that

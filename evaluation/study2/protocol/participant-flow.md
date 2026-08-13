@@ -20,9 +20,9 @@ task-specific advice from either Study 2 feature.
 3. The system shows the complete feature ticket and starts the timer.
 4. In Linear, the participant works in one chat and one code state.
 5. In ContextBranch, the system creates two sibling states with the same root
-   checkpoint. The main state shows the recommended merge route, and each
-   sibling receives a branch-specific ticket. The participant can work in
-   either state, switch, compare evidence, and initiate integration. The
+   checkpoint. Each sibling receives only the matching responsibility subset
+   from the complete ticket. The participant can work in
+   either state in any order, ignore either state, switch, compare evidence, and initiate integration. The
    participant remains in main until they choose a sibling state.
 6. The participant runs public tests during the task and clicks `Finish task`
    when ready. The system records a timeout if the period ends first.

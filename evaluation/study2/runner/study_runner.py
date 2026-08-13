@@ -64,8 +64,8 @@ def run(source: Path, tests: Path, timeout: int) -> int:
 
 
 def public(workspace: Path, timeout: int) -> int:
-    task = read_json(workspace / ".study" / "task.json")
-    return run(workspace, workspace / ".study" / "public_tests", timeout)
+    read_json(workspace / ".study" / "task.json")
+    return run(workspace, workspace / "tests", timeout)
 
 
 def private(clean_root: Path, private_root: Path, timeout: int, tests: Path | None) -> int:

@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "taskId": "tree-node-navigation",
+  "participantTitle": "TreeNode Structure and Navigation",
+  "provenance": {
+    "type": "FeatureBench-derived curated study task",
+    "sourceInstanceId": "pydata__xarray.97f3a746.test_treenode.aa8ba777.lv1",
+    "datasetUrl": "https://huggingface.co/datasets/LiberCoders/FeatureBench",
+    "sourceRepository": "pydata/xarray",
+    "sourceCommit": "97f3a7465a66638f68129581b658853a3992dd89",
+    "derivedBehaviour": ["tree structural integrity", "path navigation", "live structure-navigation integration"],
+    "construction": "The local baseline and tests are newly authored from a pinned behavioral theme; upstream F2P/P2P results are provenance evidence only."
+  },
+  "assets": {
+    "baselineDirectory": "task-assets/tree-node-navigation/baseline",
+    "referenceDirectory": "task-assets/tree-node-navigation/reference"
+  },
+  "ticket": {
+    "summary": "Implement structural integrity and path navigation for a mutable tree.",
+    "mainTicketFile": "tasks/tree-node-navigation/main-ticket.md",
+    "requirements": [
+      "TN-A1: `attach` accepts a non-empty child name other than `.` or `..` with no `/`, and rejects an occupied name unless the operation is `replace`.",
+      "TN-A2: `attach` and `replace` maintain consistent `parent`, `name`, and read-only `children` views; attaching an already attached node moves its complete subtree.",
+      "TN-A3: structural operations reject self-links and ancestor cycles without partially changing either tree.",
+      "TN-A4: `detach`, `replace`, and `orphan` return the affected node, clear detached parent/name metadata, and report missing children with `NodeNotFoundError`.",
+      "TN-B1: `resolve` supports absolute and relative `NodePath` values, including `.` and `..`, and raises `NodeNotFoundError` for missing segments or movement above the root.",
+      "TN-B2: `remove` resolves a path, detaches that complete subtree, and refuses to remove the root.",
+      "TN-B3: `path` returns an absolute path and `relative_path_to` returns a correct relative path for nodes in the same tree; separate trees raise `NotInSameTreeError`.",
+      "TN-B4: `ancestors`, depth-first pre-order `descendants`, insertion-ordered `siblings`, and depth-first `leaves` reflect the current tree and return tuples.",
+      "TN-I1: all navigation results must immediately reflect successful moves, replacements, detachments, and removals through the shared `Node`/`NodePath` contract."
+    ]
+  },
+  "contextBranch": {
+    "siblingStates": [
+      {
+        "id": "structure-integrity",
+        "label": "Responsibility A: structure integrity",
+        "ticket": {
+          "requirements": [
+            "TN-A1: `attach` accepts a non-empty child name other than `.` or `..` with no `/`, and rejects an occupied name unless the operation is `replace`.",
+            "TN-A2: `attach` and `replace` maintain consistent `parent`, `name`, and read-only `children` views; attaching an already attached node moves its complete subtree.",
+            "TN-A3: structural operations reject self-links and ancestor cycles without partially changing either tree.",
+            "TN-A4: `detach`, `replace`, and `orphan` return the affected node, clear detached parent/name metadata, and report missing children with `NodeNotFoundError`."
+          ]
+        }
+      },
+      {
+        "id": "path-navigation",
+        "label": "Responsibility B: path navigation",
+        "ticket": {
+          "requirements": [
+            "TN-B1: `resolve` supports absolute and relative `NodePath` values, including `.` and `..`, and raises `NodeNotFoundError` for missing segments or movement above the root.",
+            "TN-B2: `remove` resolves a path, detaches that complete subtree, and refuses to remove the root.",
+            "TN-B3: `path` returns an absolute path and `relative_path_to` returns a correct relative path for nodes in the same tree; separate trees raise `NotInSameTreeError`.",
+            "TN-B4: `ancestors`, depth-first pre-order `descendants`, insertion-ordered `siblings`, and depth-first `leaves` reflect the current tree and return tuples."
+          ]
+        }
+      }
+    ],
+    "finalVerification": "Use either sibling state, both, neither, or main directly in any order. Integrate only useful changes into main and run the complete public suite there."
+  },
+  "runner": {
+    "publicTestCommand": "python3 .study/bin/study_runner.py public --workspace .",
+    "runtime": "contextbranch-study-python",
+    "network": "not-required"
+  },
+  "submission": {
+    "allowedProductionPaths": ["branching_tree/structure.py", "branching_tree/navigation.py"],
+    "finalState": "main"
+  },
+  "privateGrader": {
+    "mode": "fresh-clean-baseline",
+    "outcome": "verified-feature-delivery",
+    "hiddenGoals": ["structure_integrity", "path_navigation", "tree_integration"]
+  }
+}

@@ -10,15 +10,8 @@ export interface StudySiblingState {
   id: string;
   label: string;
   ticket: {
-    goal: string;
     requirements: string[];
-    validation: string;
   };
-}
-
-export interface StudyMergeRouteStep {
-  stateId: string;
-  instruction: string;
 }
 
 export interface StudyTaskManifest {
@@ -27,7 +20,6 @@ export interface StudyTaskManifest {
   participantTitle: string;
   contextBranch: {
     siblingStates: [StudySiblingState, StudySiblingState];
-    recommendedMergeRoute: [StudyMergeRouteStep, StudyMergeRouteStep];
     finalVerification: string;
   };
   runner: {
@@ -44,6 +36,7 @@ export interface StudyTaskManifest {
 export interface StudyRunConfig {
   runId: string;
   participantId: string;
+  taskSetId?: string;
   period: 1 | 2;
   condition: StudyCondition;
   manifestPath: string;
@@ -58,6 +51,7 @@ export interface StudyRunFile {
   schemaVersion: 1;
   runId: string;
   participantId: string;
+  taskSetId?: string;
   sequenceId: string;
   period: 1 | 2;
   taskId: string;
@@ -78,7 +72,7 @@ export interface StudyRunFile {
   manifest: {
     taskId: string;
     sha256: string;
-    ticket: { summary: string; requirements: string[] };
+    ticket: { summary: string; requirements: string[]; mainMarkdown?: string };
     contextBranch: StudyTaskManifest['contextBranch'];
     runner: StudyTaskManifest['runner'];
     submission: StudyTaskManifest['submission'];
