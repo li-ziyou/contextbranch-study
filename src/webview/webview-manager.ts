@@ -1083,23 +1083,53 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     };
   }
 
-  private buildResolveConflictHook(): NonNullable<Parameters<typeof previewMerge>[1]['resolveConflict']> | null {
+  private buildResolveConflictHook(opts?: {
+    study?: StudyController | null;
+    sourceBranchId?: string;
+    targetBranchId?: string;
+  }): NonNullable<Parameters<typeof previewMerge>[1]['resolveConflict']> | null {
     const provider = this.getProvider();
     if (!provider) return null;
-    const resolver = new ConflictResolverAgent(
-      provider,
-      (i, o) => this.getWorkspace()?.recordMergeApiUsage(i, o),
-    );
-    return async (opts) => {
-      return await resolver.resolve({
-        path: opts.path,
-        base: opts.base,
-        theirs: opts.theirs,
-        ours: opts.ours,
-        theirContext: opts.theirContext.map(m => ({ role: m.role, content: m.content })),
-        ourContext: opts.ourContext.map(m => ({ role: m.role, content: m.content })),
-        signal: this.currentAbort?.signal,
+    return async (conflict) => {
+      const ws = this.getWorkspace();
+      let inputTokens = 0;
+      let outputTokens = 0;
+      if (ws && opts?.study && opts.sourceBranchId && opts.targetBranchId) {
+        opts.study.recordMergeModelCallStarted(
+          ws,
+          opts.sourceBranchId,
+          opts.targetBranchId,
+          conflict.path,
+          'conflict_resolution',
+        );
+      }
+      const resolver = new ConflictResolverAgent(provider, (i, o) => {
+        inputTokens += i;
+        outputTokens += o;
+        ws?.recordMergeApiUsage(i, o);
       });
+      const resolution = await resolver.resolve({
+        path: conflict.path,
+        base: conflict.base,
+        theirs: conflict.theirs,
+        ours: conflict.ours,
+        theirContext: conflict.theirContext.map(m => ({ role: m.role, content: m.content })),
+        ourContext: conflict.ourContext.map(m => ({ role: m.role, content: m.content })),
+        signal: this.currentAbort?.signal,
+        model: opts?.study?.modelId,
+      });
+      if (ws && opts?.study && opts.sourceBranchId && opts.targetBranchId) {
+        opts.study.recordMergeModelUsage(
+          ws,
+          opts.sourceBranchId,
+          opts.targetBranchId,
+          conflict.path,
+          'conflict_resolution',
+          inputTokens,
+          outputTokens,
+        );
+      }
+      return resolution;
     };
   }
 
@@ -1123,15 +1153,19 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
         return;
       }
     }
-    const provider = study ? null : this.getProvider();
+    const provider = this.getProvider();
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const config = vscode.workspace.getConfiguration('contextbranch');
     const testCmd = config.get<string>('testCommand') || (workspaceRoot ? detectTestCommand(workspaceRoot) : null);
     const lintCmd = config.get<string>('lintCommand') || (workspaceRoot ? detectLintCommand(workspaceRoot) : null);
-    const semanticMerge = study ? false : config.get<boolean>('semanticMerge') ?? true;
-    const meta = provider ? new MetaAgent(provider) : null;
-    const analyzeCascade = semanticMerge && allowCascade ? this.buildAnalyzeCascadeHook() : null;
-    const resolveConflict = semanticMerge ? this.buildResolveConflictHook() : null;
+    const semanticMerge = config.get<boolean>('semanticMerge') ?? true;
+    const meta = provider && !study ? new MetaAgent(provider) : null;
+    // Study integrations may use the pinned task model to resolve an actual
+    // textual conflict, but never run cascading-edit analysis or synthesis.
+    const analyzeCascade = !study && semanticMerge && allowCascade ? this.buildAnalyzeCascadeHook() : null;
+    const resolveConflict = provider && (Boolean(study) || semanticMerge)
+      ? this.buildResolveConflictHook({ study, sourceBranchId, targetBranchId })
+      : null;
 
     try {
       const preview = await previewMerge(ws, {
@@ -1163,13 +1197,21 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
   private async handleBeginManualMergeResolution(acceptedCascadePaths: string[] = []): Promise<void> {
     const ws = this.requireWorkspace();
     const cached = this.pendingMergePreview;
-    if (this.getStudyController()) {
-      this.postMessage({ type: 'error', message: 'Manual IDE conflict resolution is disabled during prepared study tasks.' });
-      return;
-    }
     if (!ws || !cached) {
       this.postMessage({ type: 'error', message: 'Preview the merge before starting conflict resolution.' });
       return;
+    }
+    const study = this.getStudyController();
+    if (study) {
+      const actionError = study.actionError();
+      if (actionError) {
+        this.postMessage({ type: 'error', message: actionError });
+        return;
+      }
+      if (!study.allowsMerge(cached.sourceBranchId, cached.targetBranchId, ws)) {
+        this.postMessage({ type: 'error', message: 'During this study task, only an active automatic sibling state may be integrated into main.' });
+        return;
+      }
     }
     if (ws.activeBranchId !== cached.sourceBranchId) {
       this.postMessage({ type: 'error', message: 'Switch to the source branch before resolving merge conflicts in the editor.' });
@@ -1222,6 +1264,18 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     if (!ws || !cached || !manual) {
       this.postMessage({ type: 'error', message: 'No active IDE conflict-resolution session.' });
       return;
+    }
+    const study = this.getStudyController();
+    if (study) {
+      const actionError = study.actionError();
+      if (actionError) {
+        this.postMessage({ type: 'error', message: actionError });
+        return;
+      }
+      if (!study.allowsMerge(manual.sourceBranchId, manual.targetBranchId, ws)) {
+        this.postMessage({ type: 'error', message: 'During this study task, only an active automatic sibling state may be integrated into main.' });
+        return;
+      }
     }
     if (ws.activeBranchId !== manual.sourceBranchId) {
       this.postMessage({ type: 'error', message: 'Return to the source branch before finalizing the resolved merge.' });
@@ -1279,7 +1333,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
           const c = vscode.workspace.getConfiguration('contextbranch').get<string>('lintCommand');
           return c ?? (detectLintCommand(root) ?? undefined);
         })(),
-        skipVerification: false,
+        skipVerification: Boolean(study),
         acceptedConflictPaths: manual.paths,
         manualResolvedContents: manualResolved,
         acceptedCascadePaths: manual.acceptedCascadePaths,
@@ -1288,6 +1342,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       await this.getDecorations().dismissAllPreviews();
       this.pendingManualMerge = undefined;
       this.pendingMergePreview = undefined;
+      if (study) study.recordIntegrationCompleted(ws, cached.sourceBranchId, event.id);
       if (ws.activeBranchId === cached.sourceBranchId) {
         await this.handleSwitchBranch(cached.targetBranchId, 'system', 'merge_finalization');
       }
@@ -1338,9 +1393,30 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       this.postMessage({ type: 'error', message: `Could not load both branch versions of ${pathToRevise}.` });
       return;
     }
+    const study = this.getStudyController();
+    if (study) {
+      const actionError = study.actionError();
+      if (actionError) {
+        this.postMessage({ type: 'error', message: actionError });
+        return;
+      }
+      study.recordMergeModelCallStarted(
+        ws,
+        cached.sourceBranchId,
+        cached.targetBranchId,
+        pathToRevise,
+        'conflict_revision',
+      );
+    }
     try {
       const previous = (cached.preview.conflictResolutions ?? []).find((r: any) => r.path === pathToRevise);
-      const resolution = await new ConflictResolverAgent(provider).resolve({
+      let inputTokens = 0;
+      let outputTokens = 0;
+      const resolution = await new ConflictResolverAgent(provider, (i, o) => {
+        inputTokens += i;
+        outputTokens += o;
+        ws.recordMergeApiUsage(i, o);
+      }).resolve({
         path: pathToRevise,
         base: conflict.baseContent ?? sourceArtifact.baseContent ?? '',
         theirs: targetArtifact.content,
@@ -1349,7 +1425,19 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
         ourContext: ws.getMessages(source.id).slice(-4),
         revisionInstruction: instruction,
         currentResolution: previous?.resolvedContent,
+        model: study?.modelId,
       });
+      if (study) {
+        study.recordMergeModelUsage(
+          ws,
+          cached.sourceBranchId,
+          cached.targetBranchId,
+          pathToRevise,
+          'conflict_revision',
+          inputTokens,
+          outputTokens,
+        );
+      }
       const resolutions = [...(cached.preview.conflictResolutions ?? [])];
       const index = resolutions.findIndex(r => r.path === pathToRevise);
       if (index >= 0) resolutions[index] = resolution;

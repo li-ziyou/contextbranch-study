@@ -36,6 +36,7 @@ export class ConflictResolverAgent {
     revisionInstruction?: string;
     currentResolution?: string;
     signal?: AbortSignal;
+    model?: string;
   }): Promise<ConflictResolution> {
     const userContent = this.buildUserMessage(opts);
 
@@ -47,6 +48,7 @@ export class ConflictResolverAgent {
         maxTokens: 8192,
         temperature: 0.1, // low to be more deterministic 
         signal: opts.signal,
+        model: opts.model,
       })) {
         if (ev.type === 'delta') raw += ev.text;
         if (ev.type === 'usage') this.onUsage?.(ev.inputTokens ?? 0, ev.outputTokens ?? 0);

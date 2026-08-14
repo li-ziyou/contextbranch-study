@@ -2158,7 +2158,10 @@ function findNextInstanceTime(branchId, instanceIdx) {
     wrap.hidden = false;
     list.innerHTML = '';
     if (resolveBtn) {
-      resolveBtn.hidden = manual || !!state.study;
+      // Prepared study tasks still need an escape hatch when two optional
+      // states touch the same file. The participant resolves the concrete
+      // conflict; force merge and AI conflict resolution remain disabled.
+      resolveBtn.hidden = manual;
       resolveBtn.disabled = false;
     }
     if (cancelBtn) cancelBtn.hidden = !manual;

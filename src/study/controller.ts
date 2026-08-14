@@ -209,6 +209,50 @@ export class StudyController {
     });
   }
 
+  recordMergeModelCallStarted(
+    ws: Workspace,
+    sourceStateId: string,
+    targetStateId: string,
+    path: string,
+    purpose: 'conflict_resolution' | 'conflict_revision',
+  ): void {
+    ws.storage.appendTelemetry({
+      type: 'study_merge_model_call_started',
+      actor: 'participant',
+      runId: this.run.runId,
+      sourceStateId,
+      targetStateId,
+      path,
+      purpose,
+      provider: this.providerName,
+      model: this.modelId,
+    });
+  }
+
+  recordMergeModelUsage(
+    ws: Workspace,
+    sourceStateId: string,
+    targetStateId: string,
+    path: string,
+    purpose: 'conflict_resolution' | 'conflict_revision',
+    inputTokens: number,
+    outputTokens: number,
+  ): void {
+    ws.storage.appendTelemetry({
+      type: 'study_merge_model_call_completed',
+      actor: 'system',
+      runId: this.run.runId,
+      sourceStateId,
+      targetStateId,
+      path,
+      purpose,
+      provider: this.providerName,
+      model: this.modelId,
+      inputTokens,
+      outputTokens,
+    });
+  }
+
   recordPublicTest(
     ws: Workspace,
     target: StudyPublicTestTarget,
