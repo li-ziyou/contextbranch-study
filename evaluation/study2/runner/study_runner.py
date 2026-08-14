@@ -63,9 +63,17 @@ def run(source: Path, tests: Path, timeout: int) -> int:
         return 124
 
 
-def public(workspace: Path, timeout: int) -> int:
+def public(workspace: Path, timeout: int, suite: str) -> int:
     read_json(workspace / ".study" / "task.json")
-    return run(workspace, workspace / "tests", timeout)
+    targets = {
+        "responsibility-a": workspace / "tests" / "test_responsibility_a.py",
+        "responsibility-b": workspace / "tests" / "test_responsibility_b.py",
+        "main": workspace / "tests",
+    }
+    selected = targets[suite]
+    if not selected.exists():
+        raise RuntimeError(f"Public test suite is not available: {suite}")
+    return run(workspace, selected, timeout)
 
 
 def private(clean_root: Path, private_root: Path, timeout: int, tests: Path | None) -> int:
@@ -79,6 +87,11 @@ def main() -> int:
     subparsers = parser.add_subparsers(dest="mode", required=True)
     public_parser = subparsers.add_parser("public")
     public_parser.add_argument("--workspace", type=Path, required=True)
+    public_parser.add_argument(
+        "--suite",
+        choices=("responsibility-a", "responsibility-b", "main"),
+        default="main",
+    )
     private_parser = subparsers.add_parser("private")
     private_parser.add_argument("--clean-root", type=Path, required=True)
     private_parser.add_argument("--private-root", type=Path, required=True)
@@ -86,7 +99,7 @@ def main() -> int:
     parser.add_argument("--timeout", type=int, default=60)
     args = parser.parse_args()
     if args.mode == "public":
-        return public(args.workspace, args.timeout)
+        return public(args.workspace, args.timeout, args.suite)
     return private(args.clean_root, args.private_root, args.timeout, args.tests)
 
 

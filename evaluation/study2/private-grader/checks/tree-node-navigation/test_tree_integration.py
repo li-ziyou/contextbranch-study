@@ -12,14 +12,19 @@ def test_replace_updates_traversal_paths_and_detached_subtree_root():
     assert old.path == NodePath("/") and old.resolve("old").path == NodePath("/old")
 
 
-def test_detach_then_reattach_changes_relative_navigation_consistently():
+def test_detach_then_reattach_changes_relative_navigation_consistently(form_value):
     # TN-I1, TN-A2, TN-A4, TN-B1, TN-B3
-    root = Node.from_mapping({"a": {"moving": {"leaf": {}}}, "b": {}})
-    moving = root.resolve("a").detach("moving")
-    assert moving.resolve("leaf").path == NodePath("/leaf")
-    root.resolve("b").attach("arrived", moving)
-    leaf = root.resolve("b/arrived/leaf")
-    assert leaf.relative_path_to(root.resolve("a")) == NodePath("../../../a")
+    source = form_value("a", "source")
+    moving_name = form_value("moving", "subtree")
+    leaf_name = form_value("leaf", "tip")
+    target = form_value("b", "target")
+    arrived = form_value("arrived", "attached")
+    root = Node.from_mapping({source: {moving_name: {leaf_name: {}}}, target: {}})
+    moving = root.resolve(source).detach(moving_name)
+    assert moving.resolve(leaf_name).path == NodePath(f"/{leaf_name}")
+    root.resolve(target).attach(arrived, moving)
+    leaf = root.resolve(f"{target}/{arrived}/{leaf_name}")
+    assert leaf.relative_path_to(root.resolve(source)) == NodePath(f"../../../{source}")
 
 
 def test_failed_cycle_preserves_all_links_and_paths():

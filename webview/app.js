@@ -150,16 +150,13 @@
         case 'studyTestStarted':
           state.studyTestsRunning = true;
           $('study-run-tests').disabled = true;
-          showStatus('Running public tests…', 'info');
+          showStatus(`Running ${msg.label || 'public tests'}…`, 'info');
           break;
         case 'studyTestResult': {
           state.studyTestsRunning = false;
-          const output = msg.output || '(No test output.)';
-          $('study-test-output').textContent = output;
-          $('study-test-output').hidden = false;
           showStatus(
-            msg.exitCode === 0 ? `Public tests passed (${Math.ceil(msg.durationMs / 1000)}s).`
-              : `Public tests did not pass (${Math.ceil(msg.durationMs / 1000)}s).`,
+            msg.exitCode === 0 ? `${msg.label || 'Public tests'} passed (${Math.ceil(msg.durationMs / 1000)}s).`
+              : `${msg.label || 'Public tests'} did not pass (${Math.ceil(msg.durationMs / 1000)}s).`,
             msg.exitCode === 0 ? 'success' : 'error',
           );
           render();
@@ -645,6 +642,7 @@
     const finished = study.finished;
     $('study-start').hidden = started;
     $('study-start').disabled = !state.providerReady || finished;
+    $('study-run-tests').textContent = study.publicTestLabel || 'Run public tests';
     $('study-run-tests').disabled = !started || finished || study.remainingSeconds === 0 || state.studyTestsRunning;
     const activeBranch = state.branches.find((branch) => branch.id === state.activeBranchId);
     const canIntegrate = study.condition === 'contextbranch' && started && !finished &&
@@ -653,7 +651,7 @@
     $('study-integrate').hidden = !canIntegrate;
     $('study-integrate').disabled = !canIntegrate;
     const anyRuns = Object.keys(state.branchRuns || {}).length > 0;
-    $('study-finish').disabled = !started || finished || anyRuns;
+    $('study-finish').disabled = !started || finished || anyRuns || state.studyTestsRunning;
   }
   function renderHistoryView() {
     console.log('[history] renderHistoryView called');

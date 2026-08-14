@@ -10,10 +10,9 @@ Use one fixed configuration for all participants in the same study profile:
 | Setting | Value |
 | --- | --- |
 | Provider | OpenRouter |
-| Model | `anthropic/claude-haiku-4.5` |
+| Model | `google/gemini-2.5-flash-lite` |
 | Task limit | 1300 seconds (21 minutes 40 seconds) |
-| Model-call budget | 20 per task |
-| Model-token budget | 120000 per task |
+| Model usage | Recorded, without a call or token limit |
 
 The full session is about 70 minutes. The participant works only with the
 supplied task test suite. The clean private grader is used by the research team
@@ -52,8 +51,8 @@ restored auxiliary view and focuses its own panel, so VS Code's built-in Chat
 is not shown to the participant. If VS Code restores an earlier layout, run
 `Developer: Reload Window` before the participant arrives.
 
-Record the extension commit, the prepared task manifests, provider, model,
-time limit, model-call budget, and token budget in the operator log.
+Record the extension commit, prepared task manifests, provider, model, time
+limit, and automatically assigned test form in the operator log.
 
 ## 2. Prepare a participant session
 
@@ -70,10 +69,8 @@ printf '%s\n' "$RUNS_ROOT"
 npm run study:prepare -- P001 1 \
   --task-set study2-v2 \
   --provider openrouter \
-  --model anthropic/claude-haiku-4.5 \
+  --model google/gemini-2.5-flash-lite \
   --time-limit 1300 \
-  --model-calls 20 \
-  --model-tokens 120000 \
   --runs "$RUNS_ROOT"
 ```
 
@@ -109,6 +106,11 @@ In Linear, the participant has one chat and one code state. The State Map,
 sibling states, and integration control are not shown. The participant may
 prompt the assistant, inspect or edit code, and run task tests. They can click
 `Finish task` when ready.
+
+The study toolbar has one contextual test button. Linear and ContextBranch
+main show `Test Main`; the two ContextBranch siblings show `Test A` and
+`Test B`. The raw pytest stream and pass/fail status appear in VS Code's bottom
+Test Results panel, not inside the ContextBranch conversation panel.
 
 When the timer reaches zero, the system automatically fixes the current main
 state as the submission and writes the data ZIP. An incomplete feature remains

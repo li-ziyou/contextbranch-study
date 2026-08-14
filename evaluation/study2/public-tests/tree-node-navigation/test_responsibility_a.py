@@ -3,15 +3,17 @@ import pytest
 from branching_tree import InvalidTreeError, Node, NodeNotFoundError
 
 
-def test_attach_move_and_replace_keep_bidirectional_state():
+def test_attach_move_and_replace_keep_bidirectional_state(form_value):
     # TN-A1, TN-A2, TN-A4
+    original_name = form_value("item", "entry")
+    moved_name = form_value("moved", "relocated")
     left, right, child, replacement = Node(), Node(), Node(), Node()
-    left.attach("item", child)
-    right.attach("moved", child)
+    left.attach(original_name, child)
+    right.attach(moved_name, child)
     assert left.children == {}
-    assert right.children["moved"] is child
-    assert (child.parent, child.name) == (right, "moved")
-    old = right.replace("moved", replacement)
+    assert right.children[moved_name] is child
+    assert (child.parent, child.name) == (right, moved_name)
+    old = right.replace(moved_name, replacement)
     assert old is child and old.parent is None and old.name is None
     assert replacement.parent is right
 

@@ -43,10 +43,12 @@ def test_unwrapped_requires_flag_and_exactly_one_matcher():
         assert result.evidence[0].code is FailureCode.EXPECTED_GROUP
 
 
-def test_pairing_is_expected_order_first_unmatched_actual():
+def test_pairing_is_expected_order_first_unmatched_actual(form_value):
     # EG-B4
-    matcher = GroupMatcher([StubMatcher(ValueError, "b"), StubMatcher(ValueError, "a")])
-    assert matcher.match(ExceptionGroup("g", [ValueError("a"), ValueError("b")])).matched
+    first = form_value("a", "alpha")
+    second = form_value("b", "beta")
+    matcher = GroupMatcher([StubMatcher(ValueError, second), StubMatcher(ValueError, first)])
+    assert matcher.match(ExceptionGroup("g", [ValueError(first), ValueError(second)])).matched
 
 
 def test_count_failures_report_expected_and_actual_indexes():

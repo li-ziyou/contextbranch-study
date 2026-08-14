@@ -42,6 +42,8 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     finish: () => void;
   }>();
   private finishingTimedOutStudy = false;
+  private readonly studyTestController: vscode.TestController;
+  private studyTestRunningStateId?: string;
   /** Each state keeps its own proposed edits while another state is visible. */
   private pendingEditsByBranch = new Map<string, { ops: EditOp[]; files: ReturnType<typeof serializeProposal>[] }>();
   private mergeInProgress?: boolean;
@@ -71,7 +73,19 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     private getStudyMode: () => boolean,
     private getCapture: () => WorkspaceCapture | null = () => null,
     private getStudyController: () => StudyController | null = () => null,
-  ) {}
+  ) {
+    this.studyTestController = vscode.tests.createTestController(
+      'contextbranch-study-tests',
+      'ContextBranch Study',
+    );
+    this.studyTestController.createRunProfile(
+      'Run current study tests',
+      vscode.TestRunProfileKind.Run,
+      async () => this.handleRunStudyTests(),
+      true,
+    );
+    this.context.subscriptions.push(this.studyTestController);
+  }
 
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
@@ -438,8 +452,8 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       if (contextEnabled && workspaceRoot) {
         // The Context Agent is skipped automatically for small workspaces, where
         // the complete readable tree is injected without a routing call. For
-        // larger study workspaces it is a real pooled model call, so it is
-        // counted separately from the coding call.
+        // larger study workspaces it is a real model call, so telemetry records
+        // it separately from the coding call.
         const scanned = ws.activeBranchId === branch.id ? scanWorkspaceFiles(workspaceRoot) : [];
         const branchArtifacts = ws.getArtifacts(branch.id);
         const inventoryBytes = scanned.reduce((n, f) => n + f.size, 0) +
@@ -585,31 +599,19 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     )];
 
     if (!result.aborted && existingWholeFilePaths.length > 0) {
-      let canRetry = true;
-      if (study) {
-        const denial = study.beginModelCall(ws, branch.id);
-        if (denial) canRetry = false;
-      }
-      if (canRetry) {
-        const paths = existingWholeFilePaths.join(', ');
-        const previousDraft = result.text.length > 30_000
-          ? result.text.slice(0, 30_000) + '\n[previous draft truncated for the repair instruction]'
-          : result.text;
-        retried = true;
-        result = await runCoding(
-          `FORMAT CORRECTION REQUIRED. Your previous response attempted a whole-file replacement for existing file(s): ${paths}. ` +
-          'Do not output those files in full. Convert the requested changes into exact SEARCH/REPLACE blocks using the authoritative file contents already supplied to you. ' +
-          'Preserve unrelated content. The user should never have to ask for SEARCH/REPLACE markers. ' +
-          `Here is your previous draft for reference:\n\n${previousDraft}`
-        );
-        ops = result.aborted ? [] : parseEdits(result.text);
-      } else {
-        this.postMessage({
-          type: 'contextWarning',
-          branchId: branch.id,
-          message: 'The model produced a whole-file edit, but the study model-call budget does not allow an automatic format-repair attempt. The edit was not applied.',
-        });
-      }
+      if (study) study.beginModelCall(ws, branch.id);
+      const paths = existingWholeFilePaths.join(', ');
+      const previousDraft = result.text.length > 30_000
+        ? result.text.slice(0, 30_000) + '\n[previous draft truncated for the repair instruction]'
+        : result.text;
+      retried = true;
+      result = await runCoding(
+        `FORMAT CORRECTION REQUIRED. Your previous response attempted a whole-file replacement for existing file(s): ${paths}. ` +
+        'Do not output those files in full. Convert the requested changes into exact SEARCH/REPLACE blocks using the authoritative file contents already supplied to you. ' +
+        'Preserve unrelated content. The user should never have to ask for SEARCH/REPLACE markers. ' +
+        `Here is your previous draft for reference:\n\n${previousDraft}`
+      );
+      ops = result.aborted ? [] : parseEdits(result.text);
     }
 
     if (result.text) {
@@ -774,6 +776,10 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
   ): Promise<void> {
     const ws = this.requireWorkspace();
     if (!ws) return;
+    if (this.studyTestRunningStateId && branchId !== ws.activeBranchId) {
+      this.postMessage({ type: 'error', message: 'Wait for the current state test to finish before switching states.' });
+      return;
+    }
 
     this.pendingMergePreview = undefined;
     this.pendingManualMerge = undefined;
@@ -1520,17 +1526,37 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       this.postMessage({ type: 'error', message: denial });
       return;
     }
+    if (this.studyTestRunningStateId) {
+      this.postMessage({ type: 'error', message: 'A study test is already running.' });
+      return;
+    }
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceRoot) return;
-    this.postMessage({ type: 'studyTestStarted' });
+    const selection = study.publicTestSelection(ws);
+    const stateId = ws.activeBranchId;
+    this.studyTestRunningStateId = stateId;
+    this.postMessage({ type: 'studyTestStarted', label: selection.label });
+
+    const item = this.studyTestController.createTestItem(
+      `${study.taskId}:${selection.target}`,
+      `${study.taskId}: ${selection.label}`,
+      vscode.Uri.file(workspaceRoot),
+    );
+    this.studyTestController.items.replace([item]);
+    const request = new vscode.TestRunRequest([item], undefined, undefined, false, false);
+    const testRun = this.studyTestController.createTestRun(request, selection.label, true);
+    testRun.started(item);
+    testRun.appendOutput(`$ ${selection.command}\r\n`, undefined, item);
+
     const startedAt = Date.now();
     let exitCode: number | null = 0;
     let output = '';
     try {
-      const result = await execAsync(study.publicTestCommand, {
+      const result = await execAsync(selection.command, {
         cwd: workspaceRoot,
         timeout: 90_000,
         maxBuffer: 512_000,
+        env: { ...process.env, CONTEXTBRANCH_STUDY_FORM_ID: study.formId },
       });
       output = `${result.stdout}\n${result.stderr}`.trim();
     } catch (error: any) {
@@ -1538,12 +1564,24 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       output = `${error.stdout ?? ''}\n${error.stderr ?? error.message ?? String(error)}`.trim();
     }
     const durationMs = Date.now() - startedAt;
-    study.recordPublicTest(ws, exitCode, output, durationMs);
+    const testOutput = (output || '(No test output.)').replace(/\r?\n/g, '\r\n') + '\r\n';
+    testRun.appendOutput(testOutput, undefined, item);
+    if (exitCode === 0) {
+      testRun.passed(item, durationMs);
+    } else if (exitCode === 1) {
+      testRun.failed(item, new vscode.TestMessage(output || 'Public tests did not pass.'), durationMs);
+    } else {
+      testRun.errored(item, new vscode.TestMessage(output || 'Public tests could not be completed.'), durationMs);
+    }
+    testRun.end();
+
+    study.recordPublicTest(ws, selection.target, exitCode, output, durationMs);
+    this.studyTestRunningStateId = undefined;
     this.postMessage({
       type: 'studyTestResult',
       exitCode,
       durationMs,
-      output: output.slice(-10_000),
+      label: selection.label,
     });
     this.pushState();
   }
@@ -1612,6 +1650,10 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     const ws = this.requireWorkspace();
     const study = this.getStudyController();
     if (!ws || !study) return;
+    if (this.studyTestRunningStateId) {
+      this.postMessage({ type: 'error', message: 'Wait for the current state test to finish before finishing the task.' });
+      return;
+    }
     if (!study.uiState(ws).started) {
       this.postMessage({ type: 'error', message: 'Start the task before finishing it.' });
       return;

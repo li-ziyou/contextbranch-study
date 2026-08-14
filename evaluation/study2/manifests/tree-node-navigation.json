@@ -61,6 +61,11 @@
   },
   "runner": {
     "publicTestCommand": "python3 .study/bin/study_runner.py public --workspace .",
+    "publicTestCommands": {
+      "responsibilityA": "python3 .study/bin/study_runner.py public --workspace . --suite responsibility-a",
+      "responsibilityB": "python3 .study/bin/study_runner.py public --workspace . --suite responsibility-b",
+      "main": "python3 .study/bin/study_runner.py public --workspace . --suite main"
+    },
     "runtime": "contextbranch-study-python",
     "network": "not-required"
   },

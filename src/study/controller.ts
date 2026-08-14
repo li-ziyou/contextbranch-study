@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { Workspace } from '../core/workspace';
 import { createStudyArchive, defaultStudyExportDirectory, studyArchiveFileName } from './archive';
-import { StudyArchive, StudyFinishedRecord, StudyRunFile, StudyUiState } from './types';
+import { StudyArchive, StudyFinishedRecord, StudyPublicTestTarget, StudyRunFile, StudyUiState } from './types';
 
 /**
  * StudyController is the single source of truth for a prepared Study 2 run.
@@ -31,11 +31,36 @@ export class StudyController {
   get condition(): StudyRunFile['condition'] { return this.run.condition; }
   get isContextBranch(): boolean { return this.run.condition === 'contextbranch'; }
   get taskId(): string { return this.run.taskId; }
+  get formId(): string { return this.run.formId ?? 'F1'; }
   get participantId(): string { return this.run.participantId; }
   get providerName(): StudyRunFile['model']['provider'] { return this.run.model.provider; }
   get modelId(): string { return this.run.model.id; }
   get publicTestCommand(): string { return this.run.manifest.runner.publicTestCommand; }
   get finalState(): string { return this.run.manifest.submission.finalState; }
+
+  publicTestSelection(ws: Workspace): { target: StudyPublicTestTarget; label: string; command: string } {
+    const commands = this.run.manifest.runner.publicTestCommands;
+    if (!commands) {
+      return { target: 'main', label: 'Run public tests', command: this.publicTestCommand };
+    }
+
+    let target: StudyPublicTestTarget = 'main';
+    if (this.isContextBranch && ws.activeBranchId !== ws.mainBranchId) {
+      const active = ws.getBranch(ws.activeBranchId);
+      const siblingIndex = this.run.manifest.contextBranch.siblingStates.findIndex(sibling =>
+        active?.tags?.includes(sibling.id),
+      );
+      if (siblingIndex === 0) target = 'responsibilityA';
+      if (siblingIndex === 1) target = 'responsibilityB';
+    }
+
+    const label = target === 'responsibilityA'
+      ? 'Test A'
+      : target === 'responsibilityB'
+        ? 'Test B'
+        : 'Test Main';
+    return { target, label, command: commands[target] };
+  }
 
   initialize(ws: Workspace): void {
     const initialized = ws.storage.loadTelemetry().some(event =>
@@ -82,6 +107,7 @@ export class StudyController {
       type: 'study_initialized',
       runId: this.run.runId,
       taskId: this.run.taskId,
+      formId: this.formId,
       condition: this.run.condition,
       siblingStateIds: siblingIds,
       taskManifestHash: this.run.manifest.sha256,
@@ -156,12 +182,6 @@ export class StudyController {
   beginModelCall(ws: Workspace, stateId: string = ws.activeBranchId): string | null {
     const actionError = this.actionError();
     if (actionError) return actionError;
-    if (this.modelCallsUsed(ws) >= this.run.model.modelCallBudget) {
-      return 'The pooled model-call budget for this task has been reached.';
-    }
-    if (this.modelTokensUsed(ws) >= this.run.model.modelTokenBudget) {
-      return 'The pooled model-token budget for this task has been reached.';
-    }
     ws.storage.appendTelemetry({ type: 'study_model_call_started', runId: this.run.runId, stateId });
     return null;
   }
@@ -178,12 +198,19 @@ export class StudyController {
     });
   }
 
-  recordPublicTest(ws: Workspace, exitCode: number | null, output: string, durationMs: number): void {
+  recordPublicTest(
+    ws: Workspace,
+    target: StudyPublicTestTarget,
+    exitCode: number | null,
+    output: string,
+    durationMs: number,
+  ): void {
     ws.storage.appendTelemetry({
       type: 'study_public_test_run',
       actor: 'participant',
       runId: this.run.runId,
       stateId: ws.activeBranchId,
+      target,
       exitCode,
       durationMs,
       output,
@@ -266,10 +293,9 @@ export class StudyController {
       finished: this.isFinished(),
       timeLimitSeconds: this.run.timeLimitSeconds,
       remainingSeconds: remaining,
-      modelCallBudget: this.run.model.modelCallBudget,
       modelCallsUsed: this.modelCallsUsed(ws),
-      modelTokenBudget: this.run.model.modelTokenBudget,
       modelTokensUsed: this.modelTokensUsed(ws),
+      publicTestLabel: this.publicTestSelection(ws).label,
       siblingStateIds: siblings,
     };
   }

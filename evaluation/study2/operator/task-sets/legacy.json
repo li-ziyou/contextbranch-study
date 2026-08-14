@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "taskSetId": "legacy",
+  "testFormIds": ["F1"],
   "taskIds": [
     "markdown-command-template-library",
     "rgb-image-composer"

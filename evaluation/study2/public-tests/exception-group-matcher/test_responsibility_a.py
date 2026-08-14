@@ -3,10 +3,12 @@ import re
 from exception_matcher import FailureCode, LeafMatcher
 
 
-def test_leaf_matches_type_exact_message_and_pattern_search():
+def test_leaf_matches_type_exact_message_and_pattern_search(form_value):
     # EG-A1, EG-A2
-    assert LeafMatcher(ValueError, "bad value").match(ValueError("bad value")).matched
-    assert LeafMatcher((TypeError, ValueError), re.compile(r"value$"), lambda error: bool(error.args)).match(ValueError("bad value")).matched
+    message = form_value("bad value", "invalid input")
+    suffix = form_value(r"value$", r"input$")
+    assert LeafMatcher(ValueError, message).match(ValueError(message)).matched
+    assert LeafMatcher((TypeError, ValueError), re.compile(suffix), lambda error: bool(error.args)).match(ValueError(message)).matched
 
 
 def test_leaf_failure_has_one_structured_reason():

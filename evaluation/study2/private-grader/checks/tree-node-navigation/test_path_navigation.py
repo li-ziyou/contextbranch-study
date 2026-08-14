@@ -23,14 +23,19 @@ def test_dot_absolute_root_and_parent_resolution():
     assert deep.resolve(NodePath("/")) is root
 
 
-def test_absolute_and_relative_paths_cover_self_ancestor_and_cousin():
+def test_absolute_and_relative_paths_cover_self_ancestor_and_cousin(form_value):
     # TN-B3
-    root = tree()
-    deep, one, c = root.resolve("one/b/deep"), root.resolve("one"), root.resolve("two/c")
-    assert deep.path == NodePath("/one/b/deep")
+    first = form_value("one", "source")
+    branch = form_value("b", "branch")
+    deep_name = form_value("deep", "tip")
+    second = form_value("two", "target")
+    cousin = form_value("c", "cousin")
+    root = Node.from_mapping({first: {branch: {deep_name: {}}}, second: {cousin: {}}})
+    deep, one, c = root.resolve(f"{first}/{branch}/{deep_name}"), root.resolve(first), root.resolve(f"{second}/{cousin}")
+    assert deep.path == NodePath(f"/{first}/{branch}/{deep_name}")
     assert deep.relative_path_to(deep) == NodePath(".")
     assert deep.relative_path_to(one) == NodePath("../..")
-    assert deep.relative_path_to(c) == NodePath("../../../two/c")
+    assert deep.relative_path_to(c) == NodePath(f"../../../{second}/{cousin}")
     with pytest.raises(NotInSameTreeError):
         c.relative_path_to(Node())
 

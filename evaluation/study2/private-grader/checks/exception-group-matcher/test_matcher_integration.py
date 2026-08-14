@@ -15,12 +15,13 @@ class RecordingMatcher:
         return MatchResult.failure(MatchEvidence(FailureCode.PREDICATE_REJECTED, "recorded mismatch"))
 
 
-def test_group_consumes_any_shared_matcher_without_leaf_duplication():
+def test_group_consumes_any_shared_matcher_without_leaf_duplication(form_value):
     # EG-I1
+    accepted = form_value("second", "accepted")
     seen = []
-    matcher = GroupMatcher([RecordingMatcher("second", seen)])
-    assert matches(matcher, ExceptionGroup("g", [ValueError("second")])).matched
-    assert len(seen) == 1 and str(seen[0]) == "second"
+    matcher = GroupMatcher([RecordingMatcher(accepted, seen)])
+    assert matches(matcher, ExceptionGroup("g", [ValueError(accepted)])).matched
+    assert len(seen) == 1 and str(seen[0]) == accepted
 
 
 def test_nested_matcher_evidence_accumulates_actual_path_prefixes():

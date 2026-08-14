@@ -34,10 +34,12 @@ def test_flatten_and_unwrapped_modes_are_explicit():
     assert result.evidence[0].code is FailureCode.EXPECTED_GROUP
 
 
-def test_greedy_failure_reports_a_possible_complete_pairing():
+def test_greedy_failure_reports_a_possible_complete_pairing(form_value):
     # EG-B4
-    matcher = GroupMatcher([StubMatcher(ValueError), StubMatcher(ValueError, "x")])
-    actual = ExceptionGroup("values", [ValueError("x"), ValueError("y")])
+    specific = form_value("x", "chosen")
+    other = form_value("y", "other")
+    matcher = GroupMatcher([StubMatcher(ValueError), StubMatcher(ValueError, specific)])
+    actual = ExceptionGroup("values", [ValueError(specific), ValueError(other)])
     result = matcher.match(actual)
     assert not result.matched
     assert result.possible_alternative_pairing

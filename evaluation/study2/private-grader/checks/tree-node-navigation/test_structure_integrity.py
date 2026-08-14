@@ -16,15 +16,17 @@ def test_invalid_names_leave_both_nodes_unchanged(name):
     assert child.parent is None and child.name is None
 
 
-def test_occupied_name_and_self_link_are_atomic():
+def test_occupied_name_and_self_link_are_atomic(form_value):
     # TN-A1, TN-A3
-    root = Node.from_mapping({"occupied": {}})
-    existing, candidate = root.resolve("occupied"), Node()
+    occupied = form_value("occupied", "taken")
+    self_name = form_value("self", "cycle")
+    root = Node.from_mapping({occupied: {}})
+    existing, candidate = root.resolve(occupied), Node()
     with pytest.raises(InvalidTreeError):
-        root.attach("occupied", candidate)
+        root.attach(occupied, candidate)
     with pytest.raises(InvalidTreeError):
-        root.attach("self", root)
-    assert root.children == {"occupied": existing}
+        root.attach(self_name, root)
+    assert root.children == {occupied: existing}
     assert candidate.parent is None
 
 

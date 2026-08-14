@@ -2,7 +2,7 @@
 
 ## Fixed inputs
 
-Use one prepared `study-profile.json` for both conditions. A technical rehearsal may use participant IDs `P900` and `P901`; each participant's two periods share the same provider, model, time limit, call budget, and token budget.
+Use one prepared `study-profile.json` for both conditions. A technical rehearsal may use participant IDs `P900` and `P901`; each participant's two periods share the same provider, model, and time limit. Model calls and tokens are recorded without a ceiling. Each run records its automatically selected equivalent test form.
 
 ## One-shot model pilot
 

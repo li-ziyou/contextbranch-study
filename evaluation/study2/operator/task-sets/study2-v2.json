@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "taskSetId": "study2-v2",
+  "testFormIds": ["F1", "F2"],
   "taskIds": [
     "tree-node-navigation",
     "exception-group-matcher"

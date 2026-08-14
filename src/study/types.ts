@@ -5,6 +5,13 @@
 
 export type StudyCondition = 'linear' | 'contextbranch';
 export type StudyProvider = 'anthropic' | 'openai' | 'openrouter' | 'gemini';
+export type StudyPublicTestTarget = 'responsibilityA' | 'responsibilityB' | 'main';
+
+export interface StudyPublicTestCommands {
+  responsibilityA: string;
+  responsibilityB: string;
+  main: string;
+}
 
 export interface StudySiblingState {
   id: string;
@@ -24,6 +31,7 @@ export interface StudyTaskManifest {
   };
   runner: {
     publicTestCommand: string;
+    publicTestCommands?: StudyPublicTestCommands;
     runtime: 'contextbranch-study-python';
     network: 'not-required';
   };
@@ -43,8 +51,9 @@ export interface StudyRunConfig {
   timeLimitSeconds: number;
   provider: StudyProvider;
   modelId: string;
-  modelCallBudget: number;
-  modelTokenBudget: number;
+  /** Deprecated compatibility fields. Formal Study 2 runs are time-limited, not call-limited. */
+  modelCallBudget?: number;
+  modelTokenBudget?: number;
 }
 
 export interface StudyRunFile {
@@ -55,6 +64,8 @@ export interface StudyRunFile {
   sequenceId: string;
   period: 1 | 2;
   taskId: string;
+  /** Automatically assigned test form, recorded for reproducible analysis. */
+  formId?: string;
   condition: StudyCondition;
   createdAt: string;
   startedAt: string | null;
@@ -64,8 +75,9 @@ export interface StudyRunFile {
   model: {
     provider: StudyProvider;
     id: string;
-    modelCallBudget: number;
-    modelTokenBudget: number;
+    /** Deprecated compatibility fields retained when loading an older prepared run. */
+    modelCallBudget?: number;
+    modelTokenBudget?: number;
   };
   /** Absolute path to the study Python runtime generated during prepare. */
   runtimePython: string;
@@ -110,9 +122,8 @@ export interface StudyUiState {
   finished: boolean;
   timeLimitSeconds: number;
   remainingSeconds: number;
-  modelCallBudget: number;
   modelCallsUsed: number;
-  modelTokenBudget: number;
   modelTokensUsed: number;
+  publicTestLabel: string;
   siblingStateIds: string[];
 }

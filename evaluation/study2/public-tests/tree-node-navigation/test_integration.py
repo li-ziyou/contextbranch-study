@@ -3,15 +3,19 @@ import pytest
 from branching_tree import InvalidTreeError, Node, NodeNotFoundError, NodePath
 
 
-def test_moving_subtree_immediately_changes_paths_but_keeps_contents():
+def test_moving_subtree_immediately_changes_paths_but_keeps_contents(form_value):
     # TN-I1, TN-A2, TN-B1, TN-B3
-    root = Node.from_mapping({"left": {"leaf": {}}, "right": {}})
-    leaf = root.resolve("left/leaf")
-    root.resolve("right").attach("moved", root.resolve("left"))
-    assert leaf.path == NodePath("/right/moved/leaf")
+    source = form_value("left", "source")
+    target = form_value("right", "target")
+    moved = form_value("moved", "relocated")
+    leaf_name = form_value("leaf", "tip")
+    root = Node.from_mapping({source: {leaf_name: {}}, target: {}})
+    leaf = root.resolve(f"{source}/{leaf_name}")
+    root.resolve(target).attach(moved, root.resolve(source))
+    assert leaf.path == NodePath(f"/{target}/{moved}/{leaf_name}")
     assert root.resolve(leaf.path) is leaf
     with pytest.raises(NodeNotFoundError):
-        root.resolve("left/leaf")
+        root.resolve(f"{source}/{leaf_name}")
 
 
 def test_path_removal_detaches_the_complete_subtree():

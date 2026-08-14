@@ -33,7 +33,8 @@ function taskSet(taskSetId = defaultTaskSetId) {
   const file = path.join(taskSetsDir, `${safeId}.json`);
   if (!fs.existsSync(file)) throw new Error(`Unknown task set: ${safeId}`);
   const value = readJson(file);
-  if (value.schemaVersion !== 1 || value.taskSetId !== safeId || !Array.isArray(value.taskIds) || value.taskIds.length !== 2) {
+  if (value.schemaVersion !== 1 || value.taskSetId !== safeId || !Array.isArray(value.taskIds) || value.taskIds.length !== 2 ||
+      !Array.isArray(value.testFormIds) || value.testFormIds.length === 0) {
     throw new Error(`Invalid task-set configuration: ${file}`);
   }
   return value;
@@ -82,6 +83,11 @@ function validate(options) {
     }
     if (manifest.runner?.publicTestCommand?.includes('private')) {
       failures.push(`${path.basename(file)}: public command must not expose private grader`);
+    }
+    for (const command of Object.values(manifest.runner?.publicTestCommands ?? {})) {
+      if (typeof command !== 'string' || command.includes('private')) {
+        failures.push(`${path.basename(file)}: contextual public commands must be safe public commands`);
+      }
     }
     if (manifest.provenance?.type !== 'FeatureBench-derived curated study task') {
       failures.push(`${path.basename(file)}: must identify its curated FeatureBench-derived provenance`);
@@ -209,14 +215,15 @@ function utcFolderTimestamp(date = new Date()) {
 
 function studyProfile(runsRoot, options) {
   const profilePath = path.join(runsRoot, 'study-profile.json');
+  if (options['model-calls'] || options['model-tokens']) {
+    throw new Error('Study 2 no longer limits model calls or model tokens; remove --model-calls and --model-tokens.');
+  }
   if (fs.existsSync(profilePath)) {
     const profile = readJson(profilePath);
     const provided = {
       provider: options.provider,
       modelId: options.model,
       timeLimitSeconds: options['time-limit'] ? positiveInteger(options['time-limit'], 'time limit') : undefined,
-      modelCallBudget: options['model-calls'] ? positiveInteger(options['model-calls'], 'model-call budget') : undefined,
-      modelTokenBudget: options['model-tokens'] ? positiveInteger(options['model-tokens'], 'model-token budget') : undefined,
     };
     for (const [key, value] of Object.entries(provided)) {
       if (value !== undefined && value !== profile[key]) {
@@ -234,8 +241,6 @@ function studyProfile(runsRoot, options) {
     provider: studyProvider(options.provider),
     modelId: options.model,
     timeLimitSeconds: positiveInteger(options['time-limit'] ?? '1500', 'time limit'),
-    modelCallBudget: positiveInteger(options['model-calls'] ?? '20', 'model-call budget'),
-    modelTokenBudget: positiveInteger(options['model-tokens'] ?? '120000', 'model-token budget'),
   };
   fs.mkdirSync(runsRoot, { recursive: true });
   writeJson(profilePath, profile);
@@ -295,6 +300,7 @@ function prepare(participantId, periodText, options) {
   }
   const manifestPath = path.join(manifestsDir, `${assignment.taskId}.json`);
   const manifest = readJson(manifestPath);
+  const formId = selected.testFormIds[crypto.randomInt(selected.testFormIds.length)];
   const ticket = { ...manifest.ticket };
   if (ticket.mainTicketFile) {
     ticket.mainMarkdown = fs.readFileSync(path.join(studyRoot, ticket.mainTicketFile), 'utf8');
@@ -315,6 +321,7 @@ function prepare(participantId, periodText, options) {
     sequenceId: sequence.id,
     period,
     taskId: assignment.taskId,
+    formId,
     condition: assignment.condition,
     createdAt: new Date().toISOString(),
     startedAt: null,
@@ -323,8 +330,6 @@ function prepare(participantId, periodText, options) {
     model: {
       provider: profile.provider,
       id: profile.modelId,
-      modelCallBudget: profile.modelCallBudget,
-      modelTokenBudget: profile.modelTokenBudget,
     },
     // The prepared run is portable across the participant workspace location:
     // the runtime path is generated on the current machine rather than guessed
@@ -365,7 +370,7 @@ function prepare(participantId, periodText, options) {
   };
   writeJson(path.join(vscodeDir, 'settings.json'), settings);
   writeJson(path.join(runDir, 'run.json'), run);
-  console.log(JSON.stringify({ runId, sessionRoot, workspace, taskSetId: selected.taskSetId, taskId: assignment.taskId, condition: assignment.condition, profile }, null, 2));
+  console.log(JSON.stringify({ runId, sessionRoot, workspace, taskSetId: selected.taskSetId, taskId: assignment.taskId, formId, condition: assignment.condition, profile }, null, 2));
 }
 
 function collect(runId, options) {

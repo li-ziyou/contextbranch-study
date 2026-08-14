@@ -5,8 +5,8 @@ and the VS Code extension. The next implementation introduces:
 
 - `manifest.ts`: read and validate a task manifest, then record its hash;
 - `controller.ts`: start/finish a period and create automatic sibling states;
-- `budget.ts`: enforce one pooled model budget across Linear and ContextBranch;
-- `task-runner.ts`: run public tests in the configured isolated image; and
+- model usage is recorded without a call or token ceiling;
+- the runner executes the suite associated with the current study state; and
 - `submission.ts`: capture final main-state production diffs for the private
   grader.
 

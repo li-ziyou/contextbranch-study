@@ -10,7 +10,7 @@ Prepared technical-rehearsal sessions:
 - Linear: `P900-period2-tree-node-navigation-linear/workspace`
 - ContextBranch: `P900-period1-exception-group-matcher-contextbranch/workspace`
 
-Both use the frozen profile `openrouter` / `anthropic/claude-haiku-4.5`, 1,500 seconds, 20 model calls, and 120,000 pooled tokens. The model is configured identically; API-key availability remains in VS Code SecretStorage.
+These archived rehearsal workspaces used the earlier capped profile. New runs keep the provider, model, and time limit fixed but only record model calls and tokens; they do not enforce either ceiling. API-key availability remains in VS Code SecretStorage.
 
 ## Participant actions
 
@@ -18,7 +18,9 @@ Both use the frozen profile `openrouter` / `anthropic/claude-haiku-4.5`, 1,500 s
 2. If the assistant reports no key, run `ContextBranch: Set API Key`, select OpenRouter, and provide the research key.
 3. Click `Start task`.
 4. Work in main for Linear. For ContextBranch, use either sibling, both, neither, or main in any order; preview before integrating a sibling into main.
-5. Run the public test button or the commands in `TASK.md`.
+5. Use the single contextual test button. It shows `Test A` in Responsibility A,
+   `Test B` in Responsibility B, and `Test Main` in main. Results appear in VS
+   Code's bottom Test Results panel. The commands in `TASK.md` remain available.
 6. Return to main and click `Finish task`.
 
 ## Concurrent sibling prompt check

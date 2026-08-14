@@ -21,8 +21,10 @@ def test_unwrapped_delegation_does_not_skip_leaf_predicate():
     assert result.evidence[0].code is FailureCode.PREDICATE_REJECTED
 
 
-def test_repeated_types_can_be_disambiguated_by_leaf_contracts():
+def test_repeated_types_can_be_disambiguated_by_leaf_contracts(form_value):
     # EG-I1, EG-A2, EG-B4
-    matcher = GroupMatcher([LeafMatcher(ValueError, "left"), LeafMatcher(ValueError, "right")])
-    actual = ExceptionGroup("values", [ValueError("right"), ValueError("left")])
+    left = form_value("left", "alpha")
+    right = form_value("right", "beta")
+    matcher = GroupMatcher([LeafMatcher(ValueError, left), LeafMatcher(ValueError, right)])
+    actual = ExceptionGroup("values", [ValueError(right), ValueError(left)])
     assert matcher.match(actual).matched

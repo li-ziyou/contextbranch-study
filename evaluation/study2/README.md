@@ -35,7 +35,7 @@ For one period, the operator creates a fresh participant bundle containing:
 2. the task ticket and the two frozen implementation-intent labels;
 3. readable, read-only public tests and a fixed public-test command;
 4. ContextBranch in the assigned condition; and
-5. a fixed model, system prompt, edit policy, time limit, and pooled budget.
+5. a fixed model, system prompt, edit policy, and time limit.
 
 The participant never receives source patches, reference repairs, private tests,
 grader fixtures, API keys, or another participant's run data.
@@ -44,9 +44,13 @@ grader fixtures, API keys, or another participant's run data.
 
 The operator selects task, period, and condition through `studyctl`. The study
 manifest controls every condition-invariant input. The extension's study
-controller controls automatic state creation, the timer, the budget, test
+controller controls automatic state creation, the timer, contextual test
 invocation, and export. The participant controls prompts, local edits, test
 runs, state switching, and whether to initiate an integration.
+
+Model calls and tokens are recorded as telemetry but are not capped. Each
+prepared `study2-v2` run also receives an equivalent test `formId`; see
+`implementation/test-forms.md`.
 
 In the ContextBranch condition, the system automatically creates exactly two
 optional sibling states from the same root checkpoint. The main state retains

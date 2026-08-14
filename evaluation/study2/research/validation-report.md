@@ -22,9 +22,13 @@ The detailed machine-readable result is `validation-results.json`.
 
 `study:dry-run -- --task-set study2-v2` also applies each reference repair through the clean grader. Per-goal outputs distinguish A, B, integration, and overall correctness.
 
+Both `F1` and `F2` equivalent forms were run against each reference implementation. For each form, TreeNode passed 3/3 A, 3/3 B, 9/9 complete public, and 20/20 private checks; Exception Group passed 3/3 A, 3/3 B, 9/9 complete public, and 17/17 private checks.
+
 ## Harness and regression result
 
 `npm run compile`, `npm run build`, and VSIX packaging pass. The v2 and legacy sets both pass validate, build, preflight, and reference dry-run.
+
+The single study test control resolves to A, B, or Main from the active state. The extension reports the run through VS Code's Test API, including raw pytest output and persisted pass/fail status in the bottom Test Results panel.
 
 A fresh P900 launch produced one Linear main state and a ContextBranch main plus exactly two optional sibling states. Both siblings had the same `parentCheckpointId` and identical starting artifact IDs. An earlier prepared Linear TreeNode workspace and ContextBranch Exception Group workspace both passed 9/9 public tests after reference-level implementation. A separate integration rehearsal previewed and finalized A into main, then B into main, with one non-conflicting allowlisted file per merge; the final main passed 9/9 public tests.
 
