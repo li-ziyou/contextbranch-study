@@ -180,6 +180,7 @@
     "watch": "node esbuild.js --watch",
     "package": "vsce package",
     "compile": "tsc -noEmit",
+    "test:edit-recovery": "node scripts/test-edit-recovery.mjs",
     "study:validate": "node evaluation/study2/operator/studyctl.mjs validate",
     "study:assign": "node evaluation/study2/operator/studyctl.mjs assign",
     "study:build-tasks": "node evaluation/study2/operator/studyctl.mjs build-tasks",

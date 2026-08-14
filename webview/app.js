@@ -32,6 +32,7 @@
     telemetry: null,
     branchRuns: {},
     pendingEdits: null,
+    pendingEditRetryAvailable: false,
     decompositionResult: null,
     decomposing: false,
     pendingMergePreview: null,
@@ -111,7 +112,16 @@
           showStatus(msg.message || 'Checkpoint restored.', 'success');
           break;
         case 'proposedEdits':
-          if (msg.branchId === state.activeBranchId) renderEditReview(msg.files, msg.branchId);
+          if (msg.branchId === state.activeBranchId) renderEditReview(msg.files, msg.branchId, msg.canRetry);
+          break;
+        case 'editRetryStarted':
+          if (msg.branchId === state.activeBranchId) {
+            clearEditReview();
+            showStatus(
+              `Retrying ${msg.failureCount || 1} failed change${msg.failureCount === 1 ? '' : 's'} against the current file…`,
+              'info',
+            );
+          }
           break;
         case 'editsApplied':
           if (!msg.branchId || msg.branchId === state.activeBranchId) {
@@ -195,10 +205,14 @@
 
   // Render the proposed-edits review panel. Each file shows its diff; each
   // change (op) has a checkbox so you can accept a subset. Apply / Discard.
-  function renderEditReview(files, branchId = state.activeBranchId) {
+  function renderEditReview(
+    files,
+    branchId = state.activeBranchId,
+    canRetry = state.pendingEditRetryAvailable,
+  ) {
     const panel = $('edit-review');
     if (!panel) return;
-    const reviewKey = branchId + ':' + JSON.stringify(files);
+    const reviewKey = branchId + ':' + String(Boolean(canRetry)) + ':' + JSON.stringify(files);
     if (lastRenderedEditReviewKey === reviewKey && !panel.hidden) return;
     lastRenderedEditReviewKey = reviewKey;
     panel.innerHTML = '';
@@ -283,13 +297,26 @@
 
     const actions = document.createElement('div');
     actions.className = 'edit-review-actions';
+    const hasFailures = files.some(file => file.ops.some(op => !op.ok));
+    const hasApplicableChanges = files.some(file => file.ops.some(op => op.ok));
     const discard = document.createElement('button');
     discard.className = 'btn-secondary';
     discard.textContent = 'Discard';
     discard.addEventListener('click', () => send({ type: 'discardProposedEdits', branchId }));
+    if (hasFailures && canRetry) {
+      const retry = document.createElement('button');
+      retry.className = 'btn-secondary';
+      retry.textContent = 'Retry against current file';
+      retry.addEventListener('click', () => {
+        retry.disabled = true;
+        send({ type: 'retryProposedEdits', branchId });
+      });
+      actions.appendChild(retry);
+    }
     const apply = document.createElement('button');
     apply.className = 'btn-primary';
     apply.textContent = 'Apply selected';
+    apply.disabled = !hasApplicableChanges;
     apply.addEventListener('click', () => {
       const accepted = {};
       panel.querySelectorAll('.edit-file').forEach(card => {
@@ -316,7 +343,9 @@
       hidePreviewBar();
     }
     render();
-    if (Array.isArray(state.pendingEdits)) renderEditReview(state.pendingEdits, state.activeBranchId);
+    if (Array.isArray(state.pendingEdits)) {
+      renderEditReview(state.pendingEdits, state.activeBranchId, state.pendingEditRetryAvailable);
+    }
     else clearEditReview();
     if (state.historyOpen && state.historyGraph) {
       renderHistoryView();

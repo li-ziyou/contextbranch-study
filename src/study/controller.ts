@@ -198,6 +198,17 @@ export class StudyController {
     });
   }
 
+  recordEditRetry(ws: Workspace, stateId: string, failureCount: number): void {
+    ws.storage.appendTelemetry({
+      type: 'study_edit_retry_started',
+      actor: 'participant',
+      runId: this.run.runId,
+      stateId,
+      retryCount: 1,
+      failureCount,
+    });
+  }
+
   recordPublicTest(
     ws: Workspace,
     target: StudyPublicTestTarget,

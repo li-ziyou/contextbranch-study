@@ -13,7 +13,9 @@ import { Workspace } from '../core/workspace';
 import { WorkspaceCapture } from '../core/file-watcher';
 import { CodingAgent } from '../agents/coding';
 import { ContextAgent, scanWorkspaceFiles, WorkspaceFileCandidate } from '../agents/context';
-import { parseEdits, applyEdits, applySelected, EditOp, AppliedFile } from '../core/edits';
+import {
+  parseEdits, applyEdits, applySelected, buildEditRetryInstruction, EditOp, AppliedFile,
+} from '../core/edits';
 import { DecompositionAgent } from '../agents/decomposition';
 import { MetaAgent } from '../agents/meta';
 import { MergeAnalystAgent } from '../agents/merge-analyst';
@@ -28,6 +30,20 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 
 const execAsync = promisify(exec);
+
+interface PendingEditProposal {
+  ops: EditOp[];
+  files: ReturnType<typeof serializeProposal>[];
+  draft: string;
+  /** Zero for a normal proposal; one after the single safe recovery attempt. */
+  retryCount: number;
+}
+
+interface EditRecoveryRequest {
+  instruction: string;
+  retryCount: 1;
+  failureCount: number;
+}
 
 export class ContextBranchView implements vscode.WebviewViewProvider {
   public static readonly viewType = 'contextbranch.sidebar';
@@ -45,7 +61,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
   private readonly studyTestController: vscode.TestController;
   private studyTestRunningStateId?: string;
   /** Each state keeps its own proposed edits while another state is visible. */
-  private pendingEditsByBranch = new Map<string, { ops: EditOp[]; files: ReturnType<typeof serializeProposal>[] }>();
+  private pendingEditsByBranch = new Map<string, PendingEditProposal>();
   private mergeInProgress?: boolean;
   /** A merge preview is user-reviewed state; never silently regenerate it. */
   private pendingMergePreview?: { sourceBranchId: string; targetBranchId: string; fingerprint: string; preview: any };
@@ -135,6 +151,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
         historyGraph: null,
         branchRuns: {},
         pendingEdits: null,
+        pendingEditRetryAvailable: false,
         noWorkspace: true,
       });
       return;
@@ -184,6 +201,11 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
         { partialText: run.partialText },
       ])),
       pendingEdits: activePendingEdits?.files ?? null,
+      pendingEditRetryAvailable: Boolean(
+        activePendingEdits &&
+        activePendingEdits.retryCount === 0 &&
+        activePendingEdits.files.some(file => file.failedCount > 0)
+      ),
       noWorkspace: false,
       historyGraph: ws.getHistoryGraph(),
     });
@@ -234,6 +256,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       case 'dismissArtifactsPreview': return this.handleDismissPreview(msg.branchId);
       case 'applyProposedEdits': return this.handleApplyProposedEdits(msg.branchId, msg.accepted);
       case 'discardProposedEdits': return this.handleDiscardProposedEdits(msg.branchId);
+      case 'retryProposedEdits': return this.handleRetryProposedEdits(msg.branchId);
     }
   }
 
@@ -390,7 +413,11 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     return { workspaceFiles: inventory, selectedFiles, summary, rationale, inputTokens, outputTokens, usedAgent: totalBytes > 80_000 };
   }
 
-  private async handleSend(content: string, requestedBranchId?: string): Promise<void> {
+  private async handleSend(
+    content: string,
+    requestedBranchId?: string,
+    editRecovery?: EditRecoveryRequest,
+  ): Promise<void> {
     const ws = this.requireWorkspace();
     if (!ws) return;
     const provider = this.getProvider();
@@ -426,7 +453,26 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     let finishRun!: () => void;
     const done = new Promise<void>(resolve => { finishRun = resolve; });
     this.codingRuns.set(branch.id, { controller, partialText: '', done, finish: finishRun });
-    ws.appendMessage(branch.id, 'user', content);
+    if (editRecovery) {
+      ws.appendMessage(
+        branch.id,
+        'system',
+        `[edit-retry] Retrying ${editRecovery.failureCount} failed change(s) against the authoritative current file (attempt 1/1).`,
+      );
+      if (study) {
+        study.recordEditRetry(ws, branch.id, editRecovery.failureCount);
+      } else {
+        ws.storage.appendTelemetry({
+          type: 'edit_retry_started',
+          actor: 'participant',
+          branchId: branch.id,
+          retryCount: editRecovery.retryCount,
+          failureCount: editRecovery.failureCount,
+        });
+      }
+    } else {
+      ws.appendMessage(branch.id, 'user', content);
+    }
     this.pushState();
 
     try {
@@ -578,9 +624,10 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       return { text: assistantText, inputTokens, outputTokens, truncated, aborted };
     };
 
-    let result = await runCoding();
+    let result = await runCoding(editRecovery?.instruction);
     if (study) study.recordModelUsage(ws, result.inputTokens, result.outputTokens, model, branch.id);
     let retried = false;
+    let repairCount = editRecovery?.retryCount ?? 0;
 
     // Automatic format recovery: a model may still occasionally ignore the
     // edit protocol and return a complete existing file. Do not make the user
@@ -598,13 +645,14 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       ops.filter(o => o.kind === 'create' && currentByPath.has(o.path)).map(o => o.path)
     )];
 
-    if (!result.aborted && existingWholeFilePaths.length > 0) {
+    if (!result.aborted && repairCount === 0 && existingWholeFilePaths.length > 0) {
       if (study) study.beginModelCall(ws, branch.id);
       const paths = existingWholeFilePaths.join(', ');
       const previousDraft = result.text.length > 30_000
         ? result.text.slice(0, 30_000) + '\n[previous draft truncated for the repair instruction]'
         : result.text;
       retried = true;
+      repairCount = 1;
       result = await runCoding(
         `FORMAT CORRECTION REQUIRED. Your previous response attempted a whole-file replacement for existing file(s): ${paths}. ` +
         'Do not output those files in full. Convert the requested changes into exact SEARCH/REPLACE blocks using the authoritative file contents already supplied to you. ' +
@@ -641,8 +689,14 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
         const review = cfg.get<boolean>('reviewEdits') ?? true;
         if (review) {
           const files = proposed.map(serializeProposal);
-          this.pendingEditsByBranch.set(branch.id, { ops, files });
-          this.postMessage({ type: 'proposedEdits', branchId: branch.id, files });
+          const canRetry = repairCount === 0 && proposed.some(file => file.failedCount > 0);
+          this.pendingEditsByBranch.set(branch.id, {
+            ops,
+            files,
+            draft: result.text,
+            retryCount: repairCount,
+          });
+          this.postMessage({ type: 'proposedEdits', branchId: branch.id, files, canRetry });
         } else {
           this.commitProposedFiles(branch.id, proposed);
         }
@@ -737,6 +791,71 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     const resolved = applySelected(pending.ops, currentByPath, acceptedMap);
     this.pendingEditsByBranch.delete(targetBranchId);
     this.commitProposedFiles(targetBranchId, resolved);
+  }
+
+  private async handleRetryProposedEdits(branchId?: string): Promise<void> {
+    const ws = this.requireWorkspace();
+    if (!ws) return;
+    const targetBranchId = typeof branchId === 'string' ? branchId : ws.activeBranchId;
+    const pending = this.pendingEditsByBranch.get(targetBranchId);
+    if (!pending) return;
+    if (pending.retryCount >= 1) {
+      this.postMessage({
+        type: 'error',
+        branchId: targetBranchId,
+        message: 'This proposal already used its one safe retry. Discard it or edit the file manually.',
+      });
+      return;
+    }
+    if (this.codingRuns.has(targetBranchId)) {
+      this.postMessage({ type: 'error', branchId: targetBranchId, message: 'This state is already generating a response.' });
+      return;
+    }
+    if (!this.getProvider()) {
+      this.postMessage({ type: 'error', branchId: targetBranchId, message: 'No API key configured.' });
+      return;
+    }
+    const study = this.getStudyController();
+    const actionError = study?.actionError();
+    if (actionError) {
+      this.postMessage({ type: 'error', branchId: targetBranchId, message: actionError });
+      return;
+    }
+
+    // Re-evaluate against the state that exists at click time. A manual edit
+    // may have made the original proposal valid since it was first shown.
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const currentByPath = new Map<string, string>();
+    for (const p of new Set(pending.ops.map(op => op.path))) {
+      const onDisk = ws.activeBranchId === targetBranchId ? readWorkspaceFile(workspaceRoot, p) : null;
+      const art = ws.getArtifacts(targetBranchId).find(a => a.path === p);
+      if (onDisk != null) currentByPath.set(p, onDisk);
+      else if (art) currentByPath.set(p, art.content);
+    }
+    const resolved = applyEdits(pending.ops, currentByPath);
+    const failureCount = resolved.reduce((sum, file) => sum + file.failedCount, 0);
+    if (failureCount === 0) {
+      const files = resolved.map(serializeProposal);
+      pending.files = files;
+      this.postMessage({
+        type: 'proposedEdits',
+        branchId: targetBranchId,
+        files,
+        canRetry: false,
+      });
+      this.pushState();
+      return;
+    }
+
+    const instruction = buildEditRetryInstruction(resolved, pending.draft);
+    this.pendingEditsByBranch.delete(targetBranchId);
+    this.postMessage({
+      type: 'editRetryStarted',
+      branchId: targetBranchId,
+      failureCount,
+    });
+    this.pushState();
+    await this.handleSend('', targetBranchId, { instruction, retryCount: 1, failureCount });
   }
 
   private handleDiscardProposedEdits(branchId?: string): void {
