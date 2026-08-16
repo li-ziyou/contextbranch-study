@@ -269,9 +269,10 @@
         row.appendChild(cb);
         const lbl = document.createElement('span');
         lbl.className = 'edit-op-label';
+        const alignment = op.matched === 'symbol' ? ' · aligned to current function' : '';
         lbl.textContent = op.ok
           ? (op.kind === 'create' ? (f.isNew ? 'Create this file' : 'Replace file contents')
-                                  : 'Change ' + (op.index + 1))
+                                  : 'Change ' + (op.index + 1) + alignment)
           : 'Change ' + (op.index + 1) + ' — skipped';
         row.appendChild(lbl);
         opBox.appendChild(row);

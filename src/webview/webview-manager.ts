@@ -717,7 +717,11 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     // inject those exact contents, and make one bounded repair attempt.
     let ops = result.aborted ? [] : parseEdits(result.text);
     let proposed = !result.aborted && ops.length
-      ? applyEdits(ops, this.authoritativeContents(ws, branch.id, workspaceRoot, new Set(ops.map(op => op.path))))
+      ? applyEdits(
+          ops,
+          this.authoritativeContents(ws, branch.id, workspaceRoot, new Set(ops.map(op => op.path))),
+          { allowUniquePythonSymbolRebase: repairCount > 0 },
+        )
       : [];
 
     const failedChanges = proposed.reduce((sum, file) => sum + file.failedCount, 0);
@@ -747,7 +751,11 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
         result = await runCoding(instruction);
         ops = result.aborted ? [] : parseEdits(result.text);
         proposed = !result.aborted && ops.length
-          ? applyEdits(ops, this.authoritativeContents(ws, branch.id, workspaceRoot, new Set(ops.map(op => op.path))))
+          ? applyEdits(
+              ops,
+              this.authoritativeContents(ws, branch.id, workspaceRoot, new Set(ops.map(op => op.path))),
+              { allowUniquePythonSymbolRebase: true },
+            )
           : [];
       }
     }
@@ -2062,6 +2070,6 @@ function serializeProposal(f: AppliedFile) {
       ? { index: o.index, kind: o.kind, ok: o.ok, reason: o.reason,
           del: { lines: [] as string[], more: 0 }, add: cap(o.ok ? f.after : '') }
       : { index: o.index, kind: o.kind, ok: o.ok, reason: o.reason,
-          del: cap(o.search), add: cap(o.ok ? o.replace : '') }),
+          matched: o.matched, del: cap(o.search), add: cap(o.ok ? o.replace : '') }),
   };
 }

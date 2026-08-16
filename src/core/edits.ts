@@ -33,7 +33,13 @@ export interface AppliedOp {
   search?: string;
   replace?: string;
   /** match strategy that succeeded, for transparency */
-  matched?: 'exact' | 'whitespace' | 'whole-file';
+  matched?: 'exact' | 'whitespace' | 'symbol' | 'whole-file';
+}
+
+export interface ApplyEditOptions {
+  /** During the single recovery attempt, align a stale Python function/class
+   * anchor to the uniquely matching current definition. */
+  allowUniquePythonSymbolRebase?: boolean;
 }
 
 export interface AppliedFile {
@@ -220,7 +226,7 @@ function normalize(s: string): string {
  * line match. Returns the [start,end) char range in `content`, or null.
  */
 type LocateResult =
-  | { status: 'found'; start: number; end: number; how: 'exact' | 'whitespace' }
+  | { status: 'found'; start: number; end: number; how: 'exact' | 'whitespace' | 'symbol' }
   | { status: 'missing' }
   | { status: 'ambiguous'; count: number };
 
@@ -266,12 +272,76 @@ function locate(content: string, search: string): LocateResult {
 }
 
 /**
+ * Recover a stale Python function/class anchor without guessing its location.
+ * The declaration line must occur exactly once in the current file and the
+ * replacement must name the same symbol. Only the body between that declaration
+ * and the next same-or-lower-indented definition is replaced.
+ */
+function locateUniquePythonSymbol(
+  path: string,
+  content: string,
+  search: string,
+  replace: string,
+): LocateResult {
+  if (!path.endsWith('.py')) return { status: 'missing' };
+
+  const definition = /^(\s*)(?:(async)\s+)?(def|class)\s+([A-Za-z_]\w*)\b.*:\s*$/;
+  const searchDeclaration = search.split('\n').find(line => definition.test(line));
+  const replaceDeclaration = replace.split('\n').find(line => definition.test(line));
+  if (!searchDeclaration || !replaceDeclaration) return { status: 'missing' };
+
+  const searchMatch = searchDeclaration.match(definition);
+  const replaceMatch = replaceDeclaration.match(definition);
+  if (!searchMatch || !replaceMatch) return { status: 'missing' };
+  if (searchMatch[2] !== replaceMatch[2] || searchMatch[3] !== replaceMatch[3] || searchMatch[4] !== replaceMatch[4]) {
+    return { status: 'missing' };
+  }
+
+  const declarationKey = normalize(searchDeclaration);
+  const lines = content.split('\n');
+  const candidates = lines
+    .map((line, index) => ({ line, index }))
+    .filter(candidate => normalize(candidate.line) === declarationKey && definition.test(candidate.line));
+  if (candidates.length === 0) return { status: 'missing' };
+  if (candidates.length > 1) return { status: 'ambiguous', count: candidates.length };
+
+  const startLine = candidates[0].index;
+  const indent = candidates[0].line.match(/^\s*/)?.[0].length ?? 0;
+  let boundaryLine = lines.length;
+  for (let i = startLine + 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    const candidateIndent = lines[i].match(/^\s*/)?.[0].length ?? 0;
+    const isDefinition = definition.test(lines[i]);
+    const isDecorator = lines[i].trimStart().startsWith('@');
+    if (candidateIndent <= indent && (isDefinition || isDecorator)) {
+      boundaryLine = i;
+      break;
+    }
+  }
+
+  // Keep the blank-line separator before the next definition outside the
+  // replacement range.
+  let endLine = boundaryLine;
+  while (endLine > startLine + 1 && lines[endLine - 1].trim() === '') endLine--;
+
+  const offsets: number[] = [0];
+  for (let i = 0; i < lines.length; i++) {
+    offsets.push(offsets[i] + lines[i].length + (i < lines.length - 1 ? 1 : 0));
+  }
+  return { status: 'found', start: offsets[startLine], end: offsets[endLine], how: 'symbol' };
+}
+
+/**
  * Apply ops grouped by path to the given current contents.
  * `currentByPath` maps path -> current content; absence means the file is new.
  * NEVER throws on a bad op; failed ops are reported and skipped, leaving the
  * rest of the file intact.
  */
-export function applyEdits(ops: EditOp[], currentByPath: Map<string, string>): AppliedFile[] {
+export function applyEdits(
+  ops: EditOp[],
+  currentByPath: Map<string, string>,
+  options: ApplyEditOptions = {},
+): AppliedFile[] {
   const byPath = new Map<string, EditOp[]>();
   for (const op of ops) {
     if (!byPath.has(op.path)) byPath.set(op.path, []);
@@ -308,7 +378,10 @@ export function applyEdits(ops: EditOp[], currentByPath: Map<string, string>): A
       } else {
         const search = op.search ?? '';
         const replace = op.replace ?? '';
-        const loc = locate(working, search);
+        let loc = locate(working, search);
+        if (loc.status === 'missing' && options.allowUniquePythonSymbolRebase) {
+          loc = locateUniquePythonSymbol(path, working, search, replace);
+        }
         if (loc.status !== 'found') {
           const reason = loc.status === 'ambiguous'
             ? `SEARCH anchor matches ${loc.count} places — too ambiguous to place safely; include more surrounding context so it identifies exactly one location`

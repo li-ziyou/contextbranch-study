@@ -45,6 +45,25 @@ try {
   assert.equal(staleResult[0].failedCount, 1, 'a stale multi-line anchor must be refused');
   assert.equal(staleResult[0].after, current, 'a refused edit must not mutate content');
 
+  const rebasedResult = applyEdits(
+    staleOps,
+    new Map([['navigation.py', current]]),
+    { allowUniquePythonSymbolRebase: true },
+  );
+  assert.equal(rebasedResult[0].failedCount, 0, 'recovery may align a unique Python function');
+  assert.equal(rebasedResult[0].ops[0].matched, 'symbol');
+  assert.match(rebasedResult[0].after, /node\.ancestors\.index\(lca\) \+ 1/);
+  assert.doesNotMatch(rebasedResult[0].after, /Current comments added by an earlier accepted edit/);
+
+  const ambiguousPython = `${current}\n\n${current}`;
+  const refusedAmbiguous = applyEdits(
+    staleOps,
+    new Map([['navigation.py', ambiguousPython]]),
+    { allowUniquePythonSymbolRebase: true },
+  );
+  assert.equal(refusedAmbiguous[0].failedCount, 1, 'duplicate declarations remain unsafe');
+  assert.match(refusedAmbiguous[0].ops[0].reason, /matches 2 places/);
+
   const retryInstruction = buildEditRetryInstruction(
     staleResult,
     staleDraft,
