@@ -119,5 +119,9 @@ checks those hashes before copying the submission, so an edit made after the
 task ended cannot enter the clean grader.
 
 The detailed researcher procedure is in
-`protocol/operator-runbook.md`. Copy-ready participant instructions for each
-condition and task are in `protocol/participant-instructions/`.
+`protocol/operator-runbook.md`. Copy-ready Linear and ContextBranch tool guides
+are in `protocol/participant-instructions/`; each prepared workspace supplies
+its task instruction as `.study/TASK.md`.
+The current short task descriptions are in `protocol/task-descriptions.md`,
+and the rendered operator handout is
+`protocol/ContextBranch Study 2 - Full End-to-End Runbook.docx`.
