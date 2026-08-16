@@ -17,9 +17,10 @@
 
 Validation enforces that every sibling requirement string occurs verbatim in the main ticket source. The controller contains no recommended merge route and does not force A before B.
 
-The copy-ready participant sheets are stored under
-`protocol/participant-instructions/`. Text between `TASK-CONTENT-START` and
-`TASK-CONTENT-END` must be identical for the Linear and ContextBranch versions
-of the same task. Condition-specific text may explain only the controls that
-exist in that condition. It must not add an algorithm, edge case, example,
-test, or suggested order.
+The copy-ready tool guides are stored under
+`protocol/participant-instructions/`. The task instruction is always the
+prepared workspace's `.study/TASK.md`, generated from one frozen main ticket,
+so Linear and ContextBranch cannot receive different task wording. The two
+tool guides may explain only the controls available in that condition. They
+must not add an algorithm, edge case, example, test, or suggested
+implementation order.

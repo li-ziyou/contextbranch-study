@@ -1,14 +1,14 @@
 # Study 2 participant flow
 
-This file defines the shared flow. The copy-ready condition/task versions are
-in `participant-instructions/`.
+This file defines the shared flow. Copy-ready tool guides are in
+`participant-instructions/`; the prepared workspace supplies `.study/TASK.md`.
 
 ## Before the session
 
 The operator assigns a pseudonymous ID through `studyctl`. The `study2-v2`
 sequence fixes task order and condition order. The operator prepares one fresh
-workspace per period and gives the participant only the matching instruction
-version.
+workspace per period and gives the participant one matching tool guide. The
+task sheet is the `.study/TASK.md` generated from the frozen main ticket.
 
 ## Shared onboarding, about 10 minutes
 

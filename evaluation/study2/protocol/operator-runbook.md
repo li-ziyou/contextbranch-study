@@ -143,16 +143,16 @@ code --new-window /exact/workspace/path/from/prepare
 
 不要打开 `participant-bundles`、private bundle 或 reference implementation。
 
-根据 `taskId` 和 `condition`，给参与者对应的一份说明：
+根据 `condition` 给一份工具用法。任务指示直接使用当前 workspace 的
+`.study/TASK.md`：
 
-| Condition | Task | 说明文件 |
-| --- | --- | --- |
-| Linear | TreeNode | `participant-instructions/linear-tree-node.md` |
-| ContextBranch | TreeNode | `participant-instructions/contextbranch-tree-node.md` |
-| Linear | Exception Group | `participant-instructions/linear-exception-group.md` |
-| ContextBranch | Exception Group | `participant-instructions/contextbranch-exception-group.md` |
+| 输出 | 说明文件 |
+| --- | --- |
+| Linear | `participant-instructions/tool-linear.md` |
+| ContextBranch | `participant-instructions/tool-contextbranch.md` |
 
-不要同时展示其他版本。
+每个 period 只展示对应的工具用法和 `.study/TASK.md`，不展示另一种工具说明或另一个
+任务。
 
 ## 7. 标准 session 流程
 
