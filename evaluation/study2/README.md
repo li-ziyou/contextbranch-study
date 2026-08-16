@@ -94,7 +94,7 @@ bundles and that environment are ready. `study:prepare` creates
 one fresh period workspace. Open its printed `workspace` path in VS Code with
 this extension installed; the study controller reads `.study/run.json` and
 locks the assignment. The first prepared run creates `runs/study-profile.json`
-with its provider, model, time limit, and model budgets; later runs must match
+with its provider, model, and time limit; later runs must match
 that profile, so the two conditions cannot silently receive different
 resources. It also creates a new participant session directory named
 `<participant-id>_YYYYMMDDTHHMMSSZ`; both periods for that participant, including their
@@ -117,3 +117,7 @@ npm run study:grade -- --bundle participant-bundles/TASK_ID \
 Finishing records hashes of the allowlisted production files. `study:collect`
 checks those hashes before copying the submission, so an edit made after the
 task ended cannot enter the clean grader.
+
+The detailed researcher procedure is in
+`protocol/operator-runbook.md`. Copy-ready participant instructions for each
+condition and task are in `protocol/participant-instructions/`.
