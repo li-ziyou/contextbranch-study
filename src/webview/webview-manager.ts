@@ -11,16 +11,18 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { Workspace } from '../core/workspace';
 import { WorkspaceCapture } from '../core/file-watcher';
-import { CodingAgent } from '../agents/coding';
+import { CodingAgent, hasRepeatedSearchReplaceBlock } from '../agents/coding';
 import { ContextAgent, scanWorkspaceFiles, WorkspaceFileCandidate } from '../agents/context';
-import { parseEdits, applyEdits, applySelected, EditOp, AppliedFile } from '../core/edits';
+import {
+  parseEdits, applyEdits, applySelected, buildEditRetryInstruction, EditOp, AppliedFile,
+} from '../core/edits';
 import { DecompositionAgent } from '../agents/decomposition';
 import { MetaAgent } from '../agents/meta';
 import { MergeAnalystAgent } from '../agents/merge-analyst';
 import { ConflictResolverAgent } from '../agents/conflict-resolver';
 import { LLMProvider } from '../llm/provider';
 import { previewMerge, finalizeMerge, undoMerge, detectTestCommand, detectLintCommand } from '../core/merge';
-import { Branch, Artifact, Message } from '../core/types';
+import { Branch, Artifact, Message, InterruptionReason } from '../core/types';
 import { Storage } from '../core/storage';
 import { ChangeDecorations } from '../core/change-decorations';
 import { StudyController } from '../study/controller';
@@ -29,14 +31,37 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
+interface PendingEditProposal {
+  ops: EditOp[];
+  files: ReturnType<typeof serializeProposal>[];
+  draft: string;
+  /** Zero for a normal proposal; one after the single safe recovery attempt. */
+  retryCount: number;
+}
+
+interface EditRecoveryRequest {
+  instruction: string;
+  retryCount: 1;
+  failureCount: number;
+}
+
 export class ContextBranchView implements vscode.WebviewViewProvider {
   public static readonly viewType = 'contextbranch.sidebar';
 
   private view?: vscode.WebviewView;
   private currentAbort?: AbortController;
+  /** Coding generations are isolated per conversation-code state. */
+  private codingRuns = new Map<string, {
+    controller: AbortController;
+    partialText: string;
+    done: Promise<void>;
+    finish: () => void;
+  }>();
   private finishingTimedOutStudy = false;
-  /** Edits proposed by the last assistant turn, awaiting user accept/reject. */
-  private pendingEdits?: { branchId: string; ops: EditOp[] };
+  private readonly studyTestController: vscode.TestController;
+  private studyTestRunningStateId?: string;
+  /** Each state keeps its own proposed edits while another state is visible. */
+  private pendingEditsByBranch = new Map<string, PendingEditProposal>();
   private mergeInProgress?: boolean;
   /** A merge preview is user-reviewed state; never silently regenerate it. */
   private pendingMergePreview?: { sourceBranchId: string; targetBranchId: string; fingerprint: string; preview: any };
@@ -64,7 +89,19 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     private getStudyMode: () => boolean,
     private getCapture: () => WorkspaceCapture | null = () => null,
     private getStudyController: () => StudyController | null = () => null,
-  ) {}
+  ) {
+    this.studyTestController = vscode.tests.createTestController(
+      'contextbranch-study-tests',
+      'ContextBranch Study',
+    );
+    this.studyTestController.createRunProfile(
+      'Run current study tests',
+      vscode.TestRunProfileKind.Run,
+      async () => this.handleRunStudyTests(),
+      true,
+    );
+    this.context.subscriptions.push(this.studyTestController);
+  }
 
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
@@ -112,6 +149,9 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
         isMain: true,
         telemetry: null,
         historyGraph: null,
+        branchRuns: {},
+        pendingEdits: null,
+        pendingEditRetryAvailable: false,
         noWorkspace: true,
       });
       return;
@@ -124,6 +164,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     const condition = this.getCondition();
     const provider = this.getProvider();
     const study = this.getStudyController();
+    const activePendingEdits = this.pendingEditsByBranch.get(activeId);
 
     this.postMessage({
       type: 'state',
@@ -155,6 +196,16 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       isMain: activeId === ws.mainBranchId,
       telemetry: ws.workspaceState.telemetry,
       study: study?.uiState(ws) ?? null,
+      branchRuns: Object.fromEntries([...this.codingRuns.entries()].map(([branchId, run]) => [
+        branchId,
+        { partialText: run.partialText },
+      ])),
+      pendingEdits: activePendingEdits?.files ?? null,
+      pendingEditRetryAvailable: Boolean(
+        activePendingEdits &&
+        activePendingEdits.retryCount === 0 &&
+        activePendingEdits.files.some(file => file.failedCount > 0)
+      ),
       noWorkspace: false,
       historyGraph: ws.getHistoryGraph(),
     });
@@ -177,7 +228,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
 
   private async handleMessage(msg: any): Promise<void> {
     switch (msg.type) {
-      case 'send': return this.handleSend(msg.content);
+      case 'send': return this.handleSend(msg.content, msg.branchId);
       case 'startStudyTask': return this.handleStartStudyTask();
       case 'runStudyTests': return this.handleRunStudyTests();
       case 'openStudyIntegration': return this.handleOpenStudyIntegration();
@@ -197,24 +248,54 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       case 'previewMerge': return this.handlePreviewMerge(msg.sourceBranchId, msg.targetBranchId, Boolean(msg.allowCascade));
       case 'createCheckpoint': return this.handleCreateCheckpoint(msg.branchId, msg.label);
       case 'restoreCheckpoint': return this.handleRestoreCheckpoint(msg.branchId, msg.checkpointId);
-      case 'abortStream': return this.handleAbort();
+      case 'abortStream': return this.handleAbort(msg.branchId);
       case 'decompose': return this.handleDecompose(msg.taskDescription);
       case 'requestState': return this.pushState();
       case 'applyArtifactsToWorkspace': return this.handleApplyArtifacts(msg.branchId);
       case 'previewArtifactsInWorkspace': return this.handlePreviewArtifacts(msg.branchId);
       case 'dismissArtifactsPreview': return this.handleDismissPreview(msg.branchId);
-      case 'applyProposedEdits': return this.handleApplyProposedEdits(msg.accepted);
-      case 'discardProposedEdits': return this.handleDiscardProposedEdits();
+      case 'applyProposedEdits': return this.handleApplyProposedEdits(msg.branchId, msg.accepted);
+      case 'discardProposedEdits': return this.handleDiscardProposedEdits(msg.branchId);
+      case 'retryProposedEdits': return this.handleRetryProposedEdits(msg.branchId);
     }
   }
 
   // ─── send message + stream reply ──────────────────────────────────────────
 
-  private resolveCodingContextWithoutAgent(ws: Workspace, history: Message[]): { workspaceFiles: WorkspaceFileCandidate[]; selectedFiles: { path: string; content: string }[] } {
+  /**
+   * Return the exact contents that may be edited in one state. The visible
+   * state is read from disk first, because a participant can save a manual
+   * edit before the watcher has turned it into an artifact. An inactive state
+   * has no faithful disk representation, so it falls back to its artifacts.
+   */
+  private authoritativeContents(
+    ws: Workspace,
+    branchId: string,
+    workspaceRoot: string | undefined,
+    paths: Iterable<string>,
+  ): Map<string, string> {
+    const current = new Map<string, string>();
+    const active = ws.activeBranchId === branchId;
+    const artifacts = new Map(ws.getArtifacts(branchId).map(artifact => [artifact.path, artifact.content]));
+    for (const filePath of paths) {
+      const onDisk = active ? readWorkspaceFile(workspaceRoot, filePath) : null;
+      if (onDisk != null) current.set(filePath, onDisk);
+      else {
+        const artifact = artifacts.get(filePath);
+        if (artifact != null) current.set(filePath, artifact);
+      }
+    }
+    return current;
+  }
+
+  private resolveCodingContextWithoutAgent(ws: Workspace, branchId: string, history: Message[]): { workspaceFiles: WorkspaceFileCandidate[]; selectedFiles: { path: string; content: string }[] } {
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!root) return { workspaceFiles: [], selectedFiles: [] };
-    const scanned = scanWorkspaceFiles(root);
-    const branchArtifacts = ws.getArtifacts(ws.activeBranchId);
+    // Disk mirrors only the visible state. An inactive state must be resolved
+    // entirely from its own artifact snapshot or it can inherit another
+    // state's newly-created files while both generations run.
+    const scanned = ws.activeBranchId === branchId ? scanWorkspaceFiles(root) : [];
+    const branchArtifacts = ws.getArtifacts(branchId);
     const known = new Set(scanned.map(f => f.path));
     const inventory = [...scanned];
     for (const a of branchArtifacts) if (!known.has(a.path)) inventory.push({ path: a.path, size: a.content.length, symbols: [] });
@@ -250,9 +331,10 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
 
     const branchByPath = new Map(branchArtifacts.map(a => [a.path, a]));
     const selectedFiles: { path: string; content: string }[] = [];
+    const active = ws.activeBranchId === branchId;
     for (const filePath of selectedPaths) {
       const branch = branchByPath.get(filePath);
-      if (branch) {
+      if (branch && !active) {
         selectedFiles.push({ path: filePath, content: branch.content });
         continue;
       }
@@ -262,13 +344,16 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       try {
         const content = fs.readFileSync(abs, 'utf8');
         if (!content.includes('\u0000')) selectedFiles.push({ path: filePath, content });
-      } catch {}
+      } catch {
+        if (branch) selectedFiles.push({ path: filePath, content: branch.content });
+      }
     }
     return { workspaceFiles: inventory, selectedFiles };
   }
 
   private async resolveCodingContext(
     ws: Workspace,
+    branchId: string,
     history: Message[],
     model: string,
     signal: AbortSignal,
@@ -276,8 +361,8 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!root) return { workspaceFiles: [], selectedFiles: [], inputTokens: 0, outputTokens: 0, usedAgent: false };
 
-    const scanned = scanWorkspaceFiles(root);
-    const branchArtifacts = ws.getArtifacts(ws.activeBranchId);
+    const scanned = ws.activeBranchId === branchId ? scanWorkspaceFiles(root) : [];
+    const branchArtifacts = ws.getArtifacts(branchId);
     const known = new Set(scanned.map(f => f.path));
     const inventory = [...scanned];
     for (const a of branchArtifacts) {
@@ -340,9 +425,10 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
 
     const branchByPath = new Map(branchArtifacts.map(a => [a.path, a]));
     const selectedFiles: { path: string; content: string }[] = [];
+    const active = ws.activeBranchId === branchId;
     for (const filePath of selectedPaths) {
       const branch = branchByPath.get(filePath);
-      if (branch) {
+      if (branch && !active) {
         selectedFiles.push({ path: filePath, content: branch.content });
         continue;
       }
@@ -352,12 +438,21 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       try {
         const content = fs.readFileSync(abs, 'utf8');
         if (!content.includes('\u0000')) selectedFiles.push({ path: filePath, content });
-      } catch { /* file may have disappeared between scan and read */ }
+      } catch {
+        // The active file may disappear while a response is starting. Keep an
+        // earlier state artifact only as a fallback; it must not take priority
+        // over a readable current file.
+        if (branch) selectedFiles.push({ path: filePath, content: branch.content });
+      }
     }
     return { workspaceFiles: inventory, selectedFiles, summary, rationale, inputTokens, outputTokens, usedAgent: totalBytes > 80_000 };
   }
 
-  private async handleSend(content: string): Promise<void> {
+  private async handleSend(
+    content: string,
+    requestedBranchId?: string,
+    editRecovery?: EditRecoveryRequest,
+  ): Promise<void> {
     const ws = this.requireWorkspace();
     if (!ws) return;
     const provider = this.getProvider();
@@ -365,20 +460,57 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       this.postMessage({ type: 'error', message: 'No API key configured. Run "ContextBranch: Set API Key".' });
       return;
     }
+    const branchId = typeof requestedBranchId === 'string' ? requestedBranchId : ws.activeBranchId;
+    const branch = ws.getBranch(branchId);
+    if (!branch) {
+      this.postMessage({ type: 'error', branchId, message: 'The selected state no longer exists.' });
+      return;
+    }
+    if (this.codingRuns.has(branch.id)) {
+      this.postMessage({ type: 'error', branchId: branch.id, message: 'This state is already generating a response.' });
+      return;
+    }
+    if (this.pendingEditsByBranch.has(branch.id)) {
+      this.postMessage({ type: 'error', branchId: branch.id, message: 'Review or discard this state\'s proposed edits before sending another prompt.' });
+      return;
+    }
+
     const study = this.getStudyController();
     if (study) {
-      const denial = study.beginModelCall(ws);
+      const denial = study.beginModelCall(ws, branch.id);
       if (denial) {
-        this.postMessage({ type: 'error', message: denial });
+        this.postMessage({ type: 'error', branchId: branch.id, message: denial });
         return;
       }
     }
 
-    const branch = ws.getActiveBranch();
-    ws.appendMessage(branch.id, 'user', content);
+    const controller = new AbortController();
+    let finishRun!: () => void;
+    const done = new Promise<void>(resolve => { finishRun = resolve; });
+    this.codingRuns.set(branch.id, { controller, partialText: '', done, finish: finishRun });
+    if (editRecovery) {
+      ws.appendMessage(
+        branch.id,
+        'system',
+        `[edit-retry] Retrying ${editRecovery.failureCount} failed change(s) against the authoritative current file (attempt 1/1).`,
+      );
+      if (study) {
+        study.recordEditRetry(ws, branch.id, editRecovery.failureCount);
+      } else {
+        ws.storage.appendTelemetry({
+          type: 'edit_retry_started',
+          actor: 'participant',
+          branchId: branch.id,
+          retryCount: editRecovery.retryCount,
+          failureCount: editRecovery.failureCount,
+        });
+      }
+    } else {
+      ws.appendMessage(branch.id, 'user', content);
+    }
     this.pushState();
 
-    this.currentAbort = new AbortController();
+    try {
     const agent = new CodingAgent(provider);
     const parent = branch.parentBranchId ? ws.getBranch(branch.parentBranchId) : null;
     const history = ws.getMessages(branch.id);
@@ -401,20 +533,20 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       if (contextEnabled && workspaceRoot) {
         // The Context Agent is skipped automatically for small workspaces, where
         // the complete readable tree is injected without a routing call. For
-        // larger study workspaces it is a real pooled model call, so it is
-        // counted separately from the coding call.
-        const scanned = scanWorkspaceFiles(workspaceRoot);
-        const branchArtifacts = ws.getArtifacts(ws.activeBranchId);
+        // larger study workspaces it is a real model call, so telemetry records
+        // it separately from the coding call.
+        const scanned = ws.activeBranchId === branch.id ? scanWorkspaceFiles(workspaceRoot) : [];
+        const branchArtifacts = ws.getArtifacts(branch.id);
         const inventoryBytes = scanned.reduce((n, f) => n + f.size, 0) +
           branchArtifacts.filter(a => !scanned.some(f => f.path === a.path))
             .reduce((n, a) => n + a.content.length, 0);
 
         if (inventoryBytes > 80_000) {
           if (study) {
-            const denial = study.beginModelCall(ws);
+            const denial = study.beginModelCall(ws, branch.id);
             if (!denial) {
               contextCallStarted = true;
-              const context = await this.resolveCodingContext(ws, history, model, this.currentAbort.signal);
+              const context = await this.resolveCodingContext(ws, branch.id, history, model, controller.signal);
               contextInputTokens = context.inputTokens;
               contextOutputTokens = context.outputTokens;
               codingContext = {
@@ -423,13 +555,13 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
                 summary: context.summary,
                 rationale: context.rationale,
               };
-              study.recordModelUsage(ws, contextInputTokens, contextOutputTokens, model);
+              study.recordModelUsage(ws, contextInputTokens, contextOutputTokens, model, branch.id);
               contextCallStarted = false;
             } else {
-              codingContext = this.resolveCodingContextWithoutAgent(ws, history);
+              codingContext = this.resolveCodingContextWithoutAgent(ws, branch.id, history);
             }
           } else {
-            const context = await this.resolveCodingContext(ws, history, model, this.currentAbort.signal);
+            const context = await this.resolveCodingContext(ws, branch.id, history, model, controller.signal);
             contextInputTokens = context.inputTokens;
             contextOutputTokens = context.outputTokens;
             codingContext = {
@@ -440,32 +572,43 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
             };
           }
         } else {
-          codingContext = this.resolveCodingContextWithoutAgent(ws, history);
+          codingContext = this.resolveCodingContextWithoutAgent(ws, branch.id, history);
         }
       } else if (workspaceRoot) {
-        codingContext = this.resolveCodingContextWithoutAgent(ws, history);
+        codingContext = this.resolveCodingContextWithoutAgent(ws, branch.id, history);
       }
     } catch (err: any) {
       if (contextCallStarted && study) {
-        study.recordModelUsage(ws, contextInputTokens, contextOutputTokens, model);
+        study.recordModelUsage(ws, contextInputTokens, contextOutputTokens, model, branch.id);
         contextCallStarted = false;
       }
-      if (workspaceRoot) codingContext = this.resolveCodingContextWithoutAgent(ws, history);
+      if (workspaceRoot) codingContext = this.resolveCodingContextWithoutAgent(ws, branch.id, history);
       this.postMessage({
         type: 'contextWarning',
+        branchId: branch.id,
         message: `Context selection fallback: ${err.message ?? String(err)}`,
       });
     }
 
     const runCoding = async (repairInstruction?: string): Promise<{
-      text: string; inputTokens: number; outputTokens: number; truncated: boolean; aborted: boolean;
+      text: string;
+      inputTokens: number;
+      outputTokens: number;
+      truncated: boolean;
+      aborted: boolean;
+      interruptionReason?: InterruptionReason;
     }> => {
       let assistantText = '';
       let inputTokens = 0, outputTokens = 0;
       let truncated = false;
       let aborted = false;
+      let interruptionReason: InterruptionReason | undefined;
+      let repetitionDetected = false;
+      let nextRepetitionCheckAt = 2_048;
 
-      this.postMessage({ type: 'streamStart' });
+      const run = this.codingRuns.get(branch.id);
+      if (run) run.partialText = '';
+      this.postMessage({ type: 'streamStart', branchId: branch.id });
       try {
         for await (const ev of agent.streamReply({
           branch,
@@ -473,7 +616,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
           isMain,
           history,
           workspaceRoot,
-          signal: this.currentAbort!.signal,
+          signal: controller.signal,
           artifacts: ws.getArtifacts(branch.id),
           workspaceFiles: codingContext.workspaceFiles,
           selectedFiles: codingContext.selectedFiles,
@@ -485,81 +628,124 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
         })) {
           if (ev.type === 'delta' && ev.text) {
             assistantText += ev.text;
-            this.postMessage({ type: 'streamDelta', text: ev.text });
+            const activeRun = this.codingRuns.get(branch.id);
+            if (activeRun) activeRun.partialText += ev.text;
+            this.postMessage({ type: 'streamDelta', branchId: branch.id, text: ev.text });
+            if (!repetitionDetected && assistantText.length >= nextRepetitionCheckAt) {
+              nextRepetitionCheckAt = assistantText.length + 512;
+              if (hasRepeatedSearchReplaceBlock(assistantText)) {
+                repetitionDetected = true;
+                aborted = true;
+                interruptionReason = 'repetition';
+                controller.abort();
+                this.postMessage({
+                  type: 'error',
+                  branchId: branch.id,
+                  message: 'The model repeated the same edit block, so generation was stopped. No edits were applied. Please send a narrower follow-up.',
+                });
+              }
+            }
           } else if (ev.type === 'usage') {
             inputTokens = ev.inputTokens ?? 0;
             outputTokens = ev.outputTokens ?? 0;
           } else if (ev.type === 'error') {
             if (ev.error === 'aborted') {
               aborted = true;
-              this.postMessage({ type: 'streamAborted' });
+              interruptionReason ??= repetitionDetected ? 'repetition' : 'user_abort';
+              this.postMessage({ type: 'streamAborted', branchId: branch.id });
             } else {
               aborted = true;
-              this.postMessage({ type: 'error', message: ev.error ?? 'Unknown LLM error' });
+              interruptionReason = 'provider_error';
+              this.postMessage({ type: 'error', branchId: branch.id, message: ev.error ?? 'Unknown LLM error' });
             }
             break;
           } else if (ev.type === 'done') {
             truncated = Boolean(ev.truncated);
             if (truncated) {
               aborted = true;
+              interruptionReason = 'output_limit';
               this.postMessage({
                 type: 'error',
+                branchId: branch.id,
                 message: 'The model hit its output limit before finishing. The partial response was not applied as code edits; please resend the request or make the change smaller.',
               });
             }
             break;
           }
         }
-      } finally {
-        this.postMessage({ type: 'streamEnd' });
+      } catch (err: any) {
+        aborted = true;
+        interruptionReason ??= repetitionDetected ? 'repetition' : 'provider_error';
+        this.postMessage({
+          type: 'error',
+          branchId: branch.id,
+          message: err.message ?? String(err),
+        });
       }
-      return { text: assistantText, inputTokens, outputTokens, truncated, aborted };
+      if (repetitionDetected) {
+        aborted = true;
+        interruptionReason = 'repetition';
+      }
+      return { text: assistantText, inputTokens, outputTokens, truncated, aborted, interruptionReason };
     };
 
-    let result = await runCoding();
-    if (study) study.recordModelUsage(ws, result.inputTokens, result.outputTokens, model);
-    let retried = false;
-
-    // Automatic format recovery: a model may still occasionally ignore the
-    // edit protocol and return a complete existing file. Do not make the user
-    // type "use SEARCH/REPLACE" themselves. Re-run once with an explicit
-    // correction while keeping the authoritative file context unchanged.
-    let ops = result.aborted ? [] : parseEdits(result.text);
-    const currentByPath = new Map<string, string>();
-    for (const p of new Set(ops.map(o => o.path))) {
-      const onDisk = readWorkspaceFile(workspaceRoot, p);
-      const art = ws.getArtifacts(branch.id).find(a => a.path === p);
-      if (onDisk != null) currentByPath.set(p, onDisk);
-      else if (art) currentByPath.set(p, art.content);
-    }
-    const existingWholeFilePaths = [...new Set(
-      ops.filter(o => o.kind === 'create' && currentByPath.has(o.path)).map(o => o.path)
-    )];
-
-    if (!result.aborted && existingWholeFilePaths.length > 0) {
-      let canRetry = true;
-      if (study) {
-        const denial = study.beginModelCall(ws);
-        if (denial) canRetry = false;
+    const refreshCodingContext = (requiredPaths: Iterable<string>): void => {
+      const refreshed = this.resolveCodingContextWithoutAgent(ws, branch.id, ws.getMessages(branch.id));
+      const byPath = new Map(refreshed.selectedFiles.map(file => [file.path, file.content]));
+      for (const [filePath, content] of this.authoritativeContents(ws, branch.id, workspaceRoot, requiredPaths)) {
+        byPath.set(filePath, content);
       }
-      if (canRetry) {
-        const paths = existingWholeFilePaths.join(', ');
-        const previousDraft = result.text.length > 30_000
-          ? result.text.slice(0, 30_000) + '\n[previous draft truncated for the repair instruction]'
-          : result.text;
-        retried = true;
-        result = await runCoding(
-          `FORMAT CORRECTION REQUIRED. Your previous response attempted a whole-file replacement for existing file(s): ${paths}. ` +
-          'Do not output those files in full. Convert the requested changes into exact SEARCH/REPLACE blocks using the authoritative file contents already supplied to you. ' +
-          'Preserve unrelated content. The user should never have to ask for SEARCH/REPLACE markers. ' +
-          `Here is your previous draft for reference:\n\n${previousDraft}`
-        );
-        ops = result.aborted ? [] : parseEdits(result.text);
+      codingContext = {
+        workspaceFiles: refreshed.workspaceFiles,
+        selectedFiles: [...byPath].map(([path, content]) => ({ path, content })),
+      };
+    };
+
+    let result = await runCoding(editRecovery?.instruction);
+    if (study) {
+      study.recordModelUsage(ws, result.inputTokens, result.outputTokens, model, branch.id, {
+        interruptionReason: result.interruptionReason,
+        observedOutputChars: result.text.length,
+      });
+    }
+    let retried = false;
+    let repairCount = editRecovery?.retryCount ?? 0;
+
+    // A model can produce an anchor from an older file snapshot, for example
+    // after a participant saves a manual edit or accepts another proposal. Do
+    // not show a known-stale proposal to the participant. Re-read the state,
+    // inject those exact contents, and make one bounded repair attempt.
+    let ops = result.aborted ? [] : parseEdits(result.text);
+    let proposed = !result.aborted && ops.length
+      ? applyEdits(ops, this.authoritativeContents(ws, branch.id, workspaceRoot, new Set(ops.map(op => op.path))))
+      : [];
+
+    const failedChanges = proposed.reduce((sum, file) => sum + file.failedCount, 0);
+    if (!result.aborted && repairCount === 0 && failedChanges > 0) {
+      const denial = study?.beginModelCall(ws, branch.id);
+      if (denial) {
+        this.postMessage({ type: 'error', branchId: branch.id, message: denial });
       } else {
-        this.postMessage({
-          type: 'contextWarning',
-          message: 'The model produced a whole-file edit, but the study model-call budget does not allow an automatic format-repair attempt. The edit was not applied.',
+        const instruction = buildEditRetryInstruction(proposed, result.text);
+        ws.appendMessage(
+          branch.id,
+          'system',
+          `[edit-retry] Retrying ${failedChanges} failed change(s) against freshly read current file contents (attempt 1/1).`,
+        );
+        if (study) study.recordEditRetry(ws, branch.id, failedChanges);
+        else ws.storage.appendTelemetry({
+          type: 'edit_retry_started', actor: 'system', branchId: branch.id,
+          retryCount: 1, failureCount: failedChanges,
         });
+        this.postMessage({ type: 'editRetryStarted', branchId: branch.id, failureCount: failedChanges });
+        refreshCodingContext(new Set(ops.map(op => op.path)));
+        retried = true;
+        repairCount = 1;
+        result = await runCoding(instruction);
+        ops = result.aborted ? [] : parseEdits(result.text);
+        proposed = !result.aborted && ops.length
+          ? applyEdits(ops, this.authoritativeContents(ws, branch.id, workspaceRoot, new Set(ops.map(op => op.path))))
+          : [];
       }
     }
 
@@ -571,39 +757,53 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
         outputTokens: totalOutput,
         model,
         interrupted: result.aborted ? true : undefined,
+        interruptionReason: result.interruptionReason,
         artifactIds: ops.length ? [...new Set(ops.map(o => o.path))] : undefined,
       });
 
       if (!result.aborted && ops.length) {
-        // Re-read CURRENT content immediately before proposing the edit. This
-        // prevents a stale Context Agent snapshot from silently overwriting a
-        // manual change made during generation.
-        const currentNow = new Map<string, string>();
-        for (const p of new Set(ops.map(o => o.path))) {
-          const onDisk = readWorkspaceFile(workspaceRoot, p);
-          const art = ws.getArtifacts(branch.id).find(a => a.path === p);
-          if (onDisk != null) currentNow.set(p, onDisk);
-          else if (art) currentNow.set(p, art.content);
-        }
-
-        const proposed = applyEdits(ops, currentNow);
         const review = cfg.get<boolean>('reviewEdits') ?? true;
         if (review) {
-          this.pendingEdits = { branchId: branch.id, ops };
-          this.postMessage({ type: 'proposedEdits', files: proposed.map(serializeProposal) });
+          const files = proposed.map(serializeProposal);
+          const canRetry = repairCount === 0 && proposed.some(file => file.failedCount > 0);
+          this.pendingEditsByBranch.set(branch.id, {
+            ops,
+            files,
+            draft: result.text,
+            retryCount: repairCount,
+          });
+          this.postMessage({ type: 'proposedEdits', branchId: branch.id, files, canRetry });
         } else {
           this.commitProposedFiles(branch.id, proposed);
         }
       }
     }
 
-    if (retried && study) study.recordModelUsage(ws, result.inputTokens, result.outputTokens, model);
-    this.currentAbort = undefined;
-    this.pushState();
+    if (retried && study) {
+      study.recordModelUsage(ws, result.inputTokens, result.outputTokens, model, branch.id, {
+        interruptionReason: result.interruptionReason,
+        observedOutputChars: result.text.length,
+      });
+    }
+    } finally {
+      const run = this.codingRuns.get(branch.id);
+      this.codingRuns.delete(branch.id);
+      run?.finish();
+      this.postMessage({ type: 'streamEnd', branchId: branch.id });
+      this.pushState();
+    }
   }
 
-  private handleAbort(): void {
-    this.currentAbort?.abort();
+  private handleAbort(branchId?: string): void {
+    const ws = this.getWorkspace();
+    const target = typeof branchId === 'string' ? branchId : ws?.activeBranchId;
+    if (target) this.codingRuns.get(target)?.controller.abort();
+  }
+
+  private async abortAllCodingRuns(): Promise<void> {
+    const runs = [...this.codingRuns.values()];
+    for (const run of runs) run.controller.abort();
+    await Promise.all(runs.map(run => run.done));
   }
 
   /** Write a set of resolved files to artifacts + disk (the OK ones only). */
@@ -644,37 +844,100 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     }
     this.postMessage({
       type: 'editsApplied', applied,
+      branchId,
       failures: failures.length ? failures : undefined,
     });
     this.pushState();
   }
 
-  private handleApplyProposedEdits(accepted?: Record<string, number[]>): void {
-    const pending = this.pendingEdits;
-    if (!pending) return;
+  private handleApplyProposedEdits(branchId?: string, accepted?: Record<string, number[]>): void {
     const ws = this.requireWorkspace();
-    if (!ws) { this.pendingEdits = undefined; return; }
+    if (!ws) return;
+    const targetBranchId = typeof branchId === 'string' ? branchId : ws.activeBranchId;
+    const pending = this.pendingEditsByBranch.get(targetBranchId);
+    if (!pending) return;
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
     // Re-read CURRENT content (the user may have hand-edited since the proposal).
-    const currentByPath = new Map<string, string>();
-    for (const p of new Set(pending.ops.map(o => o.path))) {
-      const onDisk = readWorkspaceFile(workspaceRoot, p);
-      const art = ws.getArtifacts(pending.branchId).find(a => a.path === p);
-      if (onDisk != null) currentByPath.set(p, onDisk);
-      else if (art) currentByPath.set(p, art.content);
-    }
+    const currentByPath = this.authoritativeContents(
+      ws, targetBranchId, workspaceRoot, new Set(pending.ops.map(op => op.path)),
+    );
     const acceptedMap = new Map<string, Set<number>>();
     if (accepted) for (const [p, idxs] of Object.entries(accepted)) acceptedMap.set(p, new Set(idxs));
 
     const resolved = applySelected(pending.ops, currentByPath, acceptedMap);
-    this.pendingEdits = undefined;
-    this.commitProposedFiles(pending.branchId, resolved);
+    this.pendingEditsByBranch.delete(targetBranchId);
+    this.commitProposedFiles(targetBranchId, resolved);
   }
 
-  private handleDiscardProposedEdits(): void {
-    this.pendingEdits = undefined;
-    this.postMessage({ type: 'editsDiscarded' });
+  private async handleRetryProposedEdits(branchId?: string): Promise<void> {
+    const ws = this.requireWorkspace();
+    if (!ws) return;
+    const targetBranchId = typeof branchId === 'string' ? branchId : ws.activeBranchId;
+    const pending = this.pendingEditsByBranch.get(targetBranchId);
+    if (!pending) return;
+    if (pending.retryCount >= 1) {
+      this.postMessage({
+        type: 'error',
+        branchId: targetBranchId,
+        message: 'This proposal already used its one safe retry. Discard it or edit the file manually.',
+      });
+      return;
+    }
+    if (this.codingRuns.has(targetBranchId)) {
+      this.postMessage({ type: 'error', branchId: targetBranchId, message: 'This state is already generating a response.' });
+      return;
+    }
+    if (!this.getProvider()) {
+      this.postMessage({ type: 'error', branchId: targetBranchId, message: 'No API key configured.' });
+      return;
+    }
+    const study = this.getStudyController();
+    const actionError = study?.actionError();
+    if (actionError) {
+      this.postMessage({ type: 'error', branchId: targetBranchId, message: actionError });
+      return;
+    }
+
+    // Re-evaluate against the state that exists at click time. A manual edit
+    // may have made the original proposal valid since it was first shown.
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const currentByPath = this.authoritativeContents(
+      ws, targetBranchId, workspaceRoot, new Set(pending.ops.map(op => op.path)),
+    );
+    const resolved = applyEdits(pending.ops, currentByPath);
+    const failureCount = resolved.reduce((sum, file) => sum + file.failedCount, 0);
+    if (failureCount === 0) {
+      const files = resolved.map(serializeProposal);
+      pending.files = files;
+      this.postMessage({
+        type: 'proposedEdits',
+        branchId: targetBranchId,
+        files,
+        canRetry: false,
+      });
+      this.pushState();
+      return;
+    }
+
+    const instruction = buildEditRetryInstruction(resolved, pending.draft);
+    this.pendingEditsByBranch.delete(targetBranchId);
+    this.postMessage({
+      type: 'editRetryStarted',
+      branchId: targetBranchId,
+      failureCount,
+    });
+    this.pushState();
+    await this.handleSend('', targetBranchId, { instruction, retryCount: 1, failureCount });
+  }
+
+  private handleDiscardProposedEdits(branchId?: string): void {
+    const ws = this.getWorkspace();
+    const targetBranchId = typeof branchId === 'string' ? branchId : ws?.activeBranchId;
+    if (!targetBranchId) return;
+    this.pendingEditsByBranch.delete(targetBranchId);
+    this.postMessage({ type: 'editsDiscarded', branchId: targetBranchId });
+    this.pushState();
   }
 
   // ─── branching ────────────────────────────────────────────────────────────
@@ -703,13 +966,13 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     actor: 'participant' | 'system' = 'participant',
     reason: string = 'state_selector',
   ): Promise<void> {
-    if (this.currentAbort) {
-      this.currentAbort.abort();
-    }
     const ws = this.requireWorkspace();
     if (!ws) return;
+    if (this.studyTestRunningStateId && branchId !== ws.activeBranchId) {
+      this.postMessage({ type: 'error', message: 'Wait for the current state test to finish before switching states.' });
+      return;
+    }
 
-    this.pendingEdits = undefined;
     this.pendingMergePreview = undefined;
     this.pendingManualMerge = undefined;
     // Any in-file preview belongs to the branch we're leaving — revert those
@@ -758,6 +1021,10 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     }
     const ws = this.requireWorkspace();
     if (!ws) return;
+    if (this.codingRuns.has(branchId)) {
+      this.postMessage({ type: 'error', branchId, message: 'Stop this state\'s generation before abandoning it.' });
+      return;
+    }
     ws.abandonBranch(branchId);
     if (ws.activeBranchId === branchId) ws.switchBranch(ws.mainBranchId);
     this.pushState();
@@ -889,29 +1156,67 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     };
   }
 
-  private buildResolveConflictHook(): NonNullable<Parameters<typeof previewMerge>[1]['resolveConflict']> | null {
+  private buildResolveConflictHook(opts?: {
+    study?: StudyController | null;
+    sourceBranchId?: string;
+    targetBranchId?: string;
+  }): NonNullable<Parameters<typeof previewMerge>[1]['resolveConflict']> | null {
     const provider = this.getProvider();
     if (!provider) return null;
-    const resolver = new ConflictResolverAgent(
-      provider,
-      (i, o) => this.getWorkspace()?.recordMergeApiUsage(i, o),
-    );
-    return async (opts) => {
-      return await resolver.resolve({
-        path: opts.path,
-        base: opts.base,
-        theirs: opts.theirs,
-        ours: opts.ours,
-        theirContext: opts.theirContext.map(m => ({ role: m.role, content: m.content })),
-        ourContext: opts.ourContext.map(m => ({ role: m.role, content: m.content })),
-        signal: this.currentAbort?.signal,
+    return async (conflict) => {
+      const ws = this.getWorkspace();
+      let inputTokens = 0;
+      let outputTokens = 0;
+      if (ws && opts?.study && opts.sourceBranchId && opts.targetBranchId) {
+        opts.study.recordMergeModelCallStarted(
+          ws,
+          opts.sourceBranchId,
+          opts.targetBranchId,
+          conflict.path,
+          'conflict_resolution',
+        );
+      }
+      const resolver = new ConflictResolverAgent(provider, (i, o) => {
+        inputTokens += i;
+        outputTokens += o;
+        ws?.recordMergeApiUsage(i, o);
       });
+      const resolution = await resolver.resolve({
+        path: conflict.path,
+        base: conflict.base,
+        theirs: conflict.theirs,
+        ours: conflict.ours,
+        theirContext: conflict.theirContext.map(m => ({ role: m.role, content: m.content })),
+        ourContext: conflict.ourContext.map(m => ({ role: m.role, content: m.content })),
+        signal: this.currentAbort?.signal,
+        model: opts?.study?.modelId,
+      });
+      if (ws && opts?.study && opts.sourceBranchId && opts.targetBranchId) {
+        opts.study.recordMergeModelUsage(
+          ws,
+          opts.sourceBranchId,
+          opts.targetBranchId,
+          conflict.path,
+          'conflict_resolution',
+          inputTokens,
+          outputTokens,
+        );
+      }
+      return resolution;
     };
   }
 
   private async handlePreviewMerge(sourceBranchId: string, targetBranchId: string, allowCascade = false): Promise<void> {
     const ws = this.requireWorkspace();
     if (!ws) return;
+    if (this.codingRuns.has(sourceBranchId) || this.codingRuns.has(targetBranchId)) {
+      this.postMessage({ type: 'error', message: 'Wait for the source and target generations to finish before previewing a merge.' });
+      return;
+    }
+    if (this.pendingEditsByBranch.has(sourceBranchId) || this.pendingEditsByBranch.has(targetBranchId)) {
+      this.postMessage({ type: 'error', message: 'Review or discard proposed edits in the source and target before previewing a merge.' });
+      return;
+    }
     const study = this.getStudyController();
     if (study) {
       const actionError = study.actionError();
@@ -921,15 +1226,19 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
         return;
       }
     }
-    const provider = study ? null : this.getProvider();
+    const provider = this.getProvider();
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const config = vscode.workspace.getConfiguration('contextbranch');
     const testCmd = config.get<string>('testCommand') || (workspaceRoot ? detectTestCommand(workspaceRoot) : null);
     const lintCmd = config.get<string>('lintCommand') || (workspaceRoot ? detectLintCommand(workspaceRoot) : null);
-    const semanticMerge = study ? false : config.get<boolean>('semanticMerge') ?? true;
-    const meta = provider ? new MetaAgent(provider) : null;
-    const analyzeCascade = semanticMerge && allowCascade ? this.buildAnalyzeCascadeHook() : null;
-    const resolveConflict = semanticMerge ? this.buildResolveConflictHook() : null;
+    const semanticMerge = config.get<boolean>('semanticMerge') ?? true;
+    const meta = provider && !study ? new MetaAgent(provider) : null;
+    // Study integrations may use the pinned task model to resolve an actual
+    // textual conflict, but never run cascading-edit analysis or synthesis.
+    const analyzeCascade = !study && semanticMerge && allowCascade ? this.buildAnalyzeCascadeHook() : null;
+    const resolveConflict = provider && (Boolean(study) || semanticMerge)
+      ? this.buildResolveConflictHook({ study, sourceBranchId, targetBranchId })
+      : null;
 
     try {
       const preview = await previewMerge(ws, {
@@ -961,13 +1270,21 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
   private async handleBeginManualMergeResolution(acceptedCascadePaths: string[] = []): Promise<void> {
     const ws = this.requireWorkspace();
     const cached = this.pendingMergePreview;
-    if (this.getStudyController()) {
-      this.postMessage({ type: 'error', message: 'Manual IDE conflict resolution is disabled during prepared study tasks.' });
-      return;
-    }
     if (!ws || !cached) {
       this.postMessage({ type: 'error', message: 'Preview the merge before starting conflict resolution.' });
       return;
+    }
+    const study = this.getStudyController();
+    if (study) {
+      const actionError = study.actionError();
+      if (actionError) {
+        this.postMessage({ type: 'error', message: actionError });
+        return;
+      }
+      if (!study.allowsMerge(cached.sourceBranchId, cached.targetBranchId, ws)) {
+        this.postMessage({ type: 'error', message: 'During this study task, only an active automatic sibling state may be integrated into main.' });
+        return;
+      }
     }
     if (ws.activeBranchId !== cached.sourceBranchId) {
       this.postMessage({ type: 'error', message: 'Switch to the source branch before resolving merge conflicts in the editor.' });
@@ -1020,6 +1337,18 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     if (!ws || !cached || !manual) {
       this.postMessage({ type: 'error', message: 'No active IDE conflict-resolution session.' });
       return;
+    }
+    const study = this.getStudyController();
+    if (study) {
+      const actionError = study.actionError();
+      if (actionError) {
+        this.postMessage({ type: 'error', message: actionError });
+        return;
+      }
+      if (!study.allowsMerge(manual.sourceBranchId, manual.targetBranchId, ws)) {
+        this.postMessage({ type: 'error', message: 'During this study task, only an active automatic sibling state may be integrated into main.' });
+        return;
+      }
     }
     if (ws.activeBranchId !== manual.sourceBranchId) {
       this.postMessage({ type: 'error', message: 'Return to the source branch before finalizing the resolved merge.' });
@@ -1077,7 +1406,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
           const c = vscode.workspace.getConfiguration('contextbranch').get<string>('lintCommand');
           return c ?? (detectLintCommand(root) ?? undefined);
         })(),
-        skipVerification: false,
+        skipVerification: Boolean(study),
         acceptedConflictPaths: manual.paths,
         manualResolvedContents: manualResolved,
         acceptedCascadePaths: manual.acceptedCascadePaths,
@@ -1086,6 +1415,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       await this.getDecorations().dismissAllPreviews();
       this.pendingManualMerge = undefined;
       this.pendingMergePreview = undefined;
+      if (study) study.recordIntegrationCompleted(ws, cached.sourceBranchId, event.id);
       if (ws.activeBranchId === cached.sourceBranchId) {
         await this.handleSwitchBranch(cached.targetBranchId, 'system', 'merge_finalization');
       }
@@ -1136,9 +1466,30 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       this.postMessage({ type: 'error', message: `Could not load both branch versions of ${pathToRevise}.` });
       return;
     }
+    const study = this.getStudyController();
+    if (study) {
+      const actionError = study.actionError();
+      if (actionError) {
+        this.postMessage({ type: 'error', message: actionError });
+        return;
+      }
+      study.recordMergeModelCallStarted(
+        ws,
+        cached.sourceBranchId,
+        cached.targetBranchId,
+        pathToRevise,
+        'conflict_revision',
+      );
+    }
     try {
       const previous = (cached.preview.conflictResolutions ?? []).find((r: any) => r.path === pathToRevise);
-      const resolution = await new ConflictResolverAgent(provider).resolve({
+      let inputTokens = 0;
+      let outputTokens = 0;
+      const resolution = await new ConflictResolverAgent(provider, (i, o) => {
+        inputTokens += i;
+        outputTokens += o;
+        ws.recordMergeApiUsage(i, o);
+      }).resolve({
         path: pathToRevise,
         base: conflict.baseContent ?? sourceArtifact.baseContent ?? '',
         theirs: targetArtifact.content,
@@ -1147,7 +1498,19 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
         ourContext: ws.getMessages(source.id).slice(-4),
         revisionInstruction: instruction,
         currentResolution: previous?.resolvedContent,
+        model: study?.modelId,
       });
+      if (study) {
+        study.recordMergeModelUsage(
+          ws,
+          cached.sourceBranchId,
+          cached.targetBranchId,
+          pathToRevise,
+          'conflict_revision',
+          inputTokens,
+          outputTokens,
+        );
+      }
       const resolutions = [...(cached.preview.conflictResolutions ?? [])];
       const index = resolutions.findIndex(r => r.path === pathToRevise);
       if (index >= 0) resolutions[index] = resolution;
@@ -1192,6 +1555,14 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     if (this.mergeInProgress) { this.postMessage({ type: 'error', message: 'A merge is already running.' }); return; }
     const ws = this.requireWorkspace();
     if (!ws) return;
+    if (this.codingRuns.has(sourceBranchId) || this.codingRuns.has(targetBranchId)) {
+      this.postMessage({ type: 'error', message: 'Wait for the source and target generations to finish before merging.' });
+      return;
+    }
+    if (this.pendingEditsByBranch.has(sourceBranchId) || this.pendingEditsByBranch.has(targetBranchId)) {
+      this.postMessage({ type: 'error', message: 'Review or discard proposed edits in the source and target before merging.' });
+      return;
+    }
     const cached = this.pendingMergePreview;
     if (!cached || cached.sourceBranchId !== sourceBranchId || cached.targetBranchId !== targetBranchId) {
       this.postMessage({ type: 'error', message: 'Preview this exact merge before finalizing it.' });
@@ -1435,17 +1806,37 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       this.postMessage({ type: 'error', message: denial });
       return;
     }
+    if (this.studyTestRunningStateId) {
+      this.postMessage({ type: 'error', message: 'A study test is already running.' });
+      return;
+    }
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceRoot) return;
-    this.postMessage({ type: 'studyTestStarted' });
+    const selection = study.publicTestSelection(ws);
+    const stateId = ws.activeBranchId;
+    this.studyTestRunningStateId = stateId;
+    this.postMessage({ type: 'studyTestStarted', label: selection.label });
+
+    const item = this.studyTestController.createTestItem(
+      `${study.taskId}:${selection.target}`,
+      `${study.taskId}: ${selection.label}`,
+      vscode.Uri.file(workspaceRoot),
+    );
+    this.studyTestController.items.replace([item]);
+    const request = new vscode.TestRunRequest([item], undefined, undefined, false, false);
+    const testRun = this.studyTestController.createTestRun(request, selection.label, true);
+    testRun.started(item);
+    testRun.appendOutput(`$ ${selection.command}\r\n`, undefined, item);
+
     const startedAt = Date.now();
     let exitCode: number | null = 0;
     let output = '';
     try {
-      const result = await execAsync(study.publicTestCommand, {
+      const result = await execAsync(selection.command, {
         cwd: workspaceRoot,
         timeout: 90_000,
         maxBuffer: 512_000,
+        env: { ...process.env, CONTEXTBRANCH_STUDY_FORM_ID: study.formId },
       });
       output = `${result.stdout}\n${result.stderr}`.trim();
     } catch (error: any) {
@@ -1453,12 +1844,24 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       output = `${error.stdout ?? ''}\n${error.stderr ?? error.message ?? String(error)}`.trim();
     }
     const durationMs = Date.now() - startedAt;
-    study.recordPublicTest(ws, exitCode, output, durationMs);
+    const testOutput = (output || '(No test output.)').replace(/\r?\n/g, '\r\n') + '\r\n';
+    testRun.appendOutput(testOutput, undefined, item);
+    if (exitCode === 0) {
+      testRun.passed(item, durationMs);
+    } else if (exitCode === 1) {
+      testRun.failed(item, new vscode.TestMessage(output || 'Public tests did not pass.'), durationMs);
+    } else {
+      testRun.errored(item, new vscode.TestMessage(output || 'Public tests could not be completed.'), durationMs);
+    }
+    testRun.end();
+
+    study.recordPublicTest(ws, selection.target, exitCode, output, durationMs);
+    this.studyTestRunningStateId = undefined;
     this.postMessage({
       type: 'studyTestResult',
       exitCode,
       durationMs,
-      output: output.slice(-10_000),
+      label: selection.label,
     });
     this.pushState();
   }
@@ -1470,6 +1873,14 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     const actionError = study.actionError();
     if (actionError) {
       this.postMessage({ type: 'error', message: actionError });
+      return;
+    }
+    if (this.codingRuns.has(ws.activeBranchId)) {
+      this.postMessage({ type: 'error', branchId: ws.activeBranchId, message: 'Wait for this state\'s generation to finish before integrating it.' });
+      return;
+    }
+    if (this.pendingEditsByBranch.has(ws.activeBranchId)) {
+      this.postMessage({ type: 'error', branchId: ws.activeBranchId, message: 'Review or discard this state\'s proposed edits before integrating it.' });
       return;
     }
     if (!study.allowsMerge(ws.activeBranchId, ws.mainBranchId, ws)) {
@@ -1519,8 +1930,16 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     const ws = this.requireWorkspace();
     const study = this.getStudyController();
     if (!ws || !study) return;
+    if (this.studyTestRunningStateId) {
+      this.postMessage({ type: 'error', message: 'Wait for the current state test to finish before finishing the task.' });
+      return;
+    }
     if (!study.uiState(ws).started) {
       this.postMessage({ type: 'error', message: 'Start the task before finishing it.' });
+      return;
+    }
+    if (this.codingRuns.size > 0) {
+      this.postMessage({ type: 'error', message: 'Wait for every running state to finish, or stop them, before finishing the task.' });
       return;
     }
     const activeStateAtFinish = ws.activeBranchId;
@@ -1552,6 +1971,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
 
     this.finishingTimedOutStudy = true;
     try {
+      await this.abortAllCodingRuns();
       const activeStateAtFinish = ws.activeBranchId;
       if (activeStateAtFinish !== ws.mainBranchId) {
         await this.handleSwitchBranch(ws.mainBranchId, 'system', 'timeout_finalization');

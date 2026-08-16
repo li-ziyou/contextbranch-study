@@ -17,6 +17,7 @@
 
   let lastRenderedMessageKey = null;
   let lastRenderedMessageBranchId = null;
+  let lastRenderedEditReviewKey = null;
 
   let state = {
     condition: 'branched',
@@ -29,8 +30,9 @@
     activeBranchStatus: '',
     isMain: true,
     telemetry: null,
-    isStreaming: false,
-    streamingText: '',
+    branchRuns: {},
+    pendingEdits: null,
+    pendingEditRetryAvailable: false,
     decompositionResult: null,
     decomposing: false,
     pendingMergePreview: null,
@@ -65,17 +67,16 @@
     try {
       switch (msg.type) {
         case 'state': handleState(msg); break;
-        case 'streamStart': handleStreamStart(); break;
-        case 'streamDelta': handleStreamDelta(msg.text); break;
-        case 'streamAborted': handleStreamAborted(); break;
-        case 'streamEnd': handleStreamEnd(); break;
+        case 'streamStart': handleStreamStart(msg.branchId); break;
+        case 'streamDelta': handleStreamDelta(msg.branchId, msg.text); break;
+        case 'streamAborted': handleStreamAborted(msg.branchId); break;
+        case 'streamEnd': handleStreamEnd(msg.branchId); break;
         case 'error':
-          showStatus(msg.message, 'error');
+          if (!msg.branchId || msg.branchId === state.activeBranchId) showStatus(msg.message, 'error');
           // Reset transient UI states so we never get stuck spinners
           $('merge-running').hidden = true;
           setMergeUiBusy(false);
           setDecomposeBusy(false);
-          handleStreamEnd();
           break;
         case 'success': showStatus(msg.message, 'success'); break;
         case 'decompositionResult': handleDecompositionResult(msg.result); break;
@@ -97,7 +98,9 @@
           showStatus(msg.message || 'Resolve all conflict markers before finalizing.', 'error');
           break;
         case 'mergeUndone': showStatus(msg.message || 'Merge undone.', 'success'); break;
-        case 'contextWarning': showStatus(msg.message, 'error'); break;
+        case 'contextWarning':
+          if (!msg.branchId || msg.branchId === state.activeBranchId) showStatus(msg.message, 'error');
+          break;
         case 'switchApplied': {
           showStatus(`Switched to ${msg.branchName}.`, 'info');
           break;
@@ -108,17 +111,32 @@
         case 'checkpointRestored':
           showStatus(msg.message || 'Checkpoint restored.', 'success');
           break;
-        case 'proposedEdits': renderEditReview(msg.files); break;
+        case 'proposedEdits':
+          if (msg.branchId === state.activeBranchId) renderEditReview(msg.files, msg.branchId, msg.canRetry);
+          break;
+        case 'editRetryStarted':
+          if (msg.branchId === state.activeBranchId) {
+            clearEditReview();
+            showStatus(
+              `Retrying ${msg.failureCount || 1} failed change${msg.failureCount === 1 ? '' : 's'} against the current file…`,
+              'info',
+            );
+          }
+          break;
         case 'editsApplied':
-          clearEditReview();
-          showStatus(
-            `Applied edits to ${msg.applied} file${msg.applied === 1 ? '' : 's'}` +
-            (msg.failures ? ` · ${msg.failures.length} change(s) skipped` : ''),
-            msg.failures ? 'info' : 'success');
+          if (!msg.branchId || msg.branchId === state.activeBranchId) {
+            clearEditReview();
+            showStatus(
+              `Applied edits to ${msg.applied} file${msg.applied === 1 ? '' : 's'}` +
+              (msg.failures ? ` · ${msg.failures.length} change(s) skipped` : ''),
+              msg.failures ? 'info' : 'success');
+          }
           break;
         case 'editsDiscarded':
-          clearEditReview();
-          showStatus('Proposed edits discarded.', 'info');
+          if (!msg.branchId || msg.branchId === state.activeBranchId) {
+            clearEditReview();
+            showStatus('Proposed edits discarded.', 'info');
+          }
           break;
         case 'artifactsPreviewed': {
           if (msg.filesWithChanges > 0) {
@@ -142,16 +160,13 @@
         case 'studyTestStarted':
           state.studyTestsRunning = true;
           $('study-run-tests').disabled = true;
-          showStatus('Running public tests…', 'info');
+          showStatus(`Running ${msg.label || 'public tests'}…`, 'info');
           break;
         case 'studyTestResult': {
           state.studyTestsRunning = false;
-          const output = msg.output || '(No test output.)';
-          $('study-test-output').textContent = output;
-          $('study-test-output').hidden = false;
           showStatus(
-            msg.exitCode === 0 ? `Public tests passed (${Math.ceil(msg.durationMs / 1000)}s).`
-              : `Public tests did not pass (${Math.ceil(msg.durationMs / 1000)}s).`,
+            msg.exitCode === 0 ? `${msg.label || 'Public tests'} passed (${Math.ceil(msg.durationMs / 1000)}s).`
+              : `${msg.label || 'Public tests'} did not pass (${Math.ceil(msg.durationMs / 1000)}s).`,
             msg.exitCode === 0 ? 'success' : 'error',
           );
           render();
@@ -185,13 +200,21 @@
   function clearEditReview() {
     const panel = $('edit-review');
     if (panel) { panel.hidden = true; panel.innerHTML = ''; }
+    lastRenderedEditReviewKey = null;
   }
 
   // Render the proposed-edits review panel. Each file shows its diff; each
   // change (op) has a checkbox so you can accept a subset. Apply / Discard.
-  function renderEditReview(files) {
+  function renderEditReview(
+    files,
+    branchId = state.activeBranchId,
+    canRetry = state.pendingEditRetryAvailable,
+  ) {
     const panel = $('edit-review');
     if (!panel) return;
+    const reviewKey = branchId + ':' + String(Boolean(canRetry)) + ':' + JSON.stringify(files);
+    if (lastRenderedEditReviewKey === reviewKey && !panel.hidden) return;
+    lastRenderedEditReviewKey = reviewKey;
     panel.innerHTML = '';
     panel.hidden = false;
 
@@ -274,13 +297,26 @@
 
     const actions = document.createElement('div');
     actions.className = 'edit-review-actions';
+    const hasFailures = files.some(file => file.ops.some(op => !op.ok));
+    const hasApplicableChanges = files.some(file => file.ops.some(op => op.ok));
     const discard = document.createElement('button');
     discard.className = 'btn-secondary';
     discard.textContent = 'Discard';
-    discard.addEventListener('click', () => send({ type: 'discardProposedEdits' }));
+    discard.addEventListener('click', () => send({ type: 'discardProposedEdits', branchId }));
+    if (hasFailures && canRetry) {
+      const retry = document.createElement('button');
+      retry.className = 'btn-secondary';
+      retry.textContent = 'Retry against current file';
+      retry.addEventListener('click', () => {
+        retry.disabled = true;
+        send({ type: 'retryProposedEdits', branchId });
+      });
+      actions.appendChild(retry);
+    }
     const apply = document.createElement('button');
     apply.className = 'btn-primary';
     apply.textContent = 'Apply selected';
+    apply.disabled = !hasApplicableChanges;
     apply.addEventListener('click', () => {
       const accepted = {};
       panel.querySelectorAll('.edit-file').forEach(card => {
@@ -291,7 +327,7 @@
         });
         accepted[p] = idxs;
       });
-      send({ type: 'applyProposedEdits', accepted });
+      send({ type: 'applyProposedEdits', branchId, accepted });
     });
     actions.appendChild(discard);
     actions.appendChild(apply);
@@ -307,40 +343,51 @@
       hidePreviewBar();
     }
     render();
+    if (Array.isArray(state.pendingEdits)) {
+      renderEditReview(state.pendingEdits, state.activeBranchId, state.pendingEditRetryAvailable);
+    }
+    else clearEditReview();
     if (state.historyOpen && state.historyGraph) {
       renderHistoryView();
     }
   }
 
-  function handleStreamStart() {
-    state.isStreaming = true;
-    state.streamingText = '';
-    $('btn-send').hidden = true;
-    $('btn-stop').hidden = false;
-    $('streaming').hidden = false;
-    $('streaming-text').textContent = '';
-    $('composer-status').textContent = 'Generating...';
-    scrollToBottom();
+  function handleStreamStart(branchId) {
+    if (!branchId) return;
+    state.branchRuns = Object.assign({}, state.branchRuns, { [branchId]: { partialText: '' } });
+    renderActiveRun();
   }
 
-  function handleStreamDelta(text) {
-    state.streamingText += text;
-    $('streaming-text').textContent = state.streamingText;
-    scrollToBottom();
+  function handleStreamDelta(branchId, text) {
+    if (!branchId) return;
+    const current = state.branchRuns[branchId] || { partialText: '' };
+    state.branchRuns = Object.assign({}, state.branchRuns, {
+      [branchId]: { partialText: current.partialText + text },
+    });
+    if (branchId === state.activeBranchId) renderActiveRun(true);
   }
 
-  function handleStreamAborted() {
-    showStatus('Generation stopped.', 'info');
-    handleStreamEnd();
+  function handleStreamAborted(branchId) {
+    if (branchId === state.activeBranchId) showStatus('Generation stopped.', 'info');
   }
 
-  function handleStreamEnd() {
-    state.isStreaming = false;
-    state.streamingText = '';
-    $('btn-send').hidden = false;
-    $('btn-stop').hidden = true;
-    $('streaming').hidden = true;
-    $('composer-status').textContent = '';
+  function handleStreamEnd(branchId) {
+    if (!branchId) return;
+    const next = Object.assign({}, state.branchRuns);
+    delete next[branchId];
+    state.branchRuns = next;
+    renderActiveRun();
+  }
+
+  function renderActiveRun(follow = false) {
+    const run = state.branchRuns?.[state.activeBranchId];
+    const running = Boolean(run);
+    $('btn-send').hidden = running;
+    $('btn-stop').hidden = !running;
+    $('streaming').hidden = !running;
+    $('streaming-text').textContent = run?.partialText || '';
+    $('composer-status').textContent = running ? 'Generating in this state...' : '';
+    if (running && follow) scrollToBottom();
   }
 
   function handleDecompositionResult(result) {
@@ -464,7 +511,8 @@
 
       const status = document.createElement('span');
       status.className = 'branch-row-status ' + b.status;
-      status.textContent = b.status;
+      status.textContent = state.branchRuns?.[b.id] ? 'generating' : b.status;
+      if (state.branchRuns?.[b.id]) status.classList.add('generating');
 
       const count = document.createElement('span');
       count.className = 'branch-row-count';
@@ -593,10 +641,13 @@
     renderStudyControls();
 
     renderCheckpointModal();
+    renderActiveRun();
 
     // Send button enabled state
     const studyBlocked = studyActive && (!state.study.started || state.study.finished || state.study.remainingSeconds === 0);
-    $('btn-send').disabled = !state.providerReady || state.isStreaming || studyBlocked;
+    const activeRun = Boolean(state.branchRuns?.[state.activeBranchId]);
+    const activePendingEdits = Array.isArray(state.pendingEdits);
+    $('btn-send').disabled = !state.providerReady || activeRun || activePendingEdits || studyBlocked;
     $('composer-input').placeholder = studyBlocked
       ? (state.study.finished ? 'Task finished.' : 'Start task to enable the assistant.')
       : state.providerReady
@@ -620,6 +671,7 @@
     const finished = study.finished;
     $('study-start').hidden = started;
     $('study-start').disabled = !state.providerReady || finished;
+    $('study-run-tests').textContent = study.publicTestLabel || 'Run public tests';
     $('study-run-tests').disabled = !started || finished || study.remainingSeconds === 0 || state.studyTestsRunning;
     const activeBranch = state.branches.find((branch) => branch.id === state.activeBranchId);
     const canIntegrate = study.condition === 'contextbranch' && started && !finished &&
@@ -627,7 +679,8 @@
       study.siblingStateIds.includes(state.activeBranchId);
     $('study-integrate').hidden = !canIntegrate;
     $('study-integrate').disabled = !canIntegrate;
-    $('study-finish').disabled = !started || finished;
+    const anyRuns = Object.keys(state.branchRuns || {}).length > 0;
+    $('study-finish').disabled = !started || finished || anyRuns || state.studyTestsRunning;
   }
   function renderHistoryView() {
     console.log('[history] renderHistoryView called');
@@ -2105,7 +2158,10 @@ function findNextInstanceTime(branchId, instanceIdx) {
     wrap.hidden = false;
     list.innerHTML = '';
     if (resolveBtn) {
-      resolveBtn.hidden = manual || !!state.study;
+      // Prepared study tasks still need an escape hatch when two optional
+      // states touch the same file. The participant resolves the concrete
+      // conflict; force merge and AI conflict resolution remain disabled.
+      resolveBtn.hidden = manual;
       resolveBtn.disabled = false;
     }
     if (cancelBtn) cancelBtn.hidden = !manual;
@@ -2662,12 +2718,18 @@ function findNextInstanceTime(branchId, instanceIdx) {
       showStatus('No API key — set one first.', 'error');
       return;
     }
-    send({ type: 'send', content: text });
+    const branchId = state.activeBranchId;
+    if (!branchId || state.branchRuns?.[branchId]) return;
+    if (Array.isArray(state.pendingEdits)) {
+      showStatus('Review or discard this state\'s proposed edits before sending another prompt.', 'info');
+      return;
+    }
+    send({ type: 'send', branchId, content: text });
     c.value = '';
   }
 
   $('btn-send').addEventListener('click', sendMessage);
-  $('btn-stop').addEventListener('click', () => send({ type: 'abortStream' }));
+  $('btn-stop').addEventListener('click', () => send({ type: 'abortStream', branchId: state.activeBranchId }));
   $('study-start').addEventListener('click', () => send({ type: 'startStudyTask' }));
   $('study-run-tests').addEventListener('click', () => send({ type: 'runStudyTests' }));
   $('study-integrate').addEventListener('click', () => send({ type: 'openStudyIntegration' }));

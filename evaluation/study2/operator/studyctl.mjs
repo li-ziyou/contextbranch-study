@@ -11,7 +11,8 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const studyRoot = path.resolve(here, '..');
 const manifestsDir = path.join(studyRoot, 'manifests');
-const sequencesPath = path.join(here, 'assignment-sequences.json');
+const taskSetsDir = path.join(here, 'task-sets');
+const defaultTaskSetId = 'study2-v2';
 const repoRoot = path.resolve(studyRoot, '..', '..');
 const defaultBundlesRoot = path.join(repoRoot, 'participant-bundles');
 const defaultRunsRoot = path.join(studyRoot, 'runs');
@@ -26,17 +27,37 @@ function readJson(file) {
   return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 
-function manifestFiles() {
+function taskSet(taskSetId = defaultTaskSetId) {
+  const safeId = String(taskSetId);
+  if (!/^[a-z0-9-]+$/.test(safeId)) throw new Error(`Invalid task set: ${safeId}`);
+  const file = path.join(taskSetsDir, `${safeId}.json`);
+  if (!fs.existsSync(file)) throw new Error(`Unknown task set: ${safeId}`);
+  const value = readJson(file);
+  if (value.schemaVersion !== 1 || value.taskSetId !== safeId || !Array.isArray(value.taskIds) || value.taskIds.length !== 2 ||
+      !Array.isArray(value.testFormIds) || value.testFormIds.length === 0) {
+    throw new Error(`Invalid task-set configuration: ${file}`);
+  }
+  return value;
+}
+
+function selectedTaskSet(options = {}) {
+  return taskSet(options['task-set'] ?? process.env.CONTEXTBRANCH_STUDY_TASK_SET ?? defaultTaskSetId);
+}
+
+function manifestFiles(selected = null) {
+  const allowed = selected ? new Set(selected.taskIds) : null;
   return fs.readdirSync(manifestsDir)
     .filter(name => name.endsWith('.json') && name !== 'task-manifest.schema.json')
+    .filter(name => !allowed || allowed.has(name.slice(0, -'.json'.length)))
     .sort()
     .map(name => path.join(manifestsDir, name));
 }
 
-function validate() {
+function validate(options) {
+  const selected = selectedTaskSet(options);
   const failures = [];
   const seen = new Set();
-  for (const file of manifestFiles()) {
+  for (const file of manifestFiles(selected)) {
     const manifest = readJson(file);
     for (const field of requiredManifestFields) {
       if (!(field in manifest)) failures.push(`${path.basename(file)}: missing ${field}`);
@@ -49,17 +70,12 @@ function validate() {
     } else {
       const siblingIds = new Set();
       for (const sibling of siblings) {
+        if (siblingIds.has(sibling.id)) failures.push(`${path.basename(file)}: sibling state IDs must be unique`);
         siblingIds.add(sibling.id);
         const ticket = sibling.ticket;
-        if (!sibling.id || !sibling.label || !ticket?.goal || !Array.isArray(ticket.requirements) || !ticket.validation) {
+        if (!sibling.id || !sibling.label || !Array.isArray(ticket?.requirements) || ticket.requirements.length === 0) {
           failures.push(`${path.basename(file)}: every sibling state requires a complete branch-specific ticket`);
         }
-      }
-      const route = manifest.contextBranch.recommendedMergeRoute;
-      if (!Array.isArray(route) || route.length !== 2 ||
-        route.some(step => !siblingIds.has(step.stateId) || !step.instruction) ||
-        new Set(route.map(step => step.stateId)).size !== 2) {
-        failures.push(`${path.basename(file)}: requires one recommended merge step for each sibling state`);
       }
       if (!manifest.contextBranch.finalVerification) {
         failures.push(`${path.basename(file)}: requires final verification guidance`);
@@ -68,11 +84,30 @@ function validate() {
     if (manifest.runner?.publicTestCommand?.includes('private')) {
       failures.push(`${path.basename(file)}: public command must not expose private grader`);
     }
+    for (const command of Object.values(manifest.runner?.publicTestCommands ?? {})) {
+      if (typeof command !== 'string' || command.includes('private')) {
+        failures.push(`${path.basename(file)}: contextual public commands must be safe public commands`);
+      }
+    }
     if (manifest.provenance?.type !== 'FeatureBench-derived curated study task') {
       failures.push(`${path.basename(file)}: must identify its curated FeatureBench-derived provenance`);
     }
     if (!manifest.provenance?.sourceInstanceId || !manifest.provenance?.sourceCommit) {
       failures.push(`${path.basename(file)}: requires a pinned FeatureBench source instance and commit`);
+    }
+    if (manifest.ticket?.mainTicketFile) {
+      const ticketPath = path.resolve(studyRoot, manifest.ticket.mainTicketFile);
+      const tasksRoot = path.resolve(studyRoot, 'tasks');
+      if (!ticketPath.startsWith(tasksRoot + path.sep) || !fs.existsSync(ticketPath)) {
+        failures.push(`${path.basename(file)}: missing main ticket source`);
+      } else {
+        const mainText = fs.readFileSync(ticketPath, 'utf8');
+        for (const sibling of siblings ?? []) {
+          for (const requirement of sibling.ticket.requirements ?? []) {
+            if (!mainText.includes(requirement)) failures.push(`${path.basename(file)}: branch requirement is not copied from the main ticket: ${requirement}`);
+          }
+        }
+      }
     }
     for (const asset of ['baselineDirectory', 'referenceDirectory']) {
       const assetPath = path.join(studyRoot, manifest.assets?.[asset] ?? '');
@@ -93,26 +128,29 @@ function validate() {
       failures.push(`${path.basename(file)}: requires exactly three private behavioural goals`);
     }
   }
-  if (seen.size !== 2) failures.push(`expected two task manifests, found ${seen.size}`);
+  if (seen.size !== 2 || selected.taskIds.some(taskId => !seen.has(taskId))) {
+    failures.push(`task set ${selected.taskSetId} must resolve to exactly its two configured manifests`);
+  }
   if (failures.length) {
     console.error(failures.join('\n'));
     process.exitCode = 1;
     return;
   }
-  console.log(`Validated ${seen.size} Study 2 manifests.`);
+  console.log(`Validated task set ${selected.taskSetId}: ${[...seen].join(', ')}.`);
 }
 
-function assign(participantId) {
+function assign(participantId, options) {
   if (!/^P\d{3,}$/.test(participantId ?? '')) {
     throw new Error('Use a pseudonymous participant ID such as P017.');
   }
   const participantNumber = Number.parseInt(participantId.slice(1), 10);
-  const sequence = assignmentFor(participantNumber);
-  console.log(JSON.stringify({ participantId, sequence }, null, 2));
+  const selected = selectedTaskSet(options);
+  const sequence = assignmentFor(participantNumber, selected);
+  console.log(JSON.stringify({ participantId, taskSetId: selected.taskSetId, sequence }, null, 2));
 }
 
-function assignmentFor(participantNumber) {
-  const sequences = readJson(sequencesPath).sequences;
+function assignmentFor(participantNumber, selected) {
+  const sequences = selected.sequences;
   // P000 is reserved for technical rehearsals and uses the first frozen
   // sequence. Formal participant IDs start at P001.
   if (participantNumber === 0) return sequences[0];
@@ -177,14 +215,15 @@ function utcFolderTimestamp(date = new Date()) {
 
 function studyProfile(runsRoot, options) {
   const profilePath = path.join(runsRoot, 'study-profile.json');
+  if (options['model-calls'] || options['model-tokens']) {
+    throw new Error('Study 2 no longer limits model calls or model tokens; remove --model-calls and --model-tokens.');
+  }
   if (fs.existsSync(profilePath)) {
     const profile = readJson(profilePath);
     const provided = {
       provider: options.provider,
       modelId: options.model,
       timeLimitSeconds: options['time-limit'] ? positiveInteger(options['time-limit'], 'time limit') : undefined,
-      modelCallBudget: options['model-calls'] ? positiveInteger(options['model-calls'], 'model-call budget') : undefined,
-      modelTokenBudget: options['model-tokens'] ? positiveInteger(options['model-tokens'], 'model-token budget') : undefined,
     };
     for (const [key, value] of Object.entries(provided)) {
       if (value !== undefined && value !== profile[key]) {
@@ -202,8 +241,6 @@ function studyProfile(runsRoot, options) {
     provider: studyProvider(options.provider),
     modelId: options.model,
     timeLimitSeconds: positiveInteger(options['time-limit'] ?? '1500', 'time limit'),
-    modelCallBudget: positiveInteger(options['model-calls'] ?? '20', 'model-call budget'),
-    modelTokenBudget: positiveInteger(options['model-tokens'] ?? '120000', 'model-token budget'),
   };
   fs.mkdirSync(runsRoot, { recursive: true });
   writeJson(profilePath, profile);
@@ -247,7 +284,8 @@ function prepare(participantId, periodText, options) {
   const number = participantNumber(participantId);
   const period = Number.parseInt(periodText, 10);
   if (![1, 2].includes(period)) throw new Error('Period must be 1 or 2.');
-  const sequence = assignmentFor(number);
+  const selected = selectedTaskSet(options);
+  const sequence = assignmentFor(number, selected);
   const assignment = sequence[`period${period}`];
   const bundlesRoot = path.resolve(options.bundles ?? defaultBundlesRoot);
   const runsRoot = path.resolve(options.runs ?? defaultRunsRoot);
@@ -262,6 +300,11 @@ function prepare(participantId, periodText, options) {
   }
   const manifestPath = path.join(manifestsDir, `${assignment.taskId}.json`);
   const manifest = readJson(manifestPath);
+  const formId = selected.testFormIds[crypto.randomInt(selected.testFormIds.length)];
+  const ticket = { ...manifest.ticket };
+  if (ticket.mainTicketFile) {
+    ticket.mainMarkdown = fs.readFileSync(path.join(studyRoot, ticket.mainTicketFile), 'utf8');
+  }
   const runId = `${participantId}-period${period}-${assignment.taskId}-${assignment.condition}`;
   const sessionRoot = sessionRootFor(runsRoot, profile, participantId);
   const runDir = path.join(sessionRoot, runId);
@@ -274,9 +317,11 @@ function prepare(participantId, periodText, options) {
     schemaVersion: 1,
     runId,
     participantId,
+    taskSetId: selected.taskSetId,
     sequenceId: sequence.id,
     period,
     taskId: assignment.taskId,
+    formId,
     condition: assignment.condition,
     createdAt: new Date().toISOString(),
     startedAt: null,
@@ -285,8 +330,6 @@ function prepare(participantId, periodText, options) {
     model: {
       provider: profile.provider,
       id: profile.modelId,
-      modelCallBudget: profile.modelCallBudget,
-      modelTokenBudget: profile.modelTokenBudget,
     },
     // The prepared run is portable across the participant workspace location:
     // the runtime path is generated on the current machine rather than guessed
@@ -295,7 +338,7 @@ function prepare(participantId, periodText, options) {
     manifest: {
       taskId: manifest.taskId,
       sha256: sha256File(manifestPath),
-      ticket: manifest.ticket,
+      ticket,
       contextBranch: manifest.contextBranch,
       runner: manifest.runner,
       submission: manifest.submission,
@@ -321,10 +364,13 @@ function prepare(participantId, periodText, options) {
     'contextbranch.captureUserEdits': true,
     'contextbranch.captureNewFiles': true,
     'contextbranch.reviewEdits': true,
+    'python.defaultInterpreterPath': path.resolve(runtimePython),
+    'terminal.integrated.env.osx': { PATH: `${path.dirname(runtimePython)}:\${env:PATH}` },
+    'terminal.integrated.env.linux': { PATH: `${path.dirname(runtimePython)}:\${env:PATH}` },
   };
   writeJson(path.join(vscodeDir, 'settings.json'), settings);
   writeJson(path.join(runDir, 'run.json'), run);
-  console.log(JSON.stringify({ runId, sessionRoot, workspace, taskId: assignment.taskId, condition: assignment.condition, profile }, null, 2));
+  console.log(JSON.stringify({ runId, sessionRoot, workspace, taskSetId: selected.taskSetId, taskId: assignment.taskId, formId, condition: assignment.condition, profile }, null, 2));
 }
 
 function collect(runId, options) {
@@ -371,9 +417,10 @@ function collect(runId, options) {
 }
 
 function preflight(options) {
+  const selected = selectedTaskSet(options);
   const bundlesRoot = path.resolve(options.bundles ?? defaultBundlesRoot);
   const failures = [];
-  for (const manifestFile of manifestFiles()) {
+  for (const manifestFile of manifestFiles(selected)) {
     const manifest = readJson(manifestFile);
     const workspace = path.join(bundlesRoot, manifest.taskId, 'participant');
     if (!fs.existsSync(path.join(workspace, '.study', 'task.json'))) {
@@ -400,7 +447,7 @@ function preflight(options) {
     }
   }
   if (failures.length) throw new Error(failures.join('\n'));
-  console.log('Study preflight passed: bundles and the Study Python runtime are ready.');
+  console.log(`Study preflight passed for task set ${selected.taskSetId}.`);
 }
 
 function setupRuntime() {
@@ -416,9 +463,10 @@ function setupRuntime() {
 
 function dryRun(options) {
   preflight(options);
+  const selected = selectedTaskSet(options);
   const bundlesRoot = path.resolve(options.bundles ?? defaultBundlesRoot);
   const runtimePython = path.join(runtimeRoot, 'bin', 'python');
-  for (const manifestFile of manifestFiles()) {
+  for (const manifestFile of manifestFiles(selected)) {
     const manifest = readJson(manifestFile);
     const bundle = path.join(bundlesRoot, manifest.taskId);
     const scratch = fs.mkdtempSync(path.join(os.tmpdir(), `contextbranch-study-${manifest.taskId}-`));
@@ -452,7 +500,8 @@ function dryRun(options) {
   }
 }
 
-function buildTasks() {
+function buildTasks(options) {
+  const selected = selectedTaskSet(options);
   const python = process.env.PYTHON ?? 'python3';
   const requirements = path.join(studyRoot, 'task-builder', 'requirements.txt');
   const builder = path.join(studyRoot, 'task-builder', 'build_task.py');
@@ -461,21 +510,21 @@ function buildTasks() {
     execFileSync(python, ['-m', 'venv', builderRoot], { stdio: 'inherit' });
   }
   execFileSync(builderPython, ['-m', 'pip', 'install', '-r', requirements], { stdio: 'inherit' });
-  execFileSync(builderPython, [builder, '--all'], { cwd: repoRoot, stdio: 'inherit' });
-  console.log(`Study task bundles ready: ${defaultBundlesRoot}`);
+  execFileSync(builderPython, [builder, '--tasks', ...selected.taskIds], { cwd: repoRoot, stdio: 'inherit' });
+  console.log(`Study task bundles ready for ${selected.taskSetId}: ${defaultBundlesRoot}`);
 }
 
 const [commandName, ...rest] = process.argv.slice(2);
 const { positional, options } = parseOptions(rest);
-if (commandName === 'validate') validate();
-else if (commandName === 'assign') assign(positional[0]);
+if (commandName === 'validate') validate(options);
+else if (commandName === 'assign') assign(positional[0], options);
 else if (commandName === 'prepare') prepare(positional[0], positional[1], options);
 else if (commandName === 'collect') collect(positional[0], options);
 else if (commandName === 'preflight') preflight(options);
 else if (commandName === 'setup-runtime') setupRuntime();
-else if (commandName === 'build-tasks') buildTasks();
+else if (commandName === 'build-tasks') buildTasks(options);
 else if (commandName === 'dry-run') dryRun(options);
 else {
-  console.error('Usage: studyctl.mjs validate | assign P017 | prepare P017 1 | collect RUN_ID | preflight | setup-runtime | build-tasks | dry-run');
+  console.error('Usage: studyctl.mjs validate | assign P017 | prepare P017 1 | collect RUN_ID | preflight | setup-runtime | build-tasks | dry-run [--task-set study2-v2|legacy]');
   process.exitCode = 1;
 }

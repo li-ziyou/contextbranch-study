@@ -5,20 +5,20 @@
 
 export type StudyCondition = 'linear' | 'contextbranch';
 export type StudyProvider = 'anthropic' | 'openai' | 'openrouter' | 'gemini';
+export type StudyPublicTestTarget = 'responsibilityA' | 'responsibilityB' | 'main';
+
+export interface StudyPublicTestCommands {
+  responsibilityA: string;
+  responsibilityB: string;
+  main: string;
+}
 
 export interface StudySiblingState {
   id: string;
   label: string;
   ticket: {
-    goal: string;
     requirements: string[];
-    validation: string;
   };
-}
-
-export interface StudyMergeRouteStep {
-  stateId: string;
-  instruction: string;
 }
 
 export interface StudyTaskManifest {
@@ -27,11 +27,11 @@ export interface StudyTaskManifest {
   participantTitle: string;
   contextBranch: {
     siblingStates: [StudySiblingState, StudySiblingState];
-    recommendedMergeRoute: [StudyMergeRouteStep, StudyMergeRouteStep];
     finalVerification: string;
   };
   runner: {
     publicTestCommand: string;
+    publicTestCommands?: StudyPublicTestCommands;
     runtime: 'contextbranch-study-python';
     network: 'not-required';
   };
@@ -44,23 +44,28 @@ export interface StudyTaskManifest {
 export interface StudyRunConfig {
   runId: string;
   participantId: string;
+  taskSetId?: string;
   period: 1 | 2;
   condition: StudyCondition;
   manifestPath: string;
   timeLimitSeconds: number;
   provider: StudyProvider;
   modelId: string;
-  modelCallBudget: number;
-  modelTokenBudget: number;
+  /** Deprecated compatibility fields. Formal Study 2 runs are time-limited, not call-limited. */
+  modelCallBudget?: number;
+  modelTokenBudget?: number;
 }
 
 export interface StudyRunFile {
   schemaVersion: 1;
   runId: string;
   participantId: string;
+  taskSetId?: string;
   sequenceId: string;
   period: 1 | 2;
   taskId: string;
+  /** Automatically assigned test form, recorded for reproducible analysis. */
+  formId?: string;
   condition: StudyCondition;
   createdAt: string;
   startedAt: string | null;
@@ -70,15 +75,16 @@ export interface StudyRunFile {
   model: {
     provider: StudyProvider;
     id: string;
-    modelCallBudget: number;
-    modelTokenBudget: number;
+    /** Deprecated compatibility fields retained when loading an older prepared run. */
+    modelCallBudget?: number;
+    modelTokenBudget?: number;
   };
   /** Absolute path to the study Python runtime generated during prepare. */
   runtimePython: string;
   manifest: {
     taskId: string;
     sha256: string;
-    ticket: { summary: string; requirements: string[] };
+    ticket: { summary: string; requirements: string[]; mainMarkdown?: string };
     contextBranch: StudyTaskManifest['contextBranch'];
     runner: StudyTaskManifest['runner'];
     submission: StudyTaskManifest['submission'];
@@ -116,9 +122,8 @@ export interface StudyUiState {
   finished: boolean;
   timeLimitSeconds: number;
   remainingSeconds: number;
-  modelCallBudget: number;
   modelCallsUsed: number;
-  modelTokenBudget: number;
   modelTokensUsed: number;
+  publicTestLabel: string;
   siblingStateIds: string[];
 }

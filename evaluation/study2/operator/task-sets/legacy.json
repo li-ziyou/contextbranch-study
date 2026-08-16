@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "taskSetId": "legacy",
+  "testFormIds": ["F1"],
+  "taskIds": [
+    "markdown-command-template-library",
+    "rgb-image-composer"
+  ],
+  "sequences": [
+    {
+      "id": "L1",
+      "period1": { "taskId": "markdown-command-template-library", "condition": "linear" },
+      "period2": { "taskId": "rgb-image-composer", "condition": "contextbranch" }
+    },
+    {
+      "id": "L2",
+      "period1": { "taskId": "markdown-command-template-library", "condition": "contextbranch" },
+      "period2": { "taskId": "rgb-image-composer", "condition": "linear" }
+    },
+    {
+      "id": "L3",
+      "period1": { "taskId": "rgb-image-composer", "condition": "linear" },
+      "period2": { "taskId": "markdown-command-template-library", "condition": "contextbranch" }
+    },
+    {
+      "id": "L4",
+      "period1": { "taskId": "rgb-image-composer", "condition": "contextbranch" },
+      "period2": { "taskId": "markdown-command-template-library", "condition": "linear" }
+    }
+  ]
+}

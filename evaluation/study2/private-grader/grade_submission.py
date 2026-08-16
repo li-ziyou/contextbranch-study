@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -53,7 +54,13 @@ def materialize_clean_submission(bundle: Path, submission: Path, destination: Pa
     return config, copied
 
 
-def run_checks(clean_root: Path, private_root: Path, timeout: int, tests: Path | None = None) -> tuple[int, str]:
+def run_checks(
+    clean_root: Path,
+    private_root: Path,
+    timeout: int,
+    tests: Path | None = None,
+    form_id: str = "F1",
+) -> tuple[int, str]:
     command = [
         sys.executable,
         str(RUNNER),
@@ -67,7 +74,12 @@ def run_checks(clean_root: Path, private_root: Path, timeout: int, tests: Path |
     ]
     if tests:
         command.extend(["--tests", str(tests)])
-    completed = subprocess.run(command, text=True, capture_output=True)
+    environment = dict(os.environ)
+    runtime_python = STUDY_ROOT.parents[1] / ".study-runtime" / "bin" / "python"
+    if runtime_python.is_file():
+        environment["CONTEXTBRANCH_STUDY_PYTHON"] = str(runtime_python)
+    environment["CONTEXTBRANCH_STUDY_FORM_ID"] = form_id
+    completed = subprocess.run(command, text=True, capture_output=True, env=environment)
     return completed.returncode, completed.stdout + completed.stderr
 
 
@@ -82,17 +94,38 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="contextbranch-clean-grade-") as temporary:
         clean_root = Path(temporary) / "workspace"
         try:
+            run_metadata_path = args.submission / ".study" / "run.json"
+            run_metadata = read_json(run_metadata_path) if run_metadata_path.is_file() else {}
+            form_id = str(run_metadata.get("formId") or "F1")
             config, copied = materialize_clean_submission(args.bundle, args.submission, clean_root)
             private_root = args.bundle / "private"
-            status, output = run_checks(clean_root, private_root, args.timeout)
+            goal_results = {}
+            combined_output: list[str] = []
+            for goal, filename in zip(config["hiddenGoals"], config["hiddenTestFiles"], strict=True):
+                status, output = run_checks(
+                    clean_root,
+                    private_root,
+                    args.timeout,
+                    private_root / "hidden_tests" / filename,
+                    form_id,
+                )
+                goal_results[goal] = {
+                    "verified": status == 0,
+                    "runnerExitCode": status,
+                    "runnerOutput": output,
+                }
+                combined_output.append(f"[{goal}]\n{output}")
+            status = 0 if all(item["verified"] for item in goal_results.values()) else 1
             result = {
                 "taskId": config["taskId"],
+                "formId": form_id,
                 "gradedAt": datetime.now(timezone.utc).isoformat(),
                 "cleanPatch": {"status": "applied", "allowedProductionPaths": copied},
                 "hiddenGoals": config["hiddenGoals"],
+                "goalResults": goal_results,
                 "verifiedFeatureDelivery": status == 0,
                 "runnerExitCode": status,
-                "runnerOutput": output,
+                "runnerOutput": "\n".join(combined_output),
             }
         except Exception as error:
             result = {

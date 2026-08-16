@@ -46,6 +46,40 @@ export interface AppliedFile {
   hunks: DiffHunk[];          // line diff before -> after, for display
 }
 
+/** Build the one-shot model instruction used after an anchored edit failed.
+ * The caller must still provide authoritative current file contents through
+ * the normal coding context. This text explains exactly what failed and makes
+ * clear that the previous proposal has not been applied. */
+export function buildEditRetryInstruction(files: AppliedFile[], previousDraft: string): string {
+  const failures = files.flatMap(file => file.ops
+    .filter(op => !op.ok)
+    .map(op => {
+      const search = (op.search ?? '').slice(0, 4_000);
+      const replace = (op.replace ?? '').slice(0, 4_000);
+      return [
+        `File: ${file.path}`,
+        `Failure: ${op.reason ?? 'the edit could not be applied safely'}`,
+        search ? `Failed SEARCH:\n${search}` : '',
+        replace ? `Intended REPLACE:\n${replace}` : '',
+      ].filter(Boolean).join('\n');
+    }));
+
+  const draft = previousDraft.length > 20_000
+    ? previousDraft.slice(0, 20_000) + '\n[previous proposal truncated]'
+    : previousDraft;
+
+  return [
+    'TOOL EDIT RECOVERY. The previous proposed edits were not applied because one or more SEARCH anchors did not match the authoritative current file.',
+    'Re-read the authoritative current file contents supplied by the system for the paths below.',
+    'Return a corrected complete edit proposal for the same intended changes. Copy every SEARCH block verbatim from the current file and keep each block small and unique.',
+    'Do not assume that code from the previous proposal exists. Do not use fuzzy anchors, do not replace an existing file in full, and do not add unrelated changes.',
+    'This is the only automatic retry, so verify every anchor before responding.',
+    '',
+    failures.join('\n\n'),
+    draft ? `\nPrevious proposal for intent only:\n${draft}` : '',
+  ].filter(Boolean).join('\n');
+}
+
 export interface DiffLine { type: 'ctx' | 'add' | 'del'; text: string; }
 export interface DiffHunk { beforeStart: number; afterStart: number; lines: DiffLine[]; }
 

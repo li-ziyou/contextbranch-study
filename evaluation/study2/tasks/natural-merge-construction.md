@@ -17,15 +17,13 @@ Each task package contains:
 4. three hidden behavioural groups: the two module behaviours and their
    integrated behaviour.
 
-The main ContextBranch state keeps the total feature ticket and shows a
-recommended merge route. Each sibling receives a branch-specific ticket that
-identifies one implementation responsibility, its focused requirements, and
-its suggested validation. The route does not require use of both states, one
-patch per state, or an integration. In a Linear run, the participant receives
+The main ContextBranch state keeps the total feature ticket. Each sibling
+receives only the matching responsibility requirements copied from that
+ticket, without added examples, commands, algorithms, or suggested order. In a Linear run, the participant receives
 the total feature ticket and all source files in one conversation-code state.
 In a ContextBranch run, the system creates two sibling states from the same
-baseline; the participant may integrate either state into `main` when it is
-useful.
+checkpoint; the participant may use either state, both, neither, or main in
+any order, and may integrate a state into `main` when it is useful.
 
 ## Task pair
 

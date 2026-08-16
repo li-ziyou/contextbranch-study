@@ -84,12 +84,12 @@ operator command creates a fresh workspace and writes the protected assignment
 file that activates study mode.
 
 ```bash
-npm run study:build-tasks
+npm run study:build-tasks -- --task-set study2-v2
 npm run study:setup-runtime
-npm run study:preflight
-npm run study:dry-run
+npm run study:preflight -- --task-set study2-v2
+npm run study:dry-run -- --task-set study2-v2
 npm run package
-npm run study:prepare -- P017 1 --provider FIXED_PROVIDER --model FIXED_MODEL
+npm run study:prepare -- P017 1 --task-set study2-v2 --provider FIXED_PROVIDER --model FIXED_MODEL
 ```
 
 Install the generated `.vsix` on the research machine, then open the

@@ -20,6 +20,19 @@ export interface ConflictResolution {
   error?: string;
 }
 
+/**
+ * Accept the common model fallback of returning one complete fenced file
+ * without the coding-agent `# path:` header. The caller already supplies the
+ * exact conflict path, so a single non-empty fence is unambiguous. Multiple
+ * fences remain invalid because choosing one would be guesswork.
+ */
+export function extractSingleCompleteFileBlock(raw: string): string | undefined {
+  const blocks = [...raw.matchAll(/```[^\r\n`]*\r?\n([\s\S]*?)```/g)];
+  if (blocks.length !== 1) return undefined;
+  const content = blocks[0][1];
+  return content.trim() ? content : undefined;
+}
+
 export class ConflictResolverAgent {
   constructor(
     private provider: LLMProvider,
@@ -36,6 +49,7 @@ export class ConflictResolverAgent {
     revisionInstruction?: string;
     currentResolution?: string;
     signal?: AbortSignal;
+    model?: string;
   }): Promise<ConflictResolution> {
     const userContent = this.buildUserMessage(opts);
 
@@ -47,6 +61,7 @@ export class ConflictResolverAgent {
         maxTokens: 8192,
         temperature: 0.1, // low to be more deterministic 
         signal: opts.signal,
+        model: opts.model,
       })) {
         if (ev.type === 'delta') raw += ev.text;
         if (ev.type === 'usage') this.onUsage?.(ev.inputTokens ?? 0, ev.outputTokens ?? 0);
@@ -128,7 +143,7 @@ export class ConflictResolverAgent {
     const ops = parseEdits(raw);
     const match = ops.find(o => o.kind === 'create' && o.path === opts.path && typeof o.content === 'string');
     const anyCreate = ops.find(o => o.kind === 'create' && typeof o.content === 'string');
-    const content = (match ?? anyCreate)?.content;
+    const content = (match ?? anyCreate)?.content ?? extractSingleCompleteFileBlock(raw);
 
     const confRaw = (raw.match(/CONFIDENCE:\s*(high|medium|low)/i)?.[1] ?? 'medium').toLowerCase();
     const confidence = (confRaw === 'high' || confRaw === 'low') ? confRaw as 'high' | 'low' : 'medium';

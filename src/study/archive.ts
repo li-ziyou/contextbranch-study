@@ -13,6 +13,7 @@ interface ArchiveSessionMetadata {
     sequenceId: string;
     period: 1 | 2;
     taskId: string;
+    formId: string;
     condition: StudyRunFile['condition'];
     createdAt: string;
     startedAt: string | null;
@@ -68,6 +69,7 @@ export async function createStudyArchive(
       sequenceId: run.sequenceId,
       period: run.period,
       taskId: run.taskId,
+      formId: run.formId ?? 'F1',
       condition: run.condition,
       createdAt: run.createdAt,
       startedAt: run.startedAt,

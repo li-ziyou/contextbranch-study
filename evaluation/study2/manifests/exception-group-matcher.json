@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "taskId": "exception-group-matcher",
+  "participantTitle": "Exception Group Matcher",
+  "provenance": {
+    "type": "FeatureBench-derived curated study task",
+    "sourceInstanceId": "pytest-dev__pytest.68016f0e.raises_group.c28bf36a.lv1",
+    "datasetUrl": "https://huggingface.co/datasets/LiberCoders/FeatureBench",
+    "sourceRepository": "pytest-dev/pytest",
+    "sourceCommit": "68016f0effe59cd91120112f5170fdd057dba1d9",
+    "derivedBehaviour": ["leaf exception matching", "nested exception-group pairing", "structured match evidence"],
+    "construction": "The local baseline and tests are newly authored from a pinned behavioral theme; upstream F2P/P2P results are provenance evidence only."
+  },
+  "assets": {
+    "baselineDirectory": "task-assets/exception-group-matcher/baseline",
+    "referenceDirectory": "task-assets/exception-group-matcher/reference"
+  },
+  "ticket": {
+    "summary": "Implement leaf and nested exception-group matching through a shared result contract.",
+    "mainTicketFile": "tasks/exception-group-matcher/main-ticket.md",
+    "requirements": [
+      "EG-A1: `LeafMatcher` matches a leaf exception by `isinstance` against one type or a tuple of types and rejects exception groups as leaves.",
+      "EG-A2: an optional string requires an exact exception message, an optional compiled regular expression uses `search`, and an optional predicate must return true.",
+      "EG-A3: every leaf mismatch returns an unmatched `MatchResult` with the corresponding `FailureCode`; successful matches contain no failure evidence.",
+      "EG-B1: `GroupMatcher` preserves nested group boundaries by default, so a nested group is matched by a nested matcher rather than by a leaf matcher.",
+      "EG-B2: `flatten=True` recursively exposes leaves for matching while retaining each leaf's original index path in failure evidence.",
+      "EG-B3: `allow_unwrapped=True` delegates a non-group exception only when there is exactly one expected matcher; otherwise a group is required.",
+      "EG-B4: expected matchers pair in expected order with the first still-unmatched successful actual item; failures report unmatched expected and unexpected actual items and flag when another complete pairing exists.",
+      "EG-I1: group matching consumes the shared `Matcher`/`MatchResult` contract and preserves leaf failure codes together with expected indexes, actual indexes, and nested actual paths."
+    ]
+  },
+  "contextBranch": {
+    "siblingStates": [
+      {
+        "id": "leaf-matching",
+        "label": "Responsibility A: leaf matching",
+        "ticket": {
+          "requirements": [
+            "EG-A1: `LeafMatcher` matches a leaf exception by `isinstance` against one type or a tuple of types and rejects exception groups as leaves.",
+            "EG-A2: an optional string requires an exact exception message, an optional compiled regular expression uses `search`, and an optional predicate must return true.",
+            "EG-A3: every leaf mismatch returns an unmatched `MatchResult` with the corresponding `FailureCode`; successful matches contain no failure evidence."
+          ]
+        }
+      },
+      {
+        "id": "group-matching",
+        "label": "Responsibility B: nested group matching",
+        "ticket": {
+          "requirements": [
+            "EG-B1: `GroupMatcher` preserves nested group boundaries by default, so a nested group is matched by a nested matcher rather than by a leaf matcher.",
+            "EG-B2: `flatten=True` recursively exposes leaves for matching while retaining each leaf's original index path in failure evidence.",
+            "EG-B3: `allow_unwrapped=True` delegates a non-group exception only when there is exactly one expected matcher; otherwise a group is required.",
+            "EG-B4: expected matchers pair in expected order with the first still-unmatched successful actual item; failures report unmatched expected and unexpected actual items and flag when another complete pairing exists."
+          ]
+        }
+      }
+    ],
+    "finalVerification": "Use either sibling state, both, neither, or main directly in any order. Integrate only useful changes into main and run the complete public suite there."
+  },
+  "runner": {
+    "publicTestCommand": "python3 .study/bin/study_runner.py public --workspace .",
+    "publicTestCommands": {
+      "responsibilityA": "python3 .study/bin/study_runner.py public --workspace . --suite responsibility-a",
+      "responsibilityB": "python3 .study/bin/study_runner.py public --workspace . --suite responsibility-b",
+      "main": "python3 .study/bin/study_runner.py public --workspace . --suite main"
+    },
+    "runtime": "contextbranch-study-python",
+    "network": "not-required"
+  },
+  "submission": {
+    "allowedProductionPaths": ["exception_matcher/leaf.py", "exception_matcher/groups.py"],
+    "finalState": "main"
+  },
+  "privateGrader": {
+    "mode": "fresh-clean-baseline",
+    "outcome": "verified-feature-delivery",
+    "hiddenGoals": ["leaf_matching", "group_matching", "matcher_integration"]
+  }
+}

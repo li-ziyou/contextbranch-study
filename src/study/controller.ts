@@ -2,8 +2,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { Workspace } from '../core/workspace';
+import { InterruptionReason } from '../core/types';
 import { createStudyArchive, defaultStudyExportDirectory, studyArchiveFileName } from './archive';
-import { StudyArchive, StudyFinishedRecord, StudyRunFile, StudyUiState } from './types';
+import { StudyArchive, StudyFinishedRecord, StudyPublicTestTarget, StudyRunFile, StudyUiState } from './types';
 
 /**
  * StudyController is the single source of truth for a prepared Study 2 run.
@@ -31,11 +32,36 @@ export class StudyController {
   get condition(): StudyRunFile['condition'] { return this.run.condition; }
   get isContextBranch(): boolean { return this.run.condition === 'contextbranch'; }
   get taskId(): string { return this.run.taskId; }
+  get formId(): string { return this.run.formId ?? 'F1'; }
   get participantId(): string { return this.run.participantId; }
   get providerName(): StudyRunFile['model']['provider'] { return this.run.model.provider; }
   get modelId(): string { return this.run.model.id; }
   get publicTestCommand(): string { return this.run.manifest.runner.publicTestCommand; }
   get finalState(): string { return this.run.manifest.submission.finalState; }
+
+  publicTestSelection(ws: Workspace): { target: StudyPublicTestTarget; label: string; command: string } {
+    const commands = this.run.manifest.runner.publicTestCommands;
+    if (!commands) {
+      return { target: 'main', label: 'Run public tests', command: this.publicTestCommand };
+    }
+
+    let target: StudyPublicTestTarget = 'main';
+    if (this.isContextBranch && ws.activeBranchId !== ws.mainBranchId) {
+      const active = ws.getBranch(ws.activeBranchId);
+      const siblingIndex = this.run.manifest.contextBranch.siblingStates.findIndex(sibling =>
+        active?.tags?.includes(sibling.id),
+      );
+      if (siblingIndex === 0) target = 'responsibilityA';
+      if (siblingIndex === 1) target = 'responsibilityB';
+    }
+
+    const label = target === 'responsibilityA'
+      ? 'Test A'
+      : target === 'responsibilityB'
+        ? 'Test B'
+        : 'Test Main';
+    return { target, label, command: commands[target] };
+  }
 
   initialize(ws: Workspace): void {
     const initialized = ws.storage.loadTelemetry().some(event =>
@@ -49,6 +75,7 @@ export class StudyController {
     const siblingIds: string[] = [];
     if (this.isContextBranch) {
       const siblings = this.run.manifest.contextBranch.siblingStates;
+      const sharedCheckpoint = ws.createCheckpoint(ws.mainBranchId, 'Study sibling shared fork point');
       for (const [index, sibling] of siblings.entries()) {
         const other = siblings[(index + 1) % siblings.length];
         const branch = ws.createBranch({
@@ -56,6 +83,7 @@ export class StudyController {
           description: `Study branch ticket: ${sibling.label}`,
           parentBranchId: ws.mainBranchId,
           inheritMessages: false,
+          checkpointId: sharedCheckpoint.id,
           tags: ['study-sibling', sibling.id],
         });
         ws.appendMessage(branch.id, 'system',
@@ -80,6 +108,7 @@ export class StudyController {
       type: 'study_initialized',
       runId: this.run.runId,
       taskId: this.run.taskId,
+      formId: this.formId,
       condition: this.run.condition,
       siblingStateIds: siblingIds,
       taskManifestHash: this.run.manifest.sha256,
@@ -151,36 +180,102 @@ export class StudyController {
     return null;
   }
 
-  beginModelCall(ws: Workspace): string | null {
+  beginModelCall(ws: Workspace, stateId: string = ws.activeBranchId): string | null {
     const actionError = this.actionError();
     if (actionError) return actionError;
-    if (this.modelCallsUsed(ws) >= this.run.model.modelCallBudget) {
-      return 'The pooled model-call budget for this task has been reached.';
-    }
-    if (this.modelTokensUsed(ws) >= this.run.model.modelTokenBudget) {
-      return 'The pooled model-token budget for this task has been reached.';
-    }
-    ws.storage.appendTelemetry({ type: 'study_model_call_started', runId: this.run.runId });
+    ws.storage.appendTelemetry({ type: 'study_model_call_started', runId: this.run.runId, stateId });
     return null;
   }
 
-  recordModelUsage(ws: Workspace, inputTokens: number, outputTokens: number, model: string): void {
+  recordModelUsage(
+    ws: Workspace,
+    inputTokens: number,
+    outputTokens: number,
+    model: string,
+    stateId: string = ws.activeBranchId,
+    details?: { interruptionReason?: InterruptionReason; observedOutputChars?: number },
+  ): void {
     ws.storage.appendTelemetry({
       type: 'study_model_call_completed',
       runId: this.run.runId,
+      stateId,
       provider: this.providerName,
       model,
+      inputTokens,
+      outputTokens,
+      interruptionReason: details?.interruptionReason,
+      observedOutputChars: details?.observedOutputChars,
+    });
+  }
+
+  recordEditRetry(ws: Workspace, stateId: string, failureCount: number): void {
+    ws.storage.appendTelemetry({
+      type: 'study_edit_retry_started',
+      actor: 'participant',
+      runId: this.run.runId,
+      stateId,
+      retryCount: 1,
+      failureCount,
+    });
+  }
+
+  recordMergeModelCallStarted(
+    ws: Workspace,
+    sourceStateId: string,
+    targetStateId: string,
+    path: string,
+    purpose: 'conflict_resolution' | 'conflict_revision',
+  ): void {
+    ws.storage.appendTelemetry({
+      type: 'study_merge_model_call_started',
+      actor: 'participant',
+      runId: this.run.runId,
+      sourceStateId,
+      targetStateId,
+      path,
+      purpose,
+      provider: this.providerName,
+      model: this.modelId,
+    });
+  }
+
+  recordMergeModelUsage(
+    ws: Workspace,
+    sourceStateId: string,
+    targetStateId: string,
+    path: string,
+    purpose: 'conflict_resolution' | 'conflict_revision',
+    inputTokens: number,
+    outputTokens: number,
+  ): void {
+    ws.storage.appendTelemetry({
+      type: 'study_merge_model_call_completed',
+      actor: 'system',
+      runId: this.run.runId,
+      sourceStateId,
+      targetStateId,
+      path,
+      purpose,
+      provider: this.providerName,
+      model: this.modelId,
       inputTokens,
       outputTokens,
     });
   }
 
-  recordPublicTest(ws: Workspace, exitCode: number | null, output: string, durationMs: number): void {
+  recordPublicTest(
+    ws: Workspace,
+    target: StudyPublicTestTarget,
+    exitCode: number | null,
+    output: string,
+    durationMs: number,
+  ): void {
     ws.storage.appendTelemetry({
       type: 'study_public_test_run',
       actor: 'participant',
       runId: this.run.runId,
       stateId: ws.activeBranchId,
+      target,
       exitCode,
       durationMs,
       output,
@@ -263,33 +358,28 @@ export class StudyController {
       finished: this.isFinished(),
       timeLimitSeconds: this.run.timeLimitSeconds,
       remainingSeconds: remaining,
-      modelCallBudget: this.run.model.modelCallBudget,
       modelCallsUsed: this.modelCallsUsed(ws),
-      modelTokenBudget: this.run.model.modelTokenBudget,
       modelTokensUsed: this.modelTokensUsed(ws),
+      publicTestLabel: this.publicTestSelection(ws).label,
       siblingStateIds: siblings,
     };
   }
 
   private rootTaskMessage(): string {
     const ticket = this.run.manifest.ticket;
+    if (ticket.mainMarkdown) return `[study][main-ticket]\n\n${ticket.mainMarkdown}`;
     const requirements = ticket.requirements.map(item => `- ${item}`).join('\n');
     return `[study][main-ticket] ${ticket.summary}\n\nRequirements:\n${requirements}\n\nUse this total feature ticket and the public tests as the working specification. Submit the final feature from main.`;
   }
 
   private mainContextBranchPlanMessage(): string {
-    const statesById = new Map(this.run.manifest.contextBranch.siblingStates.map(state => [state.id, state]));
-    const route = this.run.manifest.contextBranch.recommendedMergeRoute.map((step, index) => {
-      const state = statesById.get(step.stateId);
-      return `${index + 1}. “${state?.label ?? step.stateId}”: ${step.instruction}`;
-    }).join('\n');
     const labels = this.run.manifest.contextBranch.siblingStates.map(state => `“${state.label}”`).join(' and ');
-    return `[study][main-plan] ContextBranch created two sibling states: ${labels}. Each state has its own branch-specific ticket, conversation, code candidate, and test evidence.\n\nRecommended work and merge route:\n${route}\n\nFinal check: ${this.run.manifest.contextBranch.finalVerification}\n\nThis route is a recommendation. You may inspect, switch, compare, or integrate states when useful.`;
+    return `[study][main-plan] ContextBranch created two optional sibling states: ${labels}. Each starts from the same checkpoint and keeps its own focused conversation, code candidate, and test evidence.\n\nYou may use either state, both states, neither state, or work directly in main. There is no required order. Integrate a state into main only when it is useful, after reviewing the merge preview.\n\nFinal check: ${this.run.manifest.contextBranch.finalVerification}`;
   }
 
   private branchTicketMessage(sibling: StudyRunFile['manifest']['contextBranch']['siblingStates'][number]): string {
     const requirements = sibling.ticket.requirements.map(item => `- ${item}`).join('\n');
-    return `[study][branch-ticket] ${sibling.label}\n\nGoal: ${sibling.ticket.goal}\n\nFocus in this state:\n${requirements}\n\nSuggested validation: ${sibling.ticket.validation}\n\nWhen this contribution is ready for the final feature, select “Integrate this state into main”, review the merge preview, and confirm the integration.`;
+    return `[study][branch-ticket] ${sibling.label}\n\nFocus in this state:\n${requirements}\n\nThis state is optional. You may switch states, continue in main, or integrate this state into main after reviewing the merge preview. The final submission is always main.`;
   }
 
   private elapsedSeconds(): number {

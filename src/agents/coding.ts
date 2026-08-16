@@ -60,19 +60,7 @@ export class CodingAgent {
     // the artifact context above, so old turns rarely change the answer and
     // just cost tokens every call. Merge-context system notes are always kept.
     const maxHistory = opts.maxHistory ?? DEFAULT_MAX_HISTORY;
-    const filtered = opts.history.filter(
-      m => m.role !== 'system' || m.content.startsWith('[merge]') || m.content.startsWith('[study]')
-    );
-    const mergeNotes = filtered.filter(m => m.role === 'system');
-    const recent = filtered.slice(-maxHistory);
-    // Re-attach any merge notes that fell outside the recent window (cheap, rare).
-    const seen = new Set(recent);
-    const kept = [...mergeNotes.filter(m => !seen.has(m)), ...recent];
-
-    const messages: LLMMessage[] = kept.map(m => ({
-      role: m.role === 'system' ? 'user' : m.role,
-      content: m.role === 'system' ? `[context: ${m.content}]` : m.content,
-    }));
+    const messages = buildCodingHistoryMessages(opts.history, maxHistory);
     if (opts.repairInstruction) {
       messages.push({ role: 'user', content: opts.repairInstruction });
     }
@@ -82,7 +70,7 @@ export class CodingAgent {
       messages,
       signal: opts.signal,
       model: opts.model,
-      maxTokens: 8192, // headroom: multi-block edits were truncating at the 4096 default
+      maxTokens: codingMaxOutputTokens(opts.model),
     });
   }
 }
@@ -92,12 +80,78 @@ const MAX_MANIFEST_ENTRIES = 5_000;
 const MAX_FULL_FILE_CHARS = 500_000;
 const MAX_TOTAL_SELECTED_CHARS = 300_000;
 const DEFAULT_MAX_HISTORY = 32;
+const DEFAULT_MAX_OUTPUT_TOKENS = 8_192;
+export const INTERRUPTED_ASSISTANT_CONTEXT =
+  'The previous assistant response was interrupted. No edits from that response were applied.';
+const MODEL_MAX_OUTPUT_TOKENS: Readonly<Record<string, number>> = {
+  // OpenRouter currently exposes the model's full 65,536-token completion
+  // window. Do not impose the smaller generic harness limit in Study 2.
+  'google/gemini-2.5-flash-lite': 65_536,
+};
+
+export function codingMaxOutputTokens(model?: string): number {
+  return model ? (MODEL_MAX_OUTPUT_TOKENS[model] ?? DEFAULT_MAX_OUTPUT_TOKENS) : DEFAULT_MAX_OUTPUT_TOKENS;
+}
+
+/**
+ * Keep interrupted responses visible in the branch archive, but do not feed
+ * their partial (and often repetitive) text back into the next model call.
+ * The short replacement preserves conversational ordering without teaching a
+ * weak model to continue a degenerate output loop.
+ */
+export function buildCodingHistoryMessages(history: Message[], maxHistory = DEFAULT_MAX_HISTORY): LLMMessage[] {
+  const filtered = history.filter(
+    m => m.role !== 'system' || m.content.startsWith('[merge]') || m.content.startsWith('[study]')
+  );
+  const mergeNotes = filtered.filter(m => m.role === 'system');
+  const recent = filtered.slice(-maxHistory);
+  // Re-attach any merge notes that fell outside the recent window (cheap, rare).
+  const seen = new Set(recent);
+  const kept = [...mergeNotes.filter(m => !seen.has(m)), ...recent];
+
+  return kept.map(m => ({
+    role: m.role === 'system' ? 'user' : m.role,
+    content: m.role === 'system'
+      ? `[context: ${m.content}]`
+      : m.role === 'assistant' && m.meta?.interrupted
+        ? INTERRUPTED_ASSISTANT_CONTEXT
+        : m.content,
+  }));
+}
+
+const MIN_REPEATED_EDIT_BLOCK_CHARS = 200;
+const REPEATED_EDIT_BLOCK_THRESHOLD = 3;
+
+/**
+ * Detect a model repeating the same complete SEARCH/REPLACE edit block. This
+ * is deliberately narrow: ordinary prose and distinct edits are never
+ * stopped, even when they contain repeated short phrases.
+ */
+export function hasRepeatedSearchReplaceBlock(
+  text: string,
+  threshold = REPEATED_EDIT_BLOCK_THRESHOLD,
+): boolean {
+  const counts = new Map<string, number>();
+  const fencedBlock = /```[^\n]*\n([\s\S]*?)```/g;
+  let match: RegExpExecArray | null;
+  while ((match = fencedBlock.exec(text)) !== null) {
+    const body = match[1].replace(/\r\n/g, '\n').trim();
+    if (body.length < MIN_REPEATED_EDIT_BLOCK_CHARS) continue;
+    if (!body.includes('<<<<<<< SEARCH') || !body.includes('=======') || !body.includes('>>>>>>> REPLACE')) {
+      continue;
+    }
+    const count = (counts.get(body) ?? 0) + 1;
+    if (count >= threshold) return true;
+    counts.set(body, count);
+  }
+  return false;
+}
 
 function fileBlock(path: string, content: string): string {
   return `### ${path}\n\`\`\`\n${content}\n\`\`\``;
 }
 
-function buildArtifactContext(
+export function buildArtifactContext(
   artifacts: Artifact[],
   workspaceFiles: WorkspaceFileCandidate[],
   selectedFiles: { path: string; content: string }[],
@@ -123,10 +177,12 @@ function buildArtifactContext(
   for (const selected of selectedFiles) {
     if (selected.content.length > MAX_FULL_FILE_CHARS) continue;
     if (total + selected.content.length > MAX_TOTAL_SELECTED_CHARS) continue;
-    // Branch artifacts are authoritative over disk for the same path.
-    const content = branchByPath.get(selected.path)?.content ?? selected.content;
-    blocks.push(fileBlock(selected.path, content));
-    total += content.length;
+    // selectedFiles are resolved immediately before this model call. For the
+    // active state they therefore include an intervening manual edit that a
+    // file watcher may not yet have captured as an artifact. Never let an old
+    // artifact overwrite that fresher, explicitly selected content.
+    blocks.push(fileBlock(selected.path, selected.content));
+    total += selected.content.length;
   }
 
   return [
@@ -143,7 +199,7 @@ function buildArtifactContext(
     'CONTEXT RULES:',
     '  • The workspace inventory is real; do not ask the user to paste a file that appears there.',
     '  • The selected file blocks contain the actual contents you must use for SEARCH anchors.',
-    '  • If a path is branch-owned, the branch version above overrides the on-disk version.',
+    '  • The selected file blocks are the latest authoritative contents for this call.',
     '  • Follow-up requests such as "fix it then" refer to the conversation history supplied in the messages; infer the relevant files from that context.',
     '  • If you still cannot safely identify the relevant file, say what is ambiguous, but do NOT ask the user to paste contents of a file that is listed in the inventory.',
   ].filter(Boolean).join('\n');
