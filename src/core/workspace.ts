@@ -213,6 +213,7 @@ export class Workspace {
       type: 'message_appended', branchId, role, msgId: id,
       inputTokens: meta?.inputTokens, outputTokens: meta?.outputTokens,
       interrupted: meta?.interrupted,
+      interruptionReason: meta?.interruptionReason,
     });
 
     return msg;

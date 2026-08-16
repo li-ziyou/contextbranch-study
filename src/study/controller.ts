@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { Workspace } from '../core/workspace';
+import { InterruptionReason } from '../core/types';
 import { createStudyArchive, defaultStudyExportDirectory, studyArchiveFileName } from './archive';
 import { StudyArchive, StudyFinishedRecord, StudyPublicTestTarget, StudyRunFile, StudyUiState } from './types';
 
@@ -186,7 +187,14 @@ export class StudyController {
     return null;
   }
 
-  recordModelUsage(ws: Workspace, inputTokens: number, outputTokens: number, model: string, stateId: string = ws.activeBranchId): void {
+  recordModelUsage(
+    ws: Workspace,
+    inputTokens: number,
+    outputTokens: number,
+    model: string,
+    stateId: string = ws.activeBranchId,
+    details?: { interruptionReason?: InterruptionReason; observedOutputChars?: number },
+  ): void {
     ws.storage.appendTelemetry({
       type: 'study_model_call_completed',
       runId: this.run.runId,
@@ -195,6 +203,8 @@ export class StudyController {
       model,
       inputTokens,
       outputTokens,
+      interruptionReason: details?.interruptionReason,
+      observedOutputChars: details?.observedOutputChars,
     });
   }
 

@@ -11,7 +11,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { Workspace } from '../core/workspace';
 import { WorkspaceCapture } from '../core/file-watcher';
-import { CodingAgent } from '../agents/coding';
+import { CodingAgent, hasRepeatedSearchReplaceBlock } from '../agents/coding';
 import { ContextAgent, scanWorkspaceFiles, WorkspaceFileCandidate } from '../agents/context';
 import {
   parseEdits, applyEdits, applySelected, buildEditRetryInstruction, EditOp, AppliedFile,
@@ -22,7 +22,7 @@ import { MergeAnalystAgent } from '../agents/merge-analyst';
 import { ConflictResolverAgent } from '../agents/conflict-resolver';
 import { LLMProvider } from '../llm/provider';
 import { previewMerge, finalizeMerge, undoMerge, detectTestCommand, detectLintCommand } from '../core/merge';
-import { Branch, Artifact, Message } from '../core/types';
+import { Branch, Artifact, Message, InterruptionReason } from '../core/types';
 import { Storage } from '../core/storage';
 import { ChangeDecorations } from '../core/change-decorations';
 import { StudyController } from '../study/controller';
@@ -556,12 +556,20 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     }
 
     const runCoding = async (repairInstruction?: string): Promise<{
-      text: string; inputTokens: number; outputTokens: number; truncated: boolean; aborted: boolean;
+      text: string;
+      inputTokens: number;
+      outputTokens: number;
+      truncated: boolean;
+      aborted: boolean;
+      interruptionReason?: InterruptionReason;
     }> => {
       let assistantText = '';
       let inputTokens = 0, outputTokens = 0;
       let truncated = false;
       let aborted = false;
+      let interruptionReason: InterruptionReason | undefined;
+      let repetitionDetected = false;
+      let nextRepetitionCheckAt = 2_048;
 
       const run = this.codingRuns.get(branch.id);
       if (run) run.partialText = '';
@@ -588,15 +596,31 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
             const activeRun = this.codingRuns.get(branch.id);
             if (activeRun) activeRun.partialText += ev.text;
             this.postMessage({ type: 'streamDelta', branchId: branch.id, text: ev.text });
+            if (!repetitionDetected && assistantText.length >= nextRepetitionCheckAt) {
+              nextRepetitionCheckAt = assistantText.length + 512;
+              if (hasRepeatedSearchReplaceBlock(assistantText)) {
+                repetitionDetected = true;
+                aborted = true;
+                interruptionReason = 'repetition';
+                controller.abort();
+                this.postMessage({
+                  type: 'error',
+                  branchId: branch.id,
+                  message: 'The model repeated the same edit block, so generation was stopped. No edits were applied. Please send a narrower follow-up.',
+                });
+              }
+            }
           } else if (ev.type === 'usage') {
             inputTokens = ev.inputTokens ?? 0;
             outputTokens = ev.outputTokens ?? 0;
           } else if (ev.type === 'error') {
             if (ev.error === 'aborted') {
               aborted = true;
+              interruptionReason ??= repetitionDetected ? 'repetition' : 'user_abort';
               this.postMessage({ type: 'streamAborted', branchId: branch.id });
             } else {
               aborted = true;
+              interruptionReason = 'provider_error';
               this.postMessage({ type: 'error', branchId: branch.id, message: ev.error ?? 'Unknown LLM error' });
             }
             break;
@@ -604,6 +628,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
             truncated = Boolean(ev.truncated);
             if (truncated) {
               aborted = true;
+              interruptionReason = 'output_limit';
               this.postMessage({
                 type: 'error',
                 branchId: branch.id,
@@ -615,17 +640,27 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
         }
       } catch (err: any) {
         aborted = true;
+        interruptionReason ??= repetitionDetected ? 'repetition' : 'provider_error';
         this.postMessage({
           type: 'error',
           branchId: branch.id,
           message: err.message ?? String(err),
         });
       }
-      return { text: assistantText, inputTokens, outputTokens, truncated, aborted };
+      if (repetitionDetected) {
+        aborted = true;
+        interruptionReason = 'repetition';
+      }
+      return { text: assistantText, inputTokens, outputTokens, truncated, aborted, interruptionReason };
     };
 
     let result = await runCoding(editRecovery?.instruction);
-    if (study) study.recordModelUsage(ws, result.inputTokens, result.outputTokens, model, branch.id);
+    if (study) {
+      study.recordModelUsage(ws, result.inputTokens, result.outputTokens, model, branch.id, {
+        interruptionReason: result.interruptionReason,
+        observedOutputChars: result.text.length,
+      });
+    }
     let retried = false;
     let repairCount = editRecovery?.retryCount ?? 0;
 
@@ -670,6 +705,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
         outputTokens: totalOutput,
         model,
         interrupted: result.aborted ? true : undefined,
+        interruptionReason: result.interruptionReason,
         artifactIds: ops.length ? [...new Set(ops.map(o => o.path))] : undefined,
       });
 
@@ -703,7 +739,12 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       }
     }
 
-    if (retried && study) study.recordModelUsage(ws, result.inputTokens, result.outputTokens, model, branch.id);
+    if (retried && study) {
+      study.recordModelUsage(ws, result.inputTokens, result.outputTokens, model, branch.id, {
+        interruptionReason: result.interruptionReason,
+        observedOutputChars: result.text.length,
+      });
+    }
     } finally {
       const run = this.codingRuns.get(branch.id);
       this.codingRuns.delete(branch.id);

@@ -182,6 +182,7 @@
     "compile": "tsc -noEmit",
     "test:edit-recovery": "node scripts/test-edit-recovery.mjs",
     "test:output-limit": "node scripts/test-coding-output-limit.mjs",
+    "test:output-guard": "node scripts/test-output-guard.mjs",
     "test:conflict-resolution": "node scripts/test-conflict-resolution.mjs",
     "test:study-ui": "node scripts/test-study-merge-controls.mjs",
     "study:validate": "node evaluation/study2/operator/studyctl.mjs validate",

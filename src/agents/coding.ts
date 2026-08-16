@@ -60,19 +60,7 @@ export class CodingAgent {
     // the artifact context above, so old turns rarely change the answer and
     // just cost tokens every call. Merge-context system notes are always kept.
     const maxHistory = opts.maxHistory ?? DEFAULT_MAX_HISTORY;
-    const filtered = opts.history.filter(
-      m => m.role !== 'system' || m.content.startsWith('[merge]') || m.content.startsWith('[study]')
-    );
-    const mergeNotes = filtered.filter(m => m.role === 'system');
-    const recent = filtered.slice(-maxHistory);
-    // Re-attach any merge notes that fell outside the recent window (cheap, rare).
-    const seen = new Set(recent);
-    const kept = [...mergeNotes.filter(m => !seen.has(m)), ...recent];
-
-    const messages: LLMMessage[] = kept.map(m => ({
-      role: m.role === 'system' ? 'user' : m.role,
-      content: m.role === 'system' ? `[context: ${m.content}]` : m.content,
-    }));
+    const messages = buildCodingHistoryMessages(opts.history, maxHistory);
     if (opts.repairInstruction) {
       messages.push({ role: 'user', content: opts.repairInstruction });
     }
@@ -93,6 +81,8 @@ const MAX_FULL_FILE_CHARS = 500_000;
 const MAX_TOTAL_SELECTED_CHARS = 300_000;
 const DEFAULT_MAX_HISTORY = 32;
 const DEFAULT_MAX_OUTPUT_TOKENS = 8_192;
+export const INTERRUPTED_ASSISTANT_CONTEXT =
+  'The previous assistant response was interrupted. No edits from that response were applied.';
 const MODEL_MAX_OUTPUT_TOKENS: Readonly<Record<string, number>> = {
   // OpenRouter currently exposes the model's full 65,536-token completion
   // window. Do not impose the smaller generic harness limit in Study 2.
@@ -101,6 +91,60 @@ const MODEL_MAX_OUTPUT_TOKENS: Readonly<Record<string, number>> = {
 
 export function codingMaxOutputTokens(model?: string): number {
   return model ? (MODEL_MAX_OUTPUT_TOKENS[model] ?? DEFAULT_MAX_OUTPUT_TOKENS) : DEFAULT_MAX_OUTPUT_TOKENS;
+}
+
+/**
+ * Keep interrupted responses visible in the branch archive, but do not feed
+ * their partial (and often repetitive) text back into the next model call.
+ * The short replacement preserves conversational ordering without teaching a
+ * weak model to continue a degenerate output loop.
+ */
+export function buildCodingHistoryMessages(history: Message[], maxHistory = DEFAULT_MAX_HISTORY): LLMMessage[] {
+  const filtered = history.filter(
+    m => m.role !== 'system' || m.content.startsWith('[merge]') || m.content.startsWith('[study]')
+  );
+  const mergeNotes = filtered.filter(m => m.role === 'system');
+  const recent = filtered.slice(-maxHistory);
+  // Re-attach any merge notes that fell outside the recent window (cheap, rare).
+  const seen = new Set(recent);
+  const kept = [...mergeNotes.filter(m => !seen.has(m)), ...recent];
+
+  return kept.map(m => ({
+    role: m.role === 'system' ? 'user' : m.role,
+    content: m.role === 'system'
+      ? `[context: ${m.content}]`
+      : m.role === 'assistant' && m.meta?.interrupted
+        ? INTERRUPTED_ASSISTANT_CONTEXT
+        : m.content,
+  }));
+}
+
+const MIN_REPEATED_EDIT_BLOCK_CHARS = 200;
+const REPEATED_EDIT_BLOCK_THRESHOLD = 3;
+
+/**
+ * Detect a model repeating the same complete SEARCH/REPLACE edit block. This
+ * is deliberately narrow: ordinary prose and distinct edits are never
+ * stopped, even when they contain repeated short phrases.
+ */
+export function hasRepeatedSearchReplaceBlock(
+  text: string,
+  threshold = REPEATED_EDIT_BLOCK_THRESHOLD,
+): boolean {
+  const counts = new Map<string, number>();
+  const fencedBlock = /```[^\n]*\n([\s\S]*?)```/g;
+  let match: RegExpExecArray | null;
+  while ((match = fencedBlock.exec(text)) !== null) {
+    const body = match[1].replace(/\r\n/g, '\n').trim();
+    if (body.length < MIN_REPEATED_EDIT_BLOCK_CHARS) continue;
+    if (!body.includes('<<<<<<< SEARCH') || !body.includes('=======') || !body.includes('>>>>>>> REPLACE')) {
+      continue;
+    }
+    const count = (counts.get(body) ?? 0) + 1;
+    if (count >= threshold) return true;
+    counts.set(body, count);
+  }
+  return false;
 }
 
 function fileBlock(path: string, content: string): string {

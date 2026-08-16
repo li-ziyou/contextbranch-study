@@ -14,6 +14,7 @@
 // ──────────────────────────────────────────────────────────────────────────────
 
 export type Role = 'system' | 'user' | 'assistant';
+export type InterruptionReason = 'user_abort' | 'output_limit' | 'repetition' | 'provider_error';
 
 export interface Message {
   id: string;            // SHA-256 of (role + content + timestamp)
@@ -26,6 +27,7 @@ export interface Message {
     outputTokens?: number;
     model?: string;
     interrupted?: boolean;
+    interruptionReason?: InterruptionReason;
     /** If this assistant message proposed artifact changes, the artifact IDs. */
     artifactIds?: string[];
   };
