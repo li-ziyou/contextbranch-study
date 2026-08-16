@@ -82,7 +82,7 @@ export class CodingAgent {
       messages,
       signal: opts.signal,
       model: opts.model,
-      maxTokens: 8192, // headroom: multi-block edits were truncating at the 4096 default
+      maxTokens: codingMaxOutputTokens(opts.model),
     });
   }
 }
@@ -92,6 +92,16 @@ const MAX_MANIFEST_ENTRIES = 5_000;
 const MAX_FULL_FILE_CHARS = 500_000;
 const MAX_TOTAL_SELECTED_CHARS = 300_000;
 const DEFAULT_MAX_HISTORY = 32;
+const DEFAULT_MAX_OUTPUT_TOKENS = 8_192;
+const MODEL_MAX_OUTPUT_TOKENS: Readonly<Record<string, number>> = {
+  // OpenRouter currently exposes the model's full 65,536-token completion
+  // window. Do not impose the smaller generic harness limit in Study 2.
+  'google/gemini-2.5-flash-lite': 65_536,
+};
+
+export function codingMaxOutputTokens(model?: string): number {
+  return model ? (MODEL_MAX_OUTPUT_TOKENS[model] ?? DEFAULT_MAX_OUTPUT_TOKENS) : DEFAULT_MAX_OUTPUT_TOKENS;
+}
 
 function fileBlock(path: string, content: string): string {
   return `### ${path}\n\`\`\`\n${content}\n\`\`\``;
