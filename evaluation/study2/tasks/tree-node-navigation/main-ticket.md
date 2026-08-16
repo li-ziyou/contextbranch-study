@@ -1,24 +1,48 @@
 # TreeNode Structure and Navigation
 
-Implement the missing structural and navigation behavior for the supplied `branching_tree` package.
+## Task
 
-## Public interface
+Complete the structure and navigation behavior of the supplied
+`branching_tree` package.
 
-The supplied `Node`, `NodePath`, `InvalidTreeError`, `NodeNotFoundError`, and `NotInSameTreeError` definitions are the shared contract. Do not change `branching_tree/model.py` or `branching_tree/__init__.py`.
-
-You may edit only:
+## Files You Can Edit
 
 - `branching_tree/structure.py`
 - `branching_tree/navigation.py`
 
-Example use of the supplied interface:
+Do not modify `branching_tree/model.py` or `branching_tree/__init__.py`.
+
+## Provided API
+
+The supplied `Node`, `NodePath`, `InvalidTreeError`, `NodeNotFoundError`, and
+`NotInSameTreeError` definitions are the shared contract.
+
+| API | Result |
+| --- | --- |
+| `Node.attach(name, child)` | Add or move a child under this node |
+| `Node.detach(name)` | Remove and return a child |
+| `Node.replace(name, child)` | Replace and return a child |
+| `Node.orphan()` | Detach and return this node |
+| `Node.resolve(path)` | Return the node at an absolute or relative path |
+| `Node.remove(path)` | Detach and return the node at a path |
+| `Node.path` | Return this node's absolute `NodePath` |
+| `Node.relative_path_to(target)` | Return a relative `NodePath` to another node |
+| `ancestors`, `descendants`, `siblings`, `leaves` | Return tuples of related nodes |
+
+## Example
 
 ```python
+from branching_tree import Node, NodePath
+
 root = Node.from_mapping({"left": {"leaf": {}}, "right": {}})
 leaf = root.resolve(NodePath("/left/leaf"))
+
+assert leaf.path == NodePath("/left/leaf")
+assert leaf.parent is root.resolve("/left")
+assert leaf.resolve("..") is root.resolve("/left")
 ```
 
-## Acceptance requirements
+## Requirements
 
 ### Responsibility A: structure integrity
 
@@ -38,7 +62,7 @@ leaf = root.resolve(NodePath("/left/leaf"))
 
 - TN-I1: all navigation results must immediately reflect successful moves, replacements, detachments, and removals through the shared `Node`/`NodePath` contract.
 
-## Public tests
+## Run Tests
 
 Run either the focused tests or the complete public suite:
 
@@ -55,4 +79,6 @@ The controlled study runner executes the same public suite:
 python3 .study/bin/study_runner.py public --workspace .
 ```
 
-Submit only the final main state. Optional sibling states may be used in any order, or not used. Only changes integrated into main are graded.
+## Submission
+
+Submit only the final `main` state. Only code present in `main` is graded.

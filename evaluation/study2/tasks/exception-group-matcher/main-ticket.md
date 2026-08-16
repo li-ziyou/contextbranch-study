@@ -1,24 +1,47 @@
 # Exception Group Matcher
 
-Implement the missing leaf and group matching behavior for the supplied `exception_matcher` package.
+## Task
 
-## Public interface
+Complete the leaf and nested-group matching behavior of the supplied
+`exception_matcher` package.
 
-The supplied `FailureCode`, `MatchEvidence`, `MatchResult`, `Matcher`, and `matches` definitions are the shared contract. Do not change `exception_matcher/contracts.py`, `exception_matcher/api.py`, or `exception_matcher/__init__.py`.
-
-You may edit only:
+## Files You Can Edit
 
 - `exception_matcher/leaf.py`
 - `exception_matcher/groups.py`
 
-Example use of the supplied interface:
+Do not modify `exception_matcher/contracts.py`, `exception_matcher/api.py`, or
+`exception_matcher/__init__.py`.
+
+## Provided API
+
+The supplied `FailureCode`, `MatchEvidence`, `MatchResult`, `Matcher`, and
+`matches` definitions are the shared contract.
+
+| API | Result |
+| --- | --- |
+| `LeafMatcher(exception_type, message=None, predicate=None)` | Create a matcher for one leaf exception |
+| `GroupMatcher(expected, flatten=False, allow_unwrapped=False)` | Create a matcher for an exception group |
+| `matcher.match(actual)` | Return a `MatchResult` |
+| `matches(expected, actual)` | Run any supplied `Matcher` |
+| `MatchResult.matched` | Whether the complete match succeeded |
+| `MatchResult.evidence` | A tuple of structured mismatch evidence |
+
+## Example
 
 ```python
+from exception_matcher import GroupMatcher, LeafMatcher, matches
+
 expected = GroupMatcher([LeafMatcher(ValueError, "bad value")])
-result = matches(expected, ExceptionGroup("errors", [ValueError("bad value")]))
+actual = ExceptionGroup("errors", [ValueError("bad value")])
+
+result = matches(expected, actual)
+
+assert result.matched is True
+assert result.evidence == ()
 ```
 
-## Acceptance requirements
+## Requirements
 
 ### Responsibility A: leaf matching
 
@@ -37,7 +60,7 @@ result = matches(expected, ExceptionGroup("errors", [ValueError("bad value")]))
 
 - EG-I1: group matching consumes the shared `Matcher`/`MatchResult` contract and preserves leaf failure codes together with expected indexes, actual indexes, and nested actual paths.
 
-## Public tests
+## Run Tests
 
 Run either the focused tests or the complete public suite:
 
@@ -54,4 +77,6 @@ The controlled study runner executes the same public suite:
 python3 .study/bin/study_runner.py public --workspace .
 ```
 
-Submit only the final main state. Optional sibling states may be used in any order, or not used. Only changes integrated into main are graded.
+## Submission
+
+Submit only the final `main` state. Only code present in `main` is graded.
