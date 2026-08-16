@@ -181,6 +181,7 @@
     "package": "vsce package",
     "compile": "tsc -noEmit",
     "test:edit-recovery": "node scripts/test-edit-recovery.mjs",
+    "test:context-freshness": "node scripts/test-context-freshness.mjs",
     "test:output-limit": "node scripts/test-coding-output-limit.mjs",
     "test:output-guard": "node scripts/test-output-guard.mjs",
     "test:conflict-resolution": "node scripts/test-conflict-resolution.mjs",

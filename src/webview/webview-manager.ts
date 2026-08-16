@@ -262,6 +262,32 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
 
   // ─── send message + stream reply ──────────────────────────────────────────
 
+  /**
+   * Return the exact contents that may be edited in one state. The visible
+   * state is read from disk first, because a participant can save a manual
+   * edit before the watcher has turned it into an artifact. An inactive state
+   * has no faithful disk representation, so it falls back to its artifacts.
+   */
+  private authoritativeContents(
+    ws: Workspace,
+    branchId: string,
+    workspaceRoot: string | undefined,
+    paths: Iterable<string>,
+  ): Map<string, string> {
+    const current = new Map<string, string>();
+    const active = ws.activeBranchId === branchId;
+    const artifacts = new Map(ws.getArtifacts(branchId).map(artifact => [artifact.path, artifact.content]));
+    for (const filePath of paths) {
+      const onDisk = active ? readWorkspaceFile(workspaceRoot, filePath) : null;
+      if (onDisk != null) current.set(filePath, onDisk);
+      else {
+        const artifact = artifacts.get(filePath);
+        if (artifact != null) current.set(filePath, artifact);
+      }
+    }
+    return current;
+  }
+
   private resolveCodingContextWithoutAgent(ws: Workspace, branchId: string, history: Message[]): { workspaceFiles: WorkspaceFileCandidate[]; selectedFiles: { path: string; content: string }[] } {
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!root) return { workspaceFiles: [], selectedFiles: [] };
@@ -305,9 +331,10 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
 
     const branchByPath = new Map(branchArtifacts.map(a => [a.path, a]));
     const selectedFiles: { path: string; content: string }[] = [];
+    const active = ws.activeBranchId === branchId;
     for (const filePath of selectedPaths) {
       const branch = branchByPath.get(filePath);
-      if (branch) {
+      if (branch && !active) {
         selectedFiles.push({ path: filePath, content: branch.content });
         continue;
       }
@@ -317,7 +344,9 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       try {
         const content = fs.readFileSync(abs, 'utf8');
         if (!content.includes('\u0000')) selectedFiles.push({ path: filePath, content });
-      } catch {}
+      } catch {
+        if (branch) selectedFiles.push({ path: filePath, content: branch.content });
+      }
     }
     return { workspaceFiles: inventory, selectedFiles };
   }
@@ -396,9 +425,10 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
 
     const branchByPath = new Map(branchArtifacts.map(a => [a.path, a]));
     const selectedFiles: { path: string; content: string }[] = [];
+    const active = ws.activeBranchId === branchId;
     for (const filePath of selectedPaths) {
       const branch = branchByPath.get(filePath);
-      if (branch) {
+      if (branch && !active) {
         selectedFiles.push({ path: filePath, content: branch.content });
         continue;
       }
@@ -408,7 +438,12 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       try {
         const content = fs.readFileSync(abs, 'utf8');
         if (!content.includes('\u0000')) selectedFiles.push({ path: filePath, content });
-      } catch { /* file may have disappeared between scan and read */ }
+      } catch {
+        // The active file may disappear while a response is starting. Keep an
+        // earlier state artifact only as a fallback; it must not take priority
+        // over a readable current file.
+        if (branch) selectedFiles.push({ path: filePath, content: branch.content });
+      }
     }
     return { workspaceFiles: inventory, selectedFiles, summary, rationale, inputTokens, outputTokens, usedAgent: totalBytes > 80_000 };
   }
@@ -654,6 +689,18 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       return { text: assistantText, inputTokens, outputTokens, truncated, aborted, interruptionReason };
     };
 
+    const refreshCodingContext = (requiredPaths: Iterable<string>): void => {
+      const refreshed = this.resolveCodingContextWithoutAgent(ws, branch.id, ws.getMessages(branch.id));
+      const byPath = new Map(refreshed.selectedFiles.map(file => [file.path, file.content]));
+      for (const [filePath, content] of this.authoritativeContents(ws, branch.id, workspaceRoot, requiredPaths)) {
+        byPath.set(filePath, content);
+      }
+      codingContext = {
+        workspaceFiles: refreshed.workspaceFiles,
+        selectedFiles: [...byPath].map(([path, content]) => ({ path, content })),
+      };
+    };
+
     let result = await runCoding(editRecovery?.instruction);
     if (study) {
       study.recordModelUsage(ws, result.inputTokens, result.outputTokens, model, branch.id, {
@@ -664,37 +711,42 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     let retried = false;
     let repairCount = editRecovery?.retryCount ?? 0;
 
-    // Automatic format recovery: a model may still occasionally ignore the
-    // edit protocol and return a complete existing file. Do not make the user
-    // type "use SEARCH/REPLACE" themselves. Re-run once with an explicit
-    // correction while keeping the authoritative file context unchanged.
+    // A model can produce an anchor from an older file snapshot, for example
+    // after a participant saves a manual edit or accepts another proposal. Do
+    // not show a known-stale proposal to the participant. Re-read the state,
+    // inject those exact contents, and make one bounded repair attempt.
     let ops = result.aborted ? [] : parseEdits(result.text);
-    const currentByPath = new Map<string, string>();
-    for (const p of new Set(ops.map(o => o.path))) {
-      const onDisk = ws.activeBranchId === branch.id ? readWorkspaceFile(workspaceRoot, p) : null;
-      const art = ws.getArtifacts(branch.id).find(a => a.path === p);
-      if (onDisk != null) currentByPath.set(p, onDisk);
-      else if (art) currentByPath.set(p, art.content);
-    }
-    const existingWholeFilePaths = [...new Set(
-      ops.filter(o => o.kind === 'create' && currentByPath.has(o.path)).map(o => o.path)
-    )];
+    let proposed = !result.aborted && ops.length
+      ? applyEdits(ops, this.authoritativeContents(ws, branch.id, workspaceRoot, new Set(ops.map(op => op.path))))
+      : [];
 
-    if (!result.aborted && repairCount === 0 && existingWholeFilePaths.length > 0) {
-      if (study) study.beginModelCall(ws, branch.id);
-      const paths = existingWholeFilePaths.join(', ');
-      const previousDraft = result.text.length > 30_000
-        ? result.text.slice(0, 30_000) + '\n[previous draft truncated for the repair instruction]'
-        : result.text;
-      retried = true;
-      repairCount = 1;
-      result = await runCoding(
-        `FORMAT CORRECTION REQUIRED. Your previous response attempted a whole-file replacement for existing file(s): ${paths}. ` +
-        'Do not output those files in full. Convert the requested changes into exact SEARCH/REPLACE blocks using the authoritative file contents already supplied to you. ' +
-        'Preserve unrelated content. The user should never have to ask for SEARCH/REPLACE markers. ' +
-        `Here is your previous draft for reference:\n\n${previousDraft}`
-      );
-      ops = result.aborted ? [] : parseEdits(result.text);
+    const failedChanges = proposed.reduce((sum, file) => sum + file.failedCount, 0);
+    if (!result.aborted && repairCount === 0 && failedChanges > 0) {
+      const denial = study?.beginModelCall(ws, branch.id);
+      if (denial) {
+        this.postMessage({ type: 'error', branchId: branch.id, message: denial });
+      } else {
+        const instruction = buildEditRetryInstruction(proposed, result.text);
+        ws.appendMessage(
+          branch.id,
+          'system',
+          `[edit-retry] Retrying ${failedChanges} failed change(s) against freshly read current file contents (attempt 1/1).`,
+        );
+        if (study) study.recordEditRetry(ws, branch.id, failedChanges);
+        else ws.storage.appendTelemetry({
+          type: 'edit_retry_started', actor: 'system', branchId: branch.id,
+          retryCount: 1, failureCount: failedChanges,
+        });
+        this.postMessage({ type: 'editRetryStarted', branchId: branch.id, failureCount: failedChanges });
+        refreshCodingContext(new Set(ops.map(op => op.path)));
+        retried = true;
+        repairCount = 1;
+        result = await runCoding(instruction);
+        ops = result.aborted ? [] : parseEdits(result.text);
+        proposed = !result.aborted && ops.length
+          ? applyEdits(ops, this.authoritativeContents(ws, branch.id, workspaceRoot, new Set(ops.map(op => op.path))))
+          : [];
+      }
     }
 
     if (result.text) {
@@ -710,18 +762,6 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       });
 
       if (!result.aborted && ops.length) {
-        // Re-read CURRENT content immediately before proposing the edit. This
-        // prevents a stale Context Agent snapshot from silently overwriting a
-        // manual change made during generation.
-        const currentNow = new Map<string, string>();
-        for (const p of new Set(ops.map(o => o.path))) {
-          const onDisk = ws.activeBranchId === branch.id ? readWorkspaceFile(workspaceRoot, p) : null;
-          const art = ws.getArtifacts(branch.id).find(a => a.path === p);
-          if (onDisk != null) currentNow.set(p, onDisk);
-          else if (art) currentNow.set(p, art.content);
-        }
-
-        const proposed = applyEdits(ops, currentNow);
         const review = cfg.get<boolean>('reviewEdits') ?? true;
         if (review) {
           const files = proposed.map(serializeProposal);
@@ -819,13 +859,9 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
     // Re-read CURRENT content (the user may have hand-edited since the proposal).
-    const currentByPath = new Map<string, string>();
-    for (const p of new Set(pending.ops.map(o => o.path))) {
-      const onDisk = ws.activeBranchId === targetBranchId ? readWorkspaceFile(workspaceRoot, p) : null;
-      const art = ws.getArtifacts(targetBranchId).find(a => a.path === p);
-      if (onDisk != null) currentByPath.set(p, onDisk);
-      else if (art) currentByPath.set(p, art.content);
-    }
+    const currentByPath = this.authoritativeContents(
+      ws, targetBranchId, workspaceRoot, new Set(pending.ops.map(op => op.path)),
+    );
     const acceptedMap = new Map<string, Set<number>>();
     if (accepted) for (const [p, idxs] of Object.entries(accepted)) acceptedMap.set(p, new Set(idxs));
 
@@ -866,13 +902,9 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     // Re-evaluate against the state that exists at click time. A manual edit
     // may have made the original proposal valid since it was first shown.
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const currentByPath = new Map<string, string>();
-    for (const p of new Set(pending.ops.map(op => op.path))) {
-      const onDisk = ws.activeBranchId === targetBranchId ? readWorkspaceFile(workspaceRoot, p) : null;
-      const art = ws.getArtifacts(targetBranchId).find(a => a.path === p);
-      if (onDisk != null) currentByPath.set(p, onDisk);
-      else if (art) currentByPath.set(p, art.content);
-    }
+    const currentByPath = this.authoritativeContents(
+      ws, targetBranchId, workspaceRoot, new Set(pending.ops.map(op => op.path)),
+    );
     const resolved = applyEdits(pending.ops, currentByPath);
     const failureCount = resolved.reduce((sum, file) => sum + file.failedCount, 0);
     if (failureCount === 0) {

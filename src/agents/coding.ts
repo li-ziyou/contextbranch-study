@@ -151,7 +151,7 @@ function fileBlock(path: string, content: string): string {
   return `### ${path}\n\`\`\`\n${content}\n\`\`\``;
 }
 
-function buildArtifactContext(
+export function buildArtifactContext(
   artifacts: Artifact[],
   workspaceFiles: WorkspaceFileCandidate[],
   selectedFiles: { path: string; content: string }[],
@@ -177,10 +177,12 @@ function buildArtifactContext(
   for (const selected of selectedFiles) {
     if (selected.content.length > MAX_FULL_FILE_CHARS) continue;
     if (total + selected.content.length > MAX_TOTAL_SELECTED_CHARS) continue;
-    // Branch artifacts are authoritative over disk for the same path.
-    const content = branchByPath.get(selected.path)?.content ?? selected.content;
-    blocks.push(fileBlock(selected.path, content));
-    total += content.length;
+    // selectedFiles are resolved immediately before this model call. For the
+    // active state they therefore include an intervening manual edit that a
+    // file watcher may not yet have captured as an artifact. Never let an old
+    // artifact overwrite that fresher, explicitly selected content.
+    blocks.push(fileBlock(selected.path, selected.content));
+    total += selected.content.length;
   }
 
   return [
@@ -197,7 +199,7 @@ function buildArtifactContext(
     'CONTEXT RULES:',
     '  • The workspace inventory is real; do not ask the user to paste a file that appears there.',
     '  • The selected file blocks contain the actual contents you must use for SEARCH anchors.',
-    '  • If a path is branch-owned, the branch version above overrides the on-disk version.',
+    '  • The selected file blocks are the latest authoritative contents for this call.',
     '  • Follow-up requests such as "fix it then" refer to the conversation history supplied in the messages; infer the relevant files from that context.',
     '  • If you still cannot safely identify the relevant file, say what is ambiguous, but do NOT ask the user to paste contents of a file that is listed in the inventory.',
   ].filter(Boolean).join('\n');
