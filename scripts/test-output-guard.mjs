@@ -19,6 +19,7 @@ try {
   });
   const {
     buildCodingHistoryMessages,
+    buildEditRecoveryHistoryMessages,
     hasRepeatedSearchReplaceBlock,
     INTERRUPTED_ASSISTANT_CONTEXT,
   } = await import(pathToFileURL(bundle));
@@ -34,6 +35,17 @@ try {
   assert.equal(messages[1].content, 'Continue with a narrower fix.');
   assert.equal(messages[2].content, 'A valid completed answer.');
   assert.ok(!messages.some(message => message.content.includes('repeated broken draft')));
+
+  const repairHistory = buildEditRecoveryHistoryMessages([
+    { id: 'u1', role: 'user', content: 'Implement navigation.', timestamp: 1 },
+    { id: 'a1', role: 'assistant', content: '<<<<<<< SEARCH\nstale anchor\n=======', timestamp: 2 },
+    { id: 's1', role: 'system', content: '[study] Task requirements', timestamp: 3 },
+    { id: 'u2', role: 'user', content: 'Fix the failed tests.', timestamp: 4 },
+  ]);
+  assert.ok(repairHistory.some(message => message.content === 'Implement navigation.'));
+  assert.ok(repairHistory.some(message => message.content === 'Fix the failed tests.'));
+  assert.ok(repairHistory.some(message => message.content.includes('[study] Task requirements')));
+  assert.ok(!repairHistory.some(message => message.content.includes('stale anchor')));
 
   const longOld = 'old implementation line\n'.repeat(12);
   const longNew = 'new implementation line\n'.repeat(12);

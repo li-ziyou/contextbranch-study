@@ -726,7 +726,10 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       if (denial) {
         this.postMessage({ type: 'error', branchId: branch.id, message: denial });
       } else {
-        const instruction = buildEditRetryInstruction(proposed, result.text);
+        const retryContents = this.authoritativeContents(
+          ws, branch.id, workspaceRoot, new Set(ops.map(op => op.path)),
+        );
+        const instruction = buildEditRetryInstruction(proposed, result.text, retryContents);
         ws.appendMessage(
           branch.id,
           'system',
@@ -920,7 +923,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       return;
     }
 
-    const instruction = buildEditRetryInstruction(resolved, pending.draft);
+    const instruction = buildEditRetryInstruction(resolved, pending.draft, currentByPath);
     this.pendingEditsByBranch.delete(targetBranchId);
     this.postMessage({
       type: 'editRetryStarted',

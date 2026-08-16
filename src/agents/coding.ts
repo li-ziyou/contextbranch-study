@@ -60,7 +60,9 @@ export class CodingAgent {
     // the artifact context above, so old turns rarely change the answer and
     // just cost tokens every call. Merge-context system notes are always kept.
     const maxHistory = opts.maxHistory ?? DEFAULT_MAX_HISTORY;
-    const messages = buildCodingHistoryMessages(opts.history, maxHistory);
+    const messages = opts.repairInstruction
+      ? buildEditRecoveryHistoryMessages(opts.history, maxHistory)
+      : buildCodingHistoryMessages(opts.history, maxHistory);
     if (opts.repairInstruction) {
       messages.push({ role: 'user', content: opts.repairInstruction });
     }
@@ -116,6 +118,27 @@ export function buildCodingHistoryMessages(history: Message[], maxHistory = DEFA
       : m.role === 'assistant' && m.meta?.interrupted
         ? INTERRUPTED_ASSISTANT_CONTEXT
         : m.content,
+  }));
+}
+
+/**
+ * A failed edit proposal is itself stale evidence. During the one-shot repair,
+ * keep the participant's requests and stable study/merge context, but remove
+ * assistant drafts that contain obsolete SEARCH blocks. The repair instruction
+ * supplies the failed intent and the latest file contents separately.
+ */
+export function buildEditRecoveryHistoryMessages(
+  history: Message[],
+  maxHistory = DEFAULT_MAX_HISTORY,
+): LLMMessage[] {
+  const stable = history.filter(message =>
+    message.role === 'user' ||
+    (message.role === 'system' &&
+      (message.content.startsWith('[merge]') || message.content.startsWith('[study]')))
+  );
+  return stable.slice(-maxHistory).map(message => ({
+    role: message.role === 'system' ? 'user' : 'user',
+    content: message.role === 'system' ? `[context: ${message.content}]` : message.content,
   }));
 }
 

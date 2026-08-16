@@ -50,7 +50,11 @@ export interface AppliedFile {
  * The caller must still provide authoritative current file contents through
  * the normal coding context. This text explains exactly what failed and makes
  * clear that the previous proposal has not been applied. */
-export function buildEditRetryInstruction(files: AppliedFile[], previousDraft: string): string {
+export function buildEditRetryInstruction(
+  files: AppliedFile[],
+  previousDraft: string,
+  currentByPath?: ReadonlyMap<string, string>,
+): string {
   const failures = files.flatMap(file => file.ops
     .filter(op => !op.ok)
     .map(op => {
@@ -59,24 +63,36 @@ export function buildEditRetryInstruction(files: AppliedFile[], previousDraft: s
       return [
         `File: ${file.path}`,
         `Failure: ${op.reason ?? 'the edit could not be applied safely'}`,
-        search ? `Failed SEARCH:\n${search}` : '',
+        search
+          ? `Rejected SEARCH omitted (${search.length} characters). Do not reconstruct or reuse it; copy a new SEARCH block only from the authoritative current file below.`
+          : '',
         replace ? `Intended REPLACE:\n${replace}` : '',
       ].filter(Boolean).join('\n');
     }));
 
-  const draft = previousDraft.length > 20_000
-    ? previousDraft.slice(0, 20_000) + '\n[previous proposal truncated]'
-    : previousDraft;
+  const currentFiles = [...new Set(files.map(file => file.path))]
+    .map(filePath => {
+      const content = currentByPath?.get(filePath);
+      if (content == null) return '';
+      const bounded = content.length > 100_000
+        ? content.slice(0, 100_000) + '\n[current file truncated]'
+        : content;
+      return `CURRENT FILE: ${filePath}\n<<<CURRENT_FILE\n${bounded}\nCURRENT_FILE`;
+    })
+    .filter(Boolean);
 
   return [
     'TOOL EDIT RECOVERY. The previous proposed edits were not applied because one or more SEARCH anchors did not match the authoritative current file.',
     'Re-read the authoritative current file contents supplied by the system for the paths below.',
     'Return a corrected complete edit proposal for the same intended changes. Copy every SEARCH block verbatim from the current file and keep each block small and unique.',
     'Do not assume that code from the previous proposal exists. Do not use fuzzy anchors, do not replace an existing file in full, and do not add unrelated changes.',
+    'Ignore all earlier assistant code drafts. They describe obsolete file versions.',
+    'The CURRENT FILE blocks below were read immediately before this retry. Copy SEARCH text only from these blocks.',
     'This is the only automatic retry, so verify every anchor before responding.',
     '',
     failures.join('\n\n'),
-    draft ? `\nPrevious proposal for intent only:\n${draft}` : '',
+    currentFiles.length ? `\nAUTHORITATIVE CURRENT FILE CONTENTS:\n\n${currentFiles.join('\n\n')}` : '',
+    previousDraft ? '\nThe previous proposal is intentionally omitted because its anchors are stale. Preserve only the intended changes described above.' : '',
   ].filter(Boolean).join('\n');
 }
 

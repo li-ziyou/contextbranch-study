@@ -45,11 +45,20 @@ try {
   assert.equal(staleResult[0].failedCount, 1, 'a stale multi-line anchor must be refused');
   assert.equal(staleResult[0].after, current, 'a refused edit must not mutate content');
 
-  const retryInstruction = buildEditRetryInstruction(staleResult, staleDraft);
+  const retryInstruction = buildEditRetryInstruction(
+    staleResult,
+    staleDraft,
+    new Map([['navigation.py', current]]),
+  );
   assert.match(retryInstruction, /TOOL EDIT RECOVERY/);
   assert.match(retryInstruction, /navigation\.py/);
   assert.match(retryInstruction, /could not locate the SEARCH anchor/);
   assert.match(retryInstruction, /only automatic retry/);
+  assert.match(retryInstruction, /AUTHORITATIVE CURRENT FILE CONTENTS/);
+  assert.doesNotMatch(retryInstruction, /Failed SEARCH:/);
+  assert.doesNotMatch(retryInstruction, /def relative_path\(self, target\):\n        path_up/);
+  assert.match(retryInstruction, /Current comments added by an earlier accepted edit/);
+  assert.doesNotMatch(retryInstruction, /Previous proposal for intent only/);
 
   const correctedDraft = [
     '```css',
