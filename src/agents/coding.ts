@@ -11,6 +11,7 @@ import { LLMProvider, LLMMessage, LLMStreamEvent } from '../llm/provider';
 import { codingAgentSystem } from '../llm/prompts';
 import { Branch, Message, Artifact } from '../core/types';
 import { WorkspaceFileCandidate } from './context';
+import { isProtectedPath } from '../core/file-policy';
 
 export interface ArtifactCandidate {
   path: string;
@@ -49,9 +50,9 @@ export class CodingAgent {
       workspaceRoot: opts.workspaceRoot,
     });
     const system = baseSystem + buildArtifactContext(
-      opts.artifacts ?? [],
-      opts.workspaceFiles ?? [],
-      opts.selectedFiles ?? [],
+      (opts.artifacts ?? []).filter(a => !isProtectedPath(a.path)),
+      (opts.workspaceFiles ?? []).filter(f => !isProtectedPath(f.path)),
+      (opts.selectedFiles ?? []).filter(f => !isProtectedPath(f.path)),
       opts.contextRationale,
       opts.contextSummary,
     );
@@ -256,7 +257,7 @@ export function extractArtifacts(content: string): ArtifactCandidate[] {
     if (pyPathMatch) path = pyPathMatch[1].trim();
     else if (slashPathMatch) path = slashPathMatch[1].trim();
 
-    if (path) {
+    if (path && !isProtectedPath(path)) {
       const contentLines = body.split('\n').slice(1).join('\n');
       candidates.push({ path, content: contentLines, language });
     }

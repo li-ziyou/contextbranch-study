@@ -50,6 +50,8 @@ export function codingAgentSystem(opts: {
     '   <<<<<<< SEARCH / print("hello") / ======= / print("hello") / print("hi") / >>>>>>> REPLACE',
     '',
     'CRITICAL RULES:',
+    '  • Test directories (`test/`, `tests/`, and `__tests__/`, at any depth) are protected.',
+    '    You cannot see, create, edit, or delete files in them. Do not suggest test changes.',
     '  • Use the markers EXACTLY: a line `<<<<<<< SEARCH`, then the search text, then',
     '    a line that is only `=======`, then the replacement, then `>>>>>>> REPLACE`.',
     '    Do NOT reuse `<<<<<<< SEARCH` as the divider, and the closer is `>>>>>>> REPLACE`',

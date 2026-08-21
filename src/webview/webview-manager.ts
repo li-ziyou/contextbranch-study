@@ -25,6 +25,7 @@ import { previewMerge, finalizeMerge, undoMerge, detectTestCommand, detectLintCo
 import { Branch, Artifact, Message, InterruptionReason } from '../core/types';
 import { Storage } from '../core/storage';
 import { ChangeDecorations } from '../core/change-decorations';
+import { isProtectedPath, protectedPathReason } from '../core/file-policy';
 import { StudyController } from '../study/controller';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -826,6 +827,10 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     const failures: string[] = [];
     const notes: string[] = [];
     for (const f of files) {
+      if (isProtectedPath(f.path)) {
+        failures.push(protectedPathReason(f.path));
+        continue;
+      }
       const total = f.ops.length;
       const okOps = f.ops.filter(o => o.ok).length;
       const skipped = total - okOps;
@@ -1055,6 +1060,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     const marked: { full: string; content: string }[] = [];
 
     for (const art of newArtifacts) {
+      if (isProtectedPath(art.path)) continue;
       try {
         const full = path.join(workspaceRoot, art.path);
         deco.snapshotBefore(full);
@@ -1067,6 +1073,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     }
 
     for (const orphanPath of oldPaths) {
+      if (isProtectedPath(orphanPath)) continue;
       if (newPaths.has(orphanPath)) continue;
       try {
         const full = path.join(workspaceRoot, orphanPath);
@@ -1764,6 +1771,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     let count = 0;
     const written: { full: string; content: string }[] = [];
     for (const art of artifacts) {
+      if (isProtectedPath(art.path)) continue;
       const full = path.join(root, art.path);
 
       // If this file is currently being previewed, the proposed content is

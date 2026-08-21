@@ -10,6 +10,7 @@ import {
   Branch, Message, Artifact, Checkpoint, WorkspaceState, BranchStatus,
   MergeEvent
 } from './types';
+import { isProtectedPath, protectedPathReason } from './file-policy';
 
 export class Workspace {
   private state: WorkspaceState;
@@ -123,7 +124,7 @@ export class Workspace {
     if (!b) return [];
     return b.artifactIds
       .map(id => this.storage.loadArtifact(id))
-      .filter((a): a is Artifact => a !== null);
+      .filter((a): a is Artifact => a !== null && !isProtectedPath(a.path));
   }
 
   getCheckpoint(id: string): Checkpoint | null {
@@ -224,6 +225,7 @@ export class Workspace {
   upsertArtifact(branchId: string, artifactPath: string, content: string,
                  baseContent: string | null = null,
                  mergeIntent: Artifact['mergeIntent'] = 'merge'): Artifact {
+    if (isProtectedPath(artifactPath)) throw new Error(protectedPathReason(artifactPath));
     const b = this.getBranch(branchId);
     if (!b) throw new Error(`Branch ${branchId} not found`);
 

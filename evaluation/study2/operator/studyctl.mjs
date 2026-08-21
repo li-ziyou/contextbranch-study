@@ -145,12 +145,24 @@ function assign(participantId, options) {
   }
   const participantNumber = Number.parseInt(participantId.slice(1), 10);
   const selected = selectedTaskSet(options);
-  const sequence = assignmentFor(participantNumber, selected);
-  console.log(JSON.stringify({ participantId, taskSetId: selected.taskSetId, sequence }, null, 2));
+  const group = groupNumber(options.group, selected);
+  const sequence = assignmentFor(participantNumber, selected, group);
+  console.log(JSON.stringify({ participantId, group, taskSetId: selected.taskSetId, sequence }, null, 2));
 }
 
-function assignmentFor(participantNumber, selected) {
+function groupNumber(value, selected) {
+  if (value === undefined) return undefined;
+  const normalized = String(value).replace(/^G/i, '');
+  const group = Number.parseInt(normalized, 10);
+  if (!Number.isInteger(group) || group < 1 || group > selected.sequences.length) {
+    throw new Error(`Group must be G1 through G${selected.sequences.length}.`);
+  }
+  return group;
+}
+
+function assignmentFor(participantNumber, selected, group) {
   const sequences = selected.sequences;
+  if (group !== undefined) return sequences[group - 1];
   // P000 is reserved for technical rehearsals and uses the first frozen
   // sequence. Formal participant IDs start at P001.
   if (participantNumber === 0) return sequences[0];
@@ -285,7 +297,8 @@ function prepare(participantId, periodText, options) {
   const period = Number.parseInt(periodText, 10);
   if (![1, 2].includes(period)) throw new Error('Period must be 1 or 2.');
   const selected = selectedTaskSet(options);
-  const sequence = assignmentFor(number, selected);
+  const group = groupNumber(options.group, selected);
+  const sequence = assignmentFor(number, selected, group);
   const assignment = sequence[`period${period}`];
   const bundlesRoot = path.resolve(options.bundles ?? defaultBundlesRoot);
   const runsRoot = path.resolve(options.runs ?? defaultRunsRoot);
@@ -318,6 +331,7 @@ function prepare(participantId, periodText, options) {
     runId,
     participantId,
     taskSetId: selected.taskSetId,
+    group: group ?? null,
     sequenceId: sequence.id,
     period,
     taskId: assignment.taskId,
@@ -370,7 +384,63 @@ function prepare(participantId, periodText, options) {
   };
   writeJson(path.join(vscodeDir, 'settings.json'), settings);
   writeJson(path.join(runDir, 'run.json'), run);
-  console.log(JSON.stringify({ runId, sessionRoot, workspace, taskSetId: selected.taskSetId, taskId: assignment.taskId, formId, condition: assignment.condition, profile }, null, 2));
+  const result = { runId, sessionRoot, workspace, taskSetId: selected.taskSetId, group: group ?? null, taskId: assignment.taskId, formId, condition: assignment.condition, profile };
+  if (!options.quiet) console.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function ensureLaunchReady(options) {
+  const selected = selectedTaskSet(options);
+  const bundlesRoot = path.resolve(options.bundles ?? defaultBundlesRoot);
+  const bundlesReady = selected.taskIds.every(taskId => fs.existsSync(path.join(bundlesRoot, taskId, 'participant', '.study', 'task.json')));
+  if (!bundlesReady) buildTasks(options);
+  if (!fs.existsSync(path.join(runtimeRoot, 'bin', 'python'))) setupRuntime();
+  preflight(options);
+}
+
+function nasaTlxUrl(run) {
+  const base = process.env.WEIGHTED_NASA_TLX_URL ?? 'https://li-ziyou.github.io/weighted-nasa-tlx/';
+  const url = new URL(base);
+  url.searchParams.set('participant', run.participantId);
+  url.searchParams.set('label', `Period ${run.period}: ${run.taskId} (${run.condition})`);
+  return url.toString();
+}
+
+function openWorkspace(workspace) {
+  const code = process.env.VSCODE_CLI ?? '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code';
+  execFileSync(code, ['--new-window', workspace], { stdio: 'ignore' });
+}
+
+function launch(participantId, groupText, options) {
+  participantNumber(participantId);
+  const selected = selectedTaskSet(options);
+  const group = groupNumber(groupText, selected);
+  if (group === undefined) throw new Error('Provide a group: G1, G2, G3, or G4.');
+  ensureLaunchReady(options);
+  const runsRoot = path.resolve(options.runs ?? defaultRunsRoot);
+  // A new research machine gets the frozen Study 2 default profile. An
+  // existing runs root remains authoritative and is never silently changed.
+  const profileOptions = fs.existsSync(path.join(runsRoot, 'study-profile.json')) ? {} : {
+    provider: process.env.CONTEXTBRANCH_STUDY_PROVIDER ?? 'openrouter',
+    model: process.env.CONTEXTBRANCH_STUDY_MODEL ?? 'google/gemini-2.5-flash-lite',
+    'time-limit': process.env.CONTEXTBRANCH_STUDY_TIME_LIMIT ?? '1300',
+  };
+  const launchOptions = { ...options, ...profileOptions, group: String(group), quiet: true };
+  const period1 = prepare(participantId, '1', launchOptions);
+  const period2 = prepare(participantId, '2', launchOptions);
+  // Open in protocol order. The tab label inside each questionnaire identifies
+  // the matching period, task, and condition without changing the participant ID.
+  openWorkspace(period1.workspace);
+  openWorkspace(period2.workspace);
+  execFileSync('open', [nasaTlxUrl({ ...period1, participantId })], { stdio: 'ignore' });
+  execFileSync('open', [nasaTlxUrl({ ...period2, participantId })], { stdio: 'ignore' });
+  console.log(JSON.stringify({
+    participantId,
+    group: `G${group}`,
+    sequenceId: assignmentFor(participantNumber(participantId), selected, group).id,
+    period1: { ...period1, nasaTlxUrl: nasaTlxUrl({ ...period1, participantId }) },
+    period2: { ...period2, nasaTlxUrl: nasaTlxUrl({ ...period2, participantId }) },
+  }, null, 2));
 }
 
 function collect(runId, options) {
@@ -524,7 +594,8 @@ else if (commandName === 'preflight') preflight(options);
 else if (commandName === 'setup-runtime') setupRuntime();
 else if (commandName === 'build-tasks') buildTasks(options);
 else if (commandName === 'dry-run') dryRun(options);
+else if (commandName === 'launch') launch(positional[0], positional[1], options);
 else {
-  console.error('Usage: studyctl.mjs validate | assign P017 | prepare P017 1 | collect RUN_ID | preflight | setup-runtime | build-tasks | dry-run [--task-set study2-v2|legacy]');
+  console.error('Usage: studyctl.mjs validate | assign P017 [--group G1] | prepare P017 1 [--group G1] | launch P017 G1 | collect RUN_ID | preflight | setup-runtime | build-tasks | dry-run [--task-set study2-v2|legacy]');
   process.exitCode = 1;
 }

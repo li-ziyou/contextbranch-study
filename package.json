@@ -190,6 +190,7 @@
     "study:assign": "node evaluation/study2/operator/studyctl.mjs assign",
     "study:build-tasks": "node evaluation/study2/operator/studyctl.mjs build-tasks",
     "study:prepare": "node evaluation/study2/operator/studyctl.mjs prepare",
+    "study:launch": "node evaluation/study2/operator/studyctl.mjs launch",
     "study:collect": "node evaluation/study2/operator/studyctl.mjs collect",
     "study:preflight": "node evaluation/study2/operator/studyctl.mjs preflight",
     "study:setup-runtime": "node evaluation/study2/operator/studyctl.mjs setup-runtime",

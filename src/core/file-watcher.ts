@@ -28,6 +28,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Workspace } from './workspace';
+import { isProtectedPath } from './file-policy';
 
 const IGNORED_DIR_SEGMENTS = new Set([
   '.contextbranch',
@@ -290,6 +291,7 @@ this.onCaptured();
       if (IGNORED_DIR_SEGMENTS.has(seg)) return false;
       if (seg.startsWith('.') && IGNORED_DIR_SEGMENTS.has(seg)) return false;
     }
+    if (isProtectedPath(rel)) return false;
 
     const ext = path.extname(rel).toLowerCase();
     if (IGNORED_EXTENSIONS.has(ext)) return false;

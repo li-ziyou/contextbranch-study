@@ -120,6 +120,18 @@ time limit。后续运行若给出不同设置会失败。
 
 ## 6. 准备 Period 1
 
+在已完成首次环境配置的研究机上，优先使用一键启动。组号 `G1`–`G4` 对应冻结的
+平衡序列；命令会生成两个 period 的独立 workspace，按 Period 1、Period 2 顺序打开
+两个 VS Code 窗口，并打开已标注任务/条件的两份 Raw NASA-TLX 表：
+
+```bash
+cd /Users/zli38/Documents/contextbranch-study
+npm run study:launch -- P001 G1 --task-set study2-v2
+```
+
+首次使用一台新研究机时，命令会补齐缺失的 participant bundles 和 Study Python runtime；
+已有 runs root 的固定 profile 保持不变。
+
 第一次准备该 runs root 时必须明确给出固定 profile：
 
 ```bash

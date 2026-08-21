@@ -11,6 +11,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { LLMProvider } from '../llm/provider';
+import { isProtectedPath } from '../core/file-policy';
 
 export interface WorkspaceFileCandidate {
   path: string;
@@ -64,6 +65,7 @@ export function scanWorkspaceFiles(root: string): WorkspaceFileCandidate[] {
       if (!ent.isFile()) continue;
       const rel = path.relative(root, abs).split(path.sep).join('/');
       if (!rel || rel.startsWith('../') || path.isAbsolute(rel)) continue;
+      if (isProtectedPath(rel)) continue;
       if (rel.split('/').some(s => IGNORED_DIRS.has(s))) continue;
       if ([...IGNORED_RELATIVE_PREFIXES].some(prefix => rel.startsWith(prefix)) ||
           IGNORED_RELATIVE_FILES.has(rel)) continue;

@@ -85,6 +85,15 @@ npm run study:dry-run -- --task-set study2-v2
 npm run study:prepare -- P017 1 --task-set study2-v2 --provider YOUR_FIXED_PROVIDER --model YOUR_FIXED_MODEL
 ```
 
+For a prepared research machine, start both periods with only the participant
+ID and counterbalancing group (`G1`–`G4`). This creates both fresh workspaces,
+opens two VS Code windows in period order, and opens the corresponding labeled
+Raw NASA-TLX pages:
+
+```bash
+npm run study:launch -- P017 G2 --task-set study2-v2
+```
+
 `study:validate` checks the frozen manifests and the two-module task shape.
 `study:assign` prints a deterministic sequence; it does not write participant
 data. `study:build-tasks` creates the separate participant/private bundles.
