@@ -292,6 +292,32 @@ function findRunDirectory(runsRoot, runId) {
   throw new Error(`Prepared run not found: ${runId}`);
 }
 
+function findRunForParticipantPeriod(runsRoot, participantId, periodText) {
+  participantNumber(participantId);
+  const period = Number.parseInt(periodText, 10);
+  if (![1, 2].includes(period)) throw new Error('Period must be 1 or 2.');
+
+  const candidates = fs.readdirSync(runsRoot, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .flatMap(session => {
+      const sessionRoot = path.join(runsRoot, session.name);
+      return fs.readdirSync(sessionRoot, { withFileTypes: true })
+        .filter(entry => entry.isDirectory())
+        .map(entry => path.join(sessionRoot, entry.name));
+    })
+    .filter(runDir => {
+      const runPath = path.join(runDir, 'run.json');
+      if (!fs.existsSync(runPath)) return false;
+      const run = readJson(runPath);
+      return run.participantId === participantId && run.period === period;
+    });
+  if (candidates.length === 1) return candidates[0];
+  if (candidates.length > 1) {
+    throw new Error(`More than one prepared run matches ${participantId} period ${period}; specify the full runId.`);
+  }
+  throw new Error(`Prepared run not found for ${participantId} period ${period}.`);
+}
+
 function prepare(participantId, periodText, options) {
   const number = participantNumber(participantId);
   const period = Number.parseInt(periodText, 10);
@@ -384,7 +410,7 @@ function prepare(participantId, periodText, options) {
   };
   writeJson(path.join(vscodeDir, 'settings.json'), settings);
   writeJson(path.join(runDir, 'run.json'), run);
-  const result = { runId, sessionRoot, workspace, taskSetId: selected.taskSetId, group: group ?? null, taskId: assignment.taskId, formId, condition: assignment.condition, profile };
+  const result = { runId, sessionRoot, workspace, taskSetId: selected.taskSetId, group: group ?? null, period, taskId: assignment.taskId, formId, condition: assignment.condition, profile };
   if (!options.quiet) console.log(JSON.stringify(result, null, 2));
   return result;
 }
@@ -443,9 +469,12 @@ function launch(participantId, groupText, options) {
   }, null, 2));
 }
 
-function collect(runId, options) {
+function collect(runReference, periodText, options) {
   const runsRoot = path.resolve(options.runs ?? defaultRunsRoot);
-  const runDir = findRunDirectory(runsRoot, runId);
+  const runDir = periodText === undefined
+    ? findRunDirectory(runsRoot, runReference)
+    : findRunForParticipantPeriod(runsRoot, runReference, periodText);
+  const runId = readJson(path.join(runDir, 'run.json')).runId;
   const workspace = path.join(runDir, 'workspace');
   const finishedPath = path.join(workspace, '.study', 'finished.json');
   if (!fs.existsSync(finishedPath)) {
@@ -589,13 +618,13 @@ const { positional, options } = parseOptions(rest);
 if (commandName === 'validate') validate(options);
 else if (commandName === 'assign') assign(positional[0], options);
 else if (commandName === 'prepare') prepare(positional[0], positional[1], options);
-else if (commandName === 'collect') collect(positional[0], options);
+else if (commandName === 'collect') collect(positional[0], positional[1], options);
 else if (commandName === 'preflight') preflight(options);
 else if (commandName === 'setup-runtime') setupRuntime();
 else if (commandName === 'build-tasks') buildTasks(options);
 else if (commandName === 'dry-run') dryRun(options);
 else if (commandName === 'launch') launch(positional[0], positional[1], options);
 else {
-  console.error('Usage: studyctl.mjs validate | assign P017 [--group G1] | prepare P017 1 [--group G1] | launch P017 G1 | collect RUN_ID | preflight | setup-runtime | build-tasks | dry-run [--task-set study2-v2|legacy]');
+  console.error('Usage: studyctl.mjs validate | assign P017 [--group G1] | prepare P017 1 [--group G1] | launch P017 G1 | collect P017 1 | collect RUN_ID | preflight | setup-runtime | build-tasks | dry-run [--task-set study2-v2|legacy]');
   process.exitCode = 1;
 }

@@ -117,7 +117,7 @@ It verifies the executable task path without creating study data.
 After the participant presses `Finish task`, collect and grade the main state:
 
 ```bash
-npm run study:collect -- RUN_ID
+npm run study:collect -- P001 1
 npm run study:grade -- --bundle participant-bundles/TASK_ID \
   --submission evaluation/study2/runs/<participant-id>_YYYYMMDDTHHMMSSZ/RUN_ID/submission/main \
   --result evaluation/study2/private-results/RUN_ID.json

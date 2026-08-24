@@ -273,13 +273,13 @@ test -f /exact/period1/workspace/.study/finished.json
 find /exact/sessionRoot/participant-exports -maxdepth 1 -name '*.zip' -print
 ```
 
-立即按 Period 1 的实际 `runId` 收集固定提交。以下是 V1 的例子：
+立即按 participant ID 和 period 收集固定提交。以下是 V1 的例子：
 
 ```bash
 cd /Users/zli38/Documents/contextbranch-study
 
 npm run study:collect -- \
-  P001-period1-tree-node-navigation-linear \
+  P001 1 \
   --runs "$STUDY2_RUNS_ROOT"
 ```
 
@@ -308,13 +308,13 @@ test -f /exact/period2/workspace/.study/finished.json
 find /exact/sessionRoot/participant-exports -maxdepth 1 -name '*.zip' -print
 ```
 
-然后按 Period 2 的实际 `runId` 运行 `study:collect`。以下仍以 V1 为例：
+然后按 participant ID 和 period 运行 `study:collect`。以下仍以 V1 为例：
 
 ```bash
 cd /Users/zli38/Documents/contextbranch-study
 
 npm run study:collect -- \
-  P001-period2-exception-group-matcher-contextbranch \
+  P001 2 \
   --runs "$STUDY2_RUNS_ROOT"
 ```
 
