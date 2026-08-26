@@ -41,15 +41,45 @@ assert result.matched is True
 assert result.evidence == ()
 ```
 
-## Requirements
+## Your responsibilities
 
-### Responsibility A: leaf matching
+The package is split into two connected parts.
+
+### Responsibility A: decide whether one exception matches
+
+Work mainly in `exception_matcher/leaf.py`.
+
+Check one ordinary exception against what is expected. A match may depend on
+the exception type, its exact message, a regular expression in the message, or
+a custom predicate. For example, a matcher for `ValueError` with message
+`"bad value"` matches `ValueError("bad value")`, but not
+`TypeError("bad value")` or `ValueError("other value")`.
+
+An exception group is not an ordinary exception for this responsibility. When
+a match fails, return a `MatchResult` that records the reason.
+
+### Responsibility B: decide whether a whole exception group matches
+
+Work mainly in `exception_matcher/groups.py`.
+
+Compare an expected list of matchers with the exceptions inside an
+`ExceptionGroup`. Check that each expected exception has a matching actual
+exception, and report expected or actual items that do not match.
+
+Nested groups stay nested by default. With `flatten=True`, matching instead
+looks through nested groups for individual leaf exceptions while retaining each
+leaf's original location. This responsibility uses the `MatchResult` from
+Responsibility A and keeps its useful failure information.
+
+## Required behavior
+
+### Responsibility A: decide whether one exception matches
 
 - EG-A1: `LeafMatcher` matches a leaf exception by `isinstance` against one type or a tuple of types and rejects exception groups as leaves.
 - EG-A2: an optional string requires an exact exception message, an optional compiled regular expression uses `search`, and an optional predicate must return true.
 - EG-A3: every leaf mismatch returns an unmatched `MatchResult` with the corresponding `FailureCode`; successful matches contain no failure evidence.
 
-### Responsibility B: nested group matching
+### Responsibility B: decide whether a whole exception group matches
 
 - EG-B1: `GroupMatcher` preserves nested group boundaries by default, so a nested group is matched by a nested matcher rather than by a leaf matcher.
 - EG-B2: `flatten=True` recursively exposes leaves for matching while retaining each leaf's original index path in failure evidence.

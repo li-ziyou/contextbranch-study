@@ -42,16 +42,46 @@ assert leaf.parent is root.resolve("/left")
 assert leaf.resolve("..") is root.resolve("/left")
 ```
 
-## Requirements
+## Your responsibilities
 
-### Responsibility A: structure integrity
+The package is split into two connected parts.
+
+### Responsibility A: manage the shape of the tree
+
+Work mainly in `branching_tree/structure.py`.
+
+Make sure that adding, moving, replacing, and removing nodes always leaves a
+valid tree. A parent can add a child with a valid name. Moving a node to a new
+parent also moves everything below that node. Removing a node disconnects it
+from its old parent.
+
+A node cannot become its own child or be moved below one of its descendants.
+If an operation is invalid, it must fail without changing the tree. After a
+successful change, each node's parent, name, and children must agree with one
+another.
+
+### Responsibility B: use the tree as a path-based structure
+
+Work mainly in `branching_tree/navigation.py`.
+
+Let a user find nodes and inspect where they are in the current tree. This
+includes finding a node by an absolute path such as `/left/leaf`, finding a
+node relative to the current node with `.` and `..`, removing a node by path,
+and reporting paths and related nodes.
+
+These results must reflect changes made by Responsibility A. For example, a
+node that has been moved must have its new path and new relatives immediately.
+
+## Required behavior
+
+### Responsibility A: manage the shape of the tree
 
 - TN-A1: `attach` accepts a non-empty child name other than `.` or `..` with no `/`, and rejects an occupied name unless the operation is `replace`.
 - TN-A2: `attach` and `replace` maintain consistent `parent`, `name`, and read-only `children` views; attaching an already attached node moves its complete subtree.
 - TN-A3: structural operations reject self-links and ancestor cycles without partially changing either tree.
 - TN-A4: `detach`, `replace`, and `orphan` return the affected node, clear detached parent/name metadata, and report missing children with `NodeNotFoundError`.
 
-### Responsibility B: path navigation
+### Responsibility B: use the tree as a path-based structure
 
 - TN-B1: `resolve` supports absolute and relative `NodePath` values, including `.` and `..`, and raises `NodeNotFoundError` for missing segments or movement above the root.
 - TN-B2: `remove` resolves a path, detaches that complete subtree, and refuses to remove the root.
