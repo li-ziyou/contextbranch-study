@@ -18,10 +18,27 @@ const defaultBundlesRoot = path.join(repoRoot, 'participant-bundles');
 const defaultRunsRoot = path.join(studyRoot, 'runs');
 const runtimeRoot = path.join(repoRoot, '.study-runtime');
 const builderRoot = path.join(repoRoot, '.study-builder');
+const isWindows = process.platform === 'win32';
 const requiredManifestFields = [
   'schemaVersion', 'taskId', 'participantTitle', 'provenance', 'assets',
   'ticket', 'contextBranch', 'runner', 'submission', 'privateGrader',
 ];
+
+function venvPython(root) {
+  return path.join(root, isWindows ? 'Scripts' : 'bin', isWindows ? 'python.exe' : 'python');
+}
+
+function systemPython() {
+  if (process.env.PYTHON) return { command: process.env.PYTHON, prefixArgs: [] };
+  return isWindows
+    ? { command: 'py', prefixArgs: ['-3'] }
+    : { command: 'python3', prefixArgs: [] };
+}
+
+function createVenv(root) {
+  const { command, prefixArgs } = systemPython();
+  execFileSync(command, [...prefixArgs, '-m', 'venv', root], { stdio: 'inherit' });
+}
 
 function readJson(file) {
   return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -333,7 +350,7 @@ function prepare(participantId, periodText, options) {
     throw new Error(`Task bundle missing: ${participantBundle}. Run npm run study:build-tasks first.`);
   }
   const profile = studyProfile(runsRoot, options);
-  const runtimePython = path.join(runtimeRoot, 'bin', 'python');
+  const runtimePython = venvPython(runtimeRoot);
   if (!fs.existsSync(runtimePython)) {
     throw new Error(`Study Python runtime is missing (${runtimePython}). Run npm run study:setup-runtime first.`);
   }
@@ -407,6 +424,7 @@ function prepare(participantId, periodText, options) {
     'python.defaultInterpreterPath': path.resolve(runtimePython),
     'terminal.integrated.env.osx': { PATH: `${path.dirname(runtimePython)}:\${env:PATH}` },
     'terminal.integrated.env.linux': { PATH: `${path.dirname(runtimePython)}:\${env:PATH}` },
+    'terminal.integrated.env.windows': { PATH: `${path.dirname(runtimePython)};\${env:PATH}` },
   };
   writeJson(path.join(vscodeDir, 'settings.json'), settings);
   writeJson(path.join(runDir, 'run.json'), run);
@@ -420,7 +438,7 @@ function ensureLaunchReady(options) {
   const bundlesRoot = path.resolve(options.bundles ?? defaultBundlesRoot);
   const bundlesReady = selected.taskIds.every(taskId => fs.existsSync(path.join(bundlesRoot, taskId, 'participant', '.study', 'task.json')));
   if (!bundlesReady) buildTasks(options);
-  if (!fs.existsSync(path.join(runtimeRoot, 'bin', 'python'))) setupRuntime();
+  if (!fs.existsSync(venvPython(runtimeRoot))) setupRuntime();
   preflight(options);
 }
 
@@ -433,8 +451,25 @@ function nasaTlxUrl(run) {
 }
 
 function openWorkspace(workspace) {
-  const code = process.env.VSCODE_CLI ?? '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code';
-  execFileSync(code, ['--new-window', workspace], { stdio: 'ignore' });
+  const code = process.env.VSCODE_CLI ?? (
+    isWindows
+      ? 'code'
+      : process.platform === 'darwin'
+        ? '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code'
+        : 'code'
+  );
+  // VS Code's Windows CLI is a .cmd shim, which needs the Windows command shell.
+  execFileSync(code, ['--new-window', workspace], { stdio: 'ignore', shell: isWindows });
+}
+
+function openExternal(url) {
+  if (isWindows) {
+    execFileSync('rundll32.exe', ['url.dll,FileProtocolHandler', url], { stdio: 'ignore' });
+  } else if (process.platform === 'darwin') {
+    execFileSync('open', [url], { stdio: 'ignore' });
+  } else {
+    execFileSync('xdg-open', [url], { stdio: 'ignore' });
+  }
 }
 
 function launch(participantId, groupText, options) {
@@ -458,8 +493,8 @@ function launch(participantId, groupText, options) {
   // the matching period, task, and condition without changing the participant ID.
   openWorkspace(period1.workspace);
   openWorkspace(period2.workspace);
-  execFileSync('open', [nasaTlxUrl({ ...period1, participantId })], { stdio: 'ignore' });
-  execFileSync('open', [nasaTlxUrl({ ...period2, participantId })], { stdio: 'ignore' });
+  openExternal(nasaTlxUrl({ ...period1, participantId }));
+  openExternal(nasaTlxUrl({ ...period2, participantId }));
   console.log(JSON.stringify({
     participantId,
     group: `G${group}`,
@@ -535,7 +570,7 @@ function preflight(options) {
       failures.push(`${manifest.taskId}: private reference repair is missing`);
     }
   }
-  const python = path.join(runtimeRoot, 'bin', 'python');
+  const python = venvPython(runtimeRoot);
   if (!fs.existsSync(python)) {
     failures.push(`Study Python runtime is missing (${python}). Run npm run study:setup-runtime.`);
   } else {
@@ -550,21 +585,21 @@ function preflight(options) {
 }
 
 function setupRuntime() {
-  const python = process.env.PYTHON ?? 'python3';
   const requirements = path.join(studyRoot, 'runner', 'requirements.txt');
-  if (!fs.existsSync(path.join(runtimeRoot, 'bin', 'python'))) {
-    execFileSync(python, ['-m', 'venv', runtimeRoot], { stdio: 'inherit' });
+  const python = venvPython(runtimeRoot);
+  if (!fs.existsSync(python)) {
+    createVenv(runtimeRoot);
   }
-  execFileSync(path.join(runtimeRoot, 'bin', 'python'), ['-m', 'pip', 'install', '--upgrade', 'pip'], { stdio: 'inherit' });
-  execFileSync(path.join(runtimeRoot, 'bin', 'python'), ['-m', 'pip', 'install', '-r', requirements], { stdio: 'inherit' });
-  console.log(`Study Python runtime ready: ${path.join(runtimeRoot, 'bin', 'python')}`);
+  execFileSync(python, ['-m', 'pip', 'install', '--upgrade', 'pip'], { stdio: 'inherit' });
+  execFileSync(python, ['-m', 'pip', 'install', '-r', requirements], { stdio: 'inherit' });
+  console.log(`Study Python runtime ready: ${python}`);
 }
 
 function dryRun(options) {
   preflight(options);
   const selected = selectedTaskSet(options);
   const bundlesRoot = path.resolve(options.bundles ?? defaultBundlesRoot);
-  const runtimePython = path.join(runtimeRoot, 'bin', 'python');
+  const runtimePython = venvPython(runtimeRoot);
   for (const manifestFile of manifestFiles(selected)) {
     const manifest = readJson(manifestFile);
     const bundle = path.join(bundlesRoot, manifest.taskId);
@@ -578,7 +613,7 @@ function dryRun(options) {
         fs.mkdirSync(path.dirname(target), { recursive: true });
         fs.copyFileSync(source, target);
       }
-      execFileSync('python3', ['.study/bin/study_runner.py', 'public', '--workspace', '.'], {
+      execFileSync(runtimePython, [path.join('.study', 'bin', 'study_runner.py'), 'public', '--workspace', '.'], {
         cwd: workspace,
         stdio: 'inherit',
         env: { ...process.env, CONTEXTBRANCH_STUDY_PYTHON: runtimePython },
@@ -601,12 +636,11 @@ function dryRun(options) {
 
 function buildTasks(options) {
   const selected = selectedTaskSet(options);
-  const python = process.env.PYTHON ?? 'python3';
   const requirements = path.join(studyRoot, 'task-builder', 'requirements.txt');
   const builder = path.join(studyRoot, 'task-builder', 'build_task.py');
-  const builderPython = path.join(builderRoot, 'bin', 'python');
+  const builderPython = venvPython(builderRoot);
   if (!fs.existsSync(builderPython)) {
-    execFileSync(python, ['-m', 'venv', builderRoot], { stdio: 'inherit' });
+    createVenv(builderRoot);
   }
   execFileSync(builderPython, ['-m', 'pip', 'install', '-r', requirements], { stdio: 'inherit' });
   execFileSync(builderPython, [builder, '--tasks', ...selected.taskIds], { cwd: repoRoot, stdio: 'inherit' });
