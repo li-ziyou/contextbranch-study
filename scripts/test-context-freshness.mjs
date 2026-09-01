@@ -38,11 +38,11 @@ try {
     { id: 'test', role: 'user', content: 'F'.repeat(8_000), timestamp: 3 },
     { id: 'latest', role: 'user', content: 'fix the missing message evidence', timestamp: 4 },
   ];
-  const messages = buildCodingHistoryMessages(history, 8_200);
+  const messages = buildCodingHistoryMessages(history);
   assert.deepEqual(
     messages.map(message => message.content),
-    [EDIT_PROPOSAL_CONTEXT, 'F'.repeat(8_000), 'fix the missing message evidence'],
-    'completed edit blocks must not be replayed and the newest messages must fit the character budget',
+    ['old request '.repeat(100), EDIT_PROPOSAL_CONTEXT, 'F'.repeat(8_000), 'fix the missing message evidence'],
+    'completed edit blocks must not be replayed, but ordinary history must be retained',
   );
   assert.doesNotMatch(messages.join('\n'), /<<<<<<< SEARCH/);
 
@@ -53,7 +53,7 @@ try {
     timestamp: index,
   }));
   assert.equal(
-    buildCodingHistoryMessages(manySmallTurns, 8_200).length,
+    buildCodingHistoryMessages(manySmallTurns).length,
     40,
     'the history budget must not impose a separate message-count limit',
   );

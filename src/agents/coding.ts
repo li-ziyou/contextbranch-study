@@ -78,10 +78,6 @@ export class CodingAgent {
 const MAX_MANIFEST_ENTRIES = 5_000;
 const MAX_FULL_FILE_CHARS = 500_000;
 const MAX_TOTAL_SELECTED_CHARS = 300_000;
-// Bound conversational text by size rather than by a fixed number of turns.
-// This is intentionally a character budget: it is provider-independent and
-// conservative for code.
-export const DEFAULT_MAX_HISTORY_CHARS = 24_000;
 const DEFAULT_MAX_OUTPUT_TOKENS = 8_192;
 export const INTERRUPTED_ASSISTANT_CONTEXT =
   'The previous assistant response was interrupted. No edits from that response were applied.';
@@ -103,10 +99,7 @@ export function codingMaxOutputTokens(model?: string): number {
  * The short replacement preserves conversational ordering without teaching a
  * weak model to continue a degenerate output loop.
  */
-export function buildCodingHistoryMessages(
-  history: Message[],
-  maxChars = DEFAULT_MAX_HISTORY_CHARS,
-): LLMMessage[] {
+export function buildCodingHistoryMessages(history: Message[]): LLMMessage[] {
   const filtered = history.filter(
     m => m.role !== 'system' || m.content.startsWith('[merge]') || m.content.startsWith('[study]')
   );
@@ -124,7 +117,7 @@ export function buildCodingHistoryMessages(
           ? EDIT_PROPOSAL_CONTEXT
         : m.content,
   }));
-  return takeNewestWithinCharacterBudget(normalized, maxChars);
+  return normalized;
 }
 
 /**
@@ -133,10 +126,7 @@ export function buildCodingHistoryMessages(
  * assistant drafts that contain obsolete SEARCH blocks. The repair instruction
  * supplies the failed intent and the latest file contents separately.
  */
-export function buildEditRecoveryHistoryMessages(
-  history: Message[],
-  maxChars = DEFAULT_MAX_HISTORY_CHARS,
-): LLMMessage[] {
+export function buildEditRecoveryHistoryMessages(history: Message[]): LLMMessage[] {
   const stable = history.filter(message =>
     message.role === 'user' ||
     (message.role === 'system' &&
@@ -146,23 +136,7 @@ export function buildEditRecoveryHistoryMessages(
     role: 'user' as const,
     content: message.role === 'system' ? `[context: ${message.content}]` : message.content,
   }));
-  return takeNewestWithinCharacterBudget(normalized, maxChars);
-}
-
-/**
- * Retain the newest useful conversational turns without exceeding the budget.
- * A single oversized message is omitted rather than truncated, so pasted test
- * output cannot crowd out the current request or produce misleading fragments.
- */
-export function takeNewestWithinCharacterBudget(messages: LLMMessage[], maxChars: number): LLMMessage[] {
-  const kept: LLMMessage[] = [];
-  let total = 0;
-  for (const message of [...messages].reverse()) {
-    if (total + message.content.length > maxChars) continue;
-    kept.push(message);
-    total += message.content.length;
-  }
-  return kept.reverse();
+  return normalized;
 }
 
 const MIN_REPEATED_EDIT_BLOCK_CHARS = 200;
