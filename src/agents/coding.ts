@@ -83,9 +83,15 @@ const MAX_MANIFEST_ENTRIES = 5_000;
 const MAX_FULL_FILE_CHARS = 500_000;
 const MAX_TOTAL_SELECTED_CHARS = 300_000;
 const DEFAULT_MAX_HISTORY = 32;
+// Keep the existing turn cap, but also bound the amount of conversational text
+// that can accompany the authoritative file context. This is intentionally a
+// character budget: it is provider-independent and conservative for code.
+export const DEFAULT_MAX_HISTORY_CHARS = 24_000;
 const DEFAULT_MAX_OUTPUT_TOKENS = 8_192;
 export const INTERRUPTED_ASSISTANT_CONTEXT =
   'The previous assistant response was interrupted. No edits from that response were applied.';
+export const EDIT_PROPOSAL_CONTEXT =
+  'The previous assistant response proposed code edits. The current file blocks are authoritative; do not reuse its SEARCH/REPLACE anchors.';
 const MODEL_MAX_OUTPUT_TOKENS: Readonly<Record<string, number>> = {
   // OpenRouter currently exposes the model's full 65,536-token completion
   // window. Do not impose the smaller generic harness limit in Study 2.
@@ -102,7 +108,11 @@ export function codingMaxOutputTokens(model?: string): number {
  * The short replacement preserves conversational ordering without teaching a
  * weak model to continue a degenerate output loop.
  */
-export function buildCodingHistoryMessages(history: Message[], maxHistory = DEFAULT_MAX_HISTORY): LLMMessage[] {
+export function buildCodingHistoryMessages(
+  history: Message[],
+  maxHistory = DEFAULT_MAX_HISTORY,
+  maxChars = DEFAULT_MAX_HISTORY_CHARS,
+): LLMMessage[] {
   const filtered = history.filter(
     m => m.role !== 'system' || m.content.startsWith('[merge]') || m.content.startsWith('[study]')
   );
@@ -112,14 +122,17 @@ export function buildCodingHistoryMessages(history: Message[], maxHistory = DEFA
   const seen = new Set(recent);
   const kept = [...mergeNotes.filter(m => !seen.has(m)), ...recent];
 
-  return kept.map(m => ({
+  const normalized = kept.map(m => ({
     role: m.role === 'system' ? 'user' : m.role,
     content: m.role === 'system'
       ? `[context: ${m.content}]`
       : m.role === 'assistant' && m.meta?.interrupted
         ? INTERRUPTED_ASSISTANT_CONTEXT
+        : m.role === 'assistant' && m.meta?.artifactIds?.length
+          ? EDIT_PROPOSAL_CONTEXT
         : m.content,
   }));
+  return takeNewestWithinCharacterBudget(normalized, maxChars);
 }
 
 /**
@@ -141,6 +154,22 @@ export function buildEditRecoveryHistoryMessages(
     role: message.role === 'system' ? 'user' : 'user',
     content: message.role === 'system' ? `[context: ${message.content}]` : message.content,
   }));
+}
+
+/**
+ * Retain the newest useful conversational turns without exceeding the budget.
+ * A single oversized message is omitted rather than truncated, so pasted test
+ * output cannot crowd out the current request or produce misleading fragments.
+ */
+export function takeNewestWithinCharacterBudget(messages: LLMMessage[], maxChars: number): LLMMessage[] {
+  const kept: LLMMessage[] = [];
+  let total = 0;
+  for (const message of [...messages].reverse()) {
+    if (total + message.content.length > maxChars) continue;
+    kept.push(message);
+    total += message.content.length;
+  }
+  return kept.reverse();
 }
 
 const MIN_REPEATED_EDIT_BLOCK_CHARS = 200;
