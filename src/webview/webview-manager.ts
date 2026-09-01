@@ -623,7 +623,6 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
           selectedFiles: codingContext.selectedFiles,
           contextRationale: codingContext.rationale,
           contextSummary: codingContext.summary,
-          maxHistory: cfg.get<number>('maxHistoryMessages') ?? undefined,
           model,
           repairInstruction,
         })) {

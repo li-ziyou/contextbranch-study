@@ -30,7 +30,7 @@ try {
     { id: '2', role: 'user', content: 'Continue with a narrower fix.', timestamp: 2 },
     { id: '3', role: 'assistant', content: 'A valid completed answer.', timestamp: 3 },
   ];
-  const messages = buildCodingHistoryMessages(history, 32);
+  const messages = buildCodingHistoryMessages(history);
   assert.equal(messages[0].content, INTERRUPTED_ASSISTANT_CONTEXT);
   assert.equal(messages[1].content, 'Continue with a narrower fix.');
   assert.equal(messages[2].content, 'A valid completed answer.');

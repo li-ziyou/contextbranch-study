@@ -156,11 +156,6 @@
           "default": 6000,
           "description": "Deprecated: file context is now selected by the Context Agent and small workspaces are sent in full."
         },
-        "contextbranch.maxHistoryMessages": {
-          "type": "number",
-          "default": 32,
-          "description": "How many recent chat messages to send to the coding agent each turn. The separate Context Agent sees a longer conversational window so short follow-ups such as “fix it then” can resolve earlier references."
-        },
         "contextbranch.reviewEdits": {
           "type": "boolean",
           "default": true,

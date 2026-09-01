@@ -38,13 +38,25 @@ try {
     { id: 'test', role: 'user', content: 'F'.repeat(8_000), timestamp: 3 },
     { id: 'latest', role: 'user', content: 'fix the missing message evidence', timestamp: 4 },
   ];
-  const messages = buildCodingHistoryMessages(history, 32, 8_200);
+  const messages = buildCodingHistoryMessages(history, 8_200);
   assert.deepEqual(
     messages.map(message => message.content),
     [EDIT_PROPOSAL_CONTEXT, 'F'.repeat(8_000), 'fix the missing message evidence'],
     'completed edit blocks must not be replayed and the newest messages must fit the character budget',
   );
   assert.doesNotMatch(messages.join('\n'), /<<<<<<< SEARCH/);
+
+  const manySmallTurns = Array.from({ length: 40 }, (_, index) => ({
+    id: `turn-${index}`,
+    role: 'user',
+    content: `turn ${index}`,
+    timestamp: index,
+  }));
+  assert.equal(
+    buildCodingHistoryMessages(manySmallTurns, 8_200).length,
+    40,
+    'the history budget must not impose a separate message-count limit',
+  );
   console.log('Context freshness tests passed.');
 } finally {
   fs.rmSync(tempDir, { recursive: true, force: true });

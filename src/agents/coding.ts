@@ -37,8 +37,6 @@ export class CodingAgent {
     selectedFiles?: { path: string; content: string }[];
     contextRationale?: string;
     contextSummary?: string;
-    /** How many of the most recent messages to send. */
-    maxHistory?: number;
     /** One-shot corrective instruction for an automatically retried response. */
     repairInstruction?: string;
   }): AsyncIterable<LLMStreamEvent> {
@@ -57,13 +55,11 @@ export class CodingAgent {
       opts.contextSummary,
     );
 
-    // Only send the most recent turns. The authoritative file state travels in
-    // the artifact context above, so old turns rarely change the answer and
-    // just cost tokens every call. Merge-context system notes are always kept.
-    const maxHistory = opts.maxHistory ?? DEFAULT_MAX_HISTORY;
+    // The authoritative file state travels in the artifact context. Preserve
+    // all useful turns, but bound their total size rather than their count.
     const messages = opts.repairInstruction
-      ? buildEditRecoveryHistoryMessages(opts.history, maxHistory)
-      : buildCodingHistoryMessages(opts.history, maxHistory);
+      ? buildEditRecoveryHistoryMessages(opts.history)
+      : buildCodingHistoryMessages(opts.history);
     if (opts.repairInstruction) {
       messages.push({ role: 'user', content: opts.repairInstruction });
     }
@@ -82,10 +78,9 @@ export class CodingAgent {
 const MAX_MANIFEST_ENTRIES = 5_000;
 const MAX_FULL_FILE_CHARS = 500_000;
 const MAX_TOTAL_SELECTED_CHARS = 300_000;
-const DEFAULT_MAX_HISTORY = 32;
-// Keep the existing turn cap, but also bound the amount of conversational text
-// that can accompany the authoritative file context. This is intentionally a
-// character budget: it is provider-independent and conservative for code.
+// Bound conversational text by size rather than by a fixed number of turns.
+// This is intentionally a character budget: it is provider-independent and
+// conservative for code.
 export const DEFAULT_MAX_HISTORY_CHARS = 24_000;
 const DEFAULT_MAX_OUTPUT_TOKENS = 8_192;
 export const INTERRUPTED_ASSISTANT_CONTEXT =
@@ -110,17 +105,14 @@ export function codingMaxOutputTokens(model?: string): number {
  */
 export function buildCodingHistoryMessages(
   history: Message[],
-  maxHistory = DEFAULT_MAX_HISTORY,
   maxChars = DEFAULT_MAX_HISTORY_CHARS,
 ): LLMMessage[] {
   const filtered = history.filter(
     m => m.role !== 'system' || m.content.startsWith('[merge]') || m.content.startsWith('[study]')
   );
   const mergeNotes = filtered.filter(m => m.role === 'system');
-  const recent = filtered.slice(-maxHistory);
-  // Re-attach any merge notes that fell outside the recent window (cheap, rare).
-  const seen = new Set(recent);
-  const kept = [...mergeNotes.filter(m => !seen.has(m)), ...recent];
+  const nonSystem = filtered.filter(m => m.role !== 'system');
+  const kept = [...mergeNotes, ...nonSystem];
 
   const normalized = kept.map(m => ({
     role: m.role === 'system' ? 'user' : m.role,
@@ -143,17 +135,18 @@ export function buildCodingHistoryMessages(
  */
 export function buildEditRecoveryHistoryMessages(
   history: Message[],
-  maxHistory = DEFAULT_MAX_HISTORY,
+  maxChars = DEFAULT_MAX_HISTORY_CHARS,
 ): LLMMessage[] {
   const stable = history.filter(message =>
     message.role === 'user' ||
     (message.role === 'system' &&
       (message.content.startsWith('[merge]') || message.content.startsWith('[study]')))
   );
-  return stable.slice(-maxHistory).map(message => ({
-    role: message.role === 'system' ? 'user' : 'user',
+  const normalized = stable.map(message => ({
+    role: 'user' as const,
     content: message.role === 'system' ? `[context: ${message.content}]` : message.content,
   }));
+  return takeNewestWithinCharacterBudget(normalized, maxChars);
 }
 
 /**
