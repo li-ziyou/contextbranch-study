@@ -1,6 +1,8 @@
 const esbuild = require('esbuild');
+require('./scripts/build-study-assets.cjs').buildStudyAssets();
 
 const production = process.argv.includes('--production');
+if (production) require('node:fs').rmSync(require('node:path').join(__dirname, 'dist/extension.js.map'), { force: true });
 const watch = process.argv.includes('--watch');
 
 const config = {

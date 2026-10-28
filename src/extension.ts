@@ -18,6 +18,9 @@ import { LLMProvider, createProvider } from './llm/provider';
 import { ContextBranchView } from './webview/webview-manager';
 import { StudyExport } from './core/types';
 import { StudyController } from './study/controller';
+import { setUpStudy } from './study/setup';
+import { nasaTlxUrl } from './study/questionnaire';
+import { createSessionResearchPackage } from './study/research-package';
 
 const SECRET_KEY = 'contextbranch.apiKey';
 
@@ -51,7 +54,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // 1b. Status bar item — shows the active branch and clicks open the sidebar.
   statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   statusBar.command = 'contextbranch.open';
-  statusBar.tooltip = 'ContextBranch — current branch (click to open sidebar)';
+  statusBar.tooltip = 'GitChat — current branch (click to open sidebar)';
   context.subscriptions.push(statusBar);
   updateStatusBar();
 
@@ -68,7 +71,7 @@ export async function activate(context: vscode.ExtensionContext) {
         view?.pushState();
         updateStatusBar();
         vscode.window.showInformationMessage(
-          `ContextBranch: imported ${n} existing file${n === 1 ? '' : 's'} into main.`
+          `GitChat: imported ${n} existing file${n === 1 ? '' : 's'} into main.`
         );
       }
     } catch { /* non-fatal */ }
@@ -128,10 +131,6 @@ export async function activate(context: vscode.ExtensionContext) {
     studyController?.initialize(workspace);
     void recoverFinishedStudyArchive();
     void focusStudyPanel();
-  } else {
-    vscode.window.showWarningMessage(
-      'ContextBranch: open a folder first, then reload the window.'
-    );
   }
 
   // 3. Try to set up provider from stored key
@@ -161,13 +160,57 @@ export async function activate(context: vscode.ExtensionContext) {
         studyController?.initialize(workspace);
         void recoverFinishedStudyArchive();
         void focusStudyPanel();
-        vscode.window.showInformationMessage('ContextBranch: workspace ready.');
+        vscode.window.showInformationMessage('GitChat: workspace ready.');
       }
     })
   );
 
+  async function researchSessionDirectory(): Promise<string | undefined> {
+    const run = studyController?.runFile;
+    const directory = run?.sessionDirectory ?? (run?.exportDirectory ? path.dirname(run.exportDirectory) : undefined)
+      ?? context.globalState.get<string>('contextbranch.lastStudySession');
+    if (directory && fs.existsSync(directory)) return directory;
+    const folders = await vscode.window.showOpenDialog({ title: 'Choose the study session folder', canSelectFolders: true, canSelectFiles: false, canSelectMany: false });
+    return folders?.[0]?.fsPath;
+  }
+
+  async function exportResearchPackage(): Promise<void> {
+    const directory = await researchSessionDirectory();
+    if (!directory) return;
+    const participant = studyController?.participantId ?? path.basename(directory).split('_')[0];
+    const target = await vscode.window.showSaveDialog({
+      filters: { 'Research package ZIP': ['zip'] },
+      defaultUri: vscode.Uri.file(path.join(path.dirname(directory), `${participant}_research_${new Date().toISOString().replace(/[-:.]/g, '')}.zip`)),
+    });
+    if (!target) return;
+    // Capture the current window first; the other task keeps its own persisted recovery state.
+    view?.persistStudyRecovery();
+    const result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Exporting the research package', cancellable: false }, () => createSessionResearchPackage(directory, target.fsPath));
+    const warnings = result.periods.reduce((count, period) => count + period.warnings.length + period.missingFiles.length, 0);
+    const action = await vscode.window.showInformationMessage(`Research package exported: ${path.basename(result.filePath)}${warnings ? '. Missing or changed data are listed in the export manifest.' : ''}`, 'Show file');
+    if (action) await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(result.filePath));
+  }
+
   // 5. Commands
   context.subscriptions.push(
+    vscode.commands.registerCommand('contextbranch.setupStudy', async () => {
+      try {
+        await setUpStudy(context, {
+          hasKey: async () => { try { const stored = JSON.parse(await context.secrets.get(SECRET_KEY) ?? '{}'); return stored.provider === 'openrouter' && typeof stored.key === 'string' && Boolean(stored.key.trim()); } catch { return false; } },
+          saveKey: async key => { await context.secrets.store(SECRET_KEY, JSON.stringify({ provider: 'openrouter', key })); await setupProvider(context); view?.pushState(); },
+        });
+      } catch (error: any) { vscode.window.showErrorMessage(`Study setup failed: ${error.message ?? String(error)}`); }
+    }),
+    vscode.commands.registerCommand('contextbranch.exportResearchPackage', async () => {
+      try { await exportResearchPackage(); } catch (error: any) { vscode.window.showErrorMessage(`Research export failed: ${error.message ?? String(error)}`); }
+    }),
+    vscode.commands.registerCommand('contextbranch.openNasaTlx', async () => {
+      try {
+        if (!studyController) { vscode.window.showErrorMessage('Open a prepared study task to fill in its NASA-TLX questionnaire.'); return; }
+        const opened = await vscode.env.openExternal(vscode.Uri.parse(nasaTlxUrl(studyController.runFile)));
+        if (!opened) vscode.window.showErrorMessage('Could not open NASA-TLX in the default browser. Check the default browser settings and try again.');
+      } catch (error: any) { vscode.window.showErrorMessage(`Could not open NASA-TLX: ${error.message ?? String(error)}`); }
+    }),
     vscode.commands.registerCommand('contextbranch.open', () => {
       vscode.commands.executeCommand('contextbranch.sidebar.focus');
     }),
@@ -186,10 +229,11 @@ export async function activate(context: vscode.ExtensionContext) {
       await context.secrets.store(SECRET_KEY, JSON.stringify({ provider: providerName, key }));
       await config.update('provider', providerName, vscode.ConfigurationTarget.Global);
       await setupProvider(context);
-      vscode.window.showInformationMessage(`ContextBranch: ${providerName} key saved.`);
+      vscode.window.showInformationMessage(`GitChat: ${providerName} key saved.`);
       view?.pushState();
     }),
     vscode.commands.registerCommand('contextbranch.exportStudyData', async () => {
+      if (studyController) { await exportResearchPackage(); return; }
       if (!workspace) {
         vscode.window.showErrorMessage('Open a folder first.');
         return;
@@ -205,7 +249,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }),
     vscode.commands.registerCommand('contextbranch.resetWorkspace', async () => {
       if (studyController) {
-        vscode.window.showErrorMessage('ContextBranch data cannot be reset during a prepared study task.');
+        vscode.window.showErrorMessage('GitChat data cannot be reset during a prepared study task.');
         return;
       }
       if (!storage) {
@@ -213,19 +257,20 @@ export async function activate(context: vscode.ExtensionContext) {
         return;
       }
       const confirm = await vscode.window.showWarningMessage(
-        'Delete ALL ContextBranch data in this workspace? Cannot be undone.',
+        'Delete ALL GitChat data in this workspace? Cannot be undone.',
         { modal: true }, 'Delete', 'Cancel'
       );
       if (confirm !== 'Delete') return;
       storage.reset();
       workspace = new Workspace(storage);
       view?.pushState();
-      vscode.window.showInformationMessage('ContextBranch reset.');
+      vscode.window.showInformationMessage('GitChat reset.');
     }),
   );
 
   const studyTimer = setInterval(() => {
     if (studyController) {
+      try { view?.persistStudyRecovery(); } catch (error) { console.error('Study recovery snapshot failed', error); }
       void view?.checkStudyTimeout();
       view?.pushState();
     }
@@ -245,18 +290,18 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // 6. First-launch onboarding
   if (!provider) {
-    const action = await vscode.window.showInformationMessage(
-      'ContextBranch: set an API key to get started.',
-      'Set API Key', 'Later'
-    );
-    if (action === 'Set API Key') {
-      vscode.commands.executeCommand('contextbranch.setApiKey');
-    }
+    void vscode.window.showInformationMessage(
+      'GitChat: set up a user study, or configure an API key for an existing project.',
+      'Set up study', 'Set API Key', 'Later'
+    ).then(action => {
+      if (action === 'Set up study') void vscode.commands.executeCommand('contextbranch.setupStudy');
+      if (action === 'Set API Key') void vscode.commands.executeCommand('contextbranch.setApiKey');
+    });
   }
 }
 
 export function deactivate(): void {
-  // No-op: storage is already persisted.
+  try { view?.persistStudyRecovery(true); } catch { /* Earlier recovery snapshots remain on disk. */ }
 }
 
 /**
@@ -267,21 +312,21 @@ export function deactivate(): void {
 function updateStatusBar(): void {
   if (!statusBar) return;
   if (!workspace) {
-    statusBar.text = '$(git-branch) ContextBranch';
-    statusBar.tooltip = 'ContextBranch — open a folder to start';
+    statusBar.text = '$(git-branch) GitChat';
+    statusBar.tooltip = 'GitChat — open a folder to start';
     statusBar.show();
     return;
   }
   const active = workspace.getBranch(workspace.activeBranchId);
   if (!active) {
-    statusBar.text = '$(git-branch) ContextBranch';
+    statusBar.text = '$(git-branch) GitChat';
     statusBar.show();
     return;
   }
   const isMain = active.id === workspace.mainBranchId;
   const icon = isMain ? '$(git-branch)' : '$(git-pull-request)';
   statusBar.text = `${icon} ${active.name}`;
-  statusBar.tooltip = `ContextBranch: ${active.name} (${active.messageIds.length} messages). Click to open sidebar.`;
+  statusBar.tooltip = `GitChat: ${active.name} (${active.messageIds.length} messages). Click to open sidebar.`;
   statusBar.show();
 }
 

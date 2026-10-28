@@ -1,4 +1,4 @@
-/* ContextBranch webview client */
+/* GitChat webview client */
 (function () {
   'use strict';
 
@@ -426,6 +426,7 @@
   // ─── render ───────────────────────────────────────────────────────────
 
   function render() {
+    $('study-setup').hidden = Boolean(state.study);
     // Topbar
     $('active-branch-name').textContent = state.activeBranchName || 'main';
 
@@ -472,9 +473,9 @@
     const banner = $('banner');
     let bannerHtml = '';
     if (state.noWorkspace) {
-      bannerHtml = '⚠ No folder open. Use <strong>File → Open Folder</strong> in this window — ContextBranch stores data per workspace.';
+      bannerHtml = '⚠ No folder open. Use <strong>File → Open Folder</strong> in this window — GitChat stores data per workspace.';
     } else if (!state.providerReady) {
-      bannerHtml = '⚠ No API key set. Open the Command Palette (Ctrl/Cmd+Shift+P) and run <strong>ContextBranch: Set API Key</strong>.';
+      bannerHtml = '⚠ No API key set. Open the Command Palette (Ctrl/Cmd+Shift+P) and run <strong>GitChat: Set API Key</strong>.';
     } else if (state.study && !state.study.started) {
       bannerHtml = 'Read the task ticket and public tests, then click <strong>Start task</strong>.';
     } else if (state.study && state.study.finished) {
@@ -567,7 +568,7 @@
           : studyKind === 'branch-ticket'
             ? 'Branch ticket'
             : studyKind
-              ? 'ContextBranch'
+              ? 'GitChat'
               : m.role;
         div.appendChild(role);
 
@@ -653,7 +654,7 @@
       ? (state.study.finished ? 'Task finished.' : 'Start task to enable the assistant.')
       : state.providerReady
       ? 'Message...'
-      : 'Set an API key first (Cmd/Ctrl+Shift+P → ContextBranch: Set API Key)';
+      : 'Set an API key first (Cmd/Ctrl+Shift+P → GitChat: Set API Key)';
   }
 
   function renderStudyControls() {
@@ -664,6 +665,7 @@
     }
     const study = state.study;
     toolbar.hidden = false;
+    $('study-order').textContent = `${study.participantId} · Task ${study.period} of 2`;
     $('study-task-title').textContent = study.taskTitle;
     const minutes = Math.floor(study.remainingSeconds / 60);
     const seconds = String(study.remainingSeconds % 60).padStart(2, '0');
@@ -2731,6 +2733,9 @@ function findNextInstanceTime(branchId, instanceIdx) {
 
   $('btn-send').addEventListener('click', sendMessage);
   $('btn-stop').addEventListener('click', () => send({ type: 'abortStream', branchId: state.activeBranchId }));
+  $('study-setup-button').addEventListener('click', () => send({ type: 'setUpStudy' }));
+  $('study-export').addEventListener('click', () => send({ type: 'exportResearchPackage' }));
+  $('study-nasa-tlx').addEventListener('click', () => send({ type: 'openNasaTlx' }));
   $('study-start').addEventListener('click', () => send({ type: 'startStudyTask' }));
   $('study-run-tests').addEventListener('click', () => send({ type: 'runStudyTests' }));
   $('study-integrate').addEventListener('click', () => send({ type: 'openStudyIntegration' }));

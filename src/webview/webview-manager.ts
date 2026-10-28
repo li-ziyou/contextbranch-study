@@ -27,10 +27,11 @@ import { Storage } from '../core/storage';
 import { ChangeDecorations } from '../core/change-decorations';
 import { isProtectedPath, protectedPathReason } from '../core/file-policy';
 import { StudyController } from '../study/controller';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
+import { writeJsonAtomic } from '../study/preparation';
 import { promisify } from 'util';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 interface PendingEditProposal {
   ops: EditOp[];
@@ -61,6 +62,8 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
   private finishingTimedOutStudy = false;
   private readonly studyTestController: vscode.TestController;
   private studyTestRunningStateId?: string;
+  private studyTestPartialOutput = '';
+  private recoveryRoots = new Set<string>();
   /** Each state keeps its own proposed edits while another state is visible. */
   private pendingEditsByBranch = new Map<string, PendingEditProposal>();
   private mergeInProgress?: boolean;
@@ -93,7 +96,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
   ) {
     this.studyTestController = vscode.tests.createTestController(
       'contextbranch-study-tests',
-      'ContextBranch Study',
+      'GitChat Study',
     );
     this.studyTestController.createRunProfile(
       'Run current study tests',
@@ -212,6 +215,38 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     });
   }
 
+  /** Persist volatile study state without saving editor buffers or ending the task. */
+  public persistStudyRecovery(windowClosed = false): void {
+    const ws = this.getWorkspace();
+    const study = this.getStudyController();
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!ws || !study || !root) return;
+    const file = path.join(root, '.study', 'live-state.json');
+    if (!this.recoveryRoots.has(root)) {
+      if (fs.existsSync(file)) {
+        const recoveryDir = path.join(root, '.study', 'recovery');
+        fs.mkdirSync(recoveryDir, { recursive: true });
+        fs.copyFileSync(file, path.join(recoveryDir, `before-reopen-${Date.now()}.json`), fs.constants.COPYFILE_EXCL);
+      }
+      this.recoveryRoots.add(root);
+    }
+    const allowed = new Set(study.runFile.manifest.submission.allowedProductionPaths);
+    const unsavedEditors = vscode.workspace.textDocuments.filter(document =>
+      document.isDirty && allowed.has(path.relative(root, document.uri.fsPath).split(path.sep).join('/')),
+    ).map(document => ({ path: path.relative(root, document.uri.fsPath).split(path.sep).join('/'), content: document.getText(), version: document.version }));
+    writeJsonAtomic(file, {
+      schemaVersion: 1, runId: study.runFile.runId, capturedAt: new Date().toISOString(),
+      windowClosedAt: windowClosed ? new Date().toISOString() : null,
+      activeBranchId: ws.activeBranchId, mainBranchId: ws.mainBranchId,
+      codingRuns: Object.fromEntries([...this.codingRuns].map(([id, run]) => [id, { partialText: run.partialText }])),
+      pendingEdits: Object.fromEntries(this.pendingEditsByBranch),
+      pendingMergePreview: this.pendingMergePreview ?? null,
+      pendingManualMerge: this.pendingManualMerge ?? null,
+      publicTest: { runningStateId: this.studyTestRunningStateId ?? null, partialOutput: this.studyTestPartialOutput },
+      unsavedEditors,
+    });
+  }
+
   // ─── incoming message router ──────────────────────────────────────────────
 
   /** Returns the workspace or null + posts an error to the webview. */
@@ -229,6 +264,9 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
 
   private async handleMessage(msg: any): Promise<void> {
     switch (msg.type) {
+      case 'setUpStudy': return void await vscode.commands.executeCommand('contextbranch.setupStudy');
+      case 'exportResearchPackage': return void await vscode.commands.executeCommand('contextbranch.exportResearchPackage');
+      case 'openNasaTlx': return void await vscode.commands.executeCommand('contextbranch.openNasaTlx');
       case 'send': return this.handleSend(msg.content, msg.branchId);
       case 'startStudyTask': return this.handleStartStudyTask();
       case 'runStudyTests': return this.handleRunStudyTests();
@@ -458,7 +496,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     if (!ws) return;
     const provider = this.getProvider();
     if (!provider) {
-      this.postMessage({ type: 'error', message: 'No API key configured. Run "ContextBranch: Set API Key".' });
+      this.postMessage({ type: 'error', message: 'No API key configured. Run "GitChat: Set API Key".' });
       return;
     }
     const branchId = typeof requestedBranchId === 'string' ? requestedBranchId : ws.activeBranchId;
@@ -1833,6 +1871,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     const selection = study.publicTestSelection(ws);
     const stateId = ws.activeBranchId;
     this.studyTestRunningStateId = stateId;
+    this.studyTestPartialOutput = '';
     this.postMessage({ type: 'studyTestStarted', label: selection.label });
 
     const item = this.studyTestController.createTestItem(
@@ -1850,12 +1889,20 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     let exitCode: number | null = 0;
     let output = '';
     try {
-      const result = await execAsync(selection.command, {
+      const suite = selection.target === 'responsibilityA' ? 'responsibility-a' : selection.target === 'responsibilityB' ? 'responsibility-b' : 'main';
+      const execution = execFileAsync(study.runtimePython, [
+        path.join(workspaceRoot, '.study', 'bin', 'study_runner.py'), 'public', '--workspace', workspaceRoot, '--suite', suite,
+      ], {
         cwd: workspaceRoot,
         timeout: 90_000,
         maxBuffer: 512_000,
-        env: { ...process.env, CONTEXTBRANCH_STUDY_FORM_ID: study.formId },
+        windowsHide: true,
+        env: { ...process.env, CONTEXTBRANCH_STUDY_FORM_ID: study.formId, CONTEXTBRANCH_STUDY_PYTHON: study.runtimePython },
       });
+      const captureOutput = (chunk: Buffer | string) => { this.studyTestPartialOutput = (this.studyTestPartialOutput + String(chunk)).slice(-512_000); };
+      execution.child.stdout?.on('data', captureOutput);
+      execution.child.stderr?.on('data', captureOutput);
+      const result = await execution;
       output = `${result.stdout}\n${result.stderr}`.trim();
     } catch (error: any) {
       exitCode = typeof error.code === 'number' ? error.code : 1;

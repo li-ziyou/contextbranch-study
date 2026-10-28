@@ -333,7 +333,7 @@ export function createProvider(name: string, apiKey: string, model?: string): LL
       // via `contextbranch.model` (e.g. "deepseek/deepseek-chat" for cheapest,
       // "anthropic/claude-sonnet-4.6" for top quality).
       defaultModel: 'anthropic/claude-haiku-4.5',
-      headers: { 'HTTP-Referer': 'https://github.com/contextbranch', 'X-Title': 'ContextBranch' },
+      headers: { 'HTTP-Referer': 'https://github.com/li-ziyou/contextbranch-study', 'X-Title': 'GitChat' },
       pinnedModel: pinned,
     });
     case 'gemini': return new GeminiProvider(apiKey, pinned);

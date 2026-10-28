@@ -1,6 +1,6 @@
-# ContextBranch Study
+# GitChat Study
 
-This private repository is the source of truth for the ContextBranch Study 2
+This repository is the source of truth for the GitChat Study 2
 software and its frozen research artifacts. It includes the VS Code extension,
 selectable legacy and v2 FeatureBench-derived task manifests, task-builder contracts, the
 clean grader contract, session materials, and analysis-ready event definitions.
@@ -8,24 +8,25 @@ clean grader contract, session materials, and analysis-ready event definitions.
 It does not store participant-identifying data, recordings, API keys, raw run
 directories, or participant bundles containing private evaluation material.
 
-## Study 2 quick start
+## Standalone user-study VSIX
 
-```bash
-npm install
-npm run compile
-npm run study:validate -- --task-set study2-v2
-npm run study:assign -- P017 --task-set study2-v2
-```
+Install `gitchat-0.4.2.vsix` in desktop VS Code with **Extensions → Install from VSIX…**. Open the GitChat panel and select **Set up user study**. Enter the participant ID, assigned G1–G4, and the researcher OpenRouter key, then choose the session data folder. The extension prepares an isolated Python test environment on first setup; no separate Node.js, Git, or Python installation is required. First setup needs internet access.
 
-The participant flow, system boundaries, and implementation sequence are in
-[`evaluation/study2/README.md`](evaluation/study2/README.md). The extension is
-the participant-facing application; the study layer will make it start the
-assigned task deterministically instead of exposing its general-purpose branch
-creation and decomposition controls.
+Both tasks open automatically in separate VS Code windows, with **Task 1 of 2** in front. Each window title and study toolbar shows the participant ID and task order. Complete Task 1 before Task 2; **Start task** begins only that task's 20-minute timer. The key stays in VS Code SecretStorage.
+
+Each task has a **NASA-TLX** button that opens the questionnaire in the default browser with the participant ID and that period's task/condition label prefilled. The button remains available before and after Finish. Download each completed questionnaire CSV separately.
+
+**Export research package** is available before Start, during work, after Finish, and after timeout. The ZIP contains both available periods, recorded conversations and code states, operation/test records, saved workspace code, recovery snapshots of unapplied edits/partial replies/unsaved editor buffers, and original completion ZIPs when present. Each period records its completion status. Exporting never presses Finish, switches branches, or overwrites an earlier export. Screen/audio recordings and survey responses remain separate study materials.
+
+The VSIX includes only study baselines, public tests, tickets and the public runner. Reference implementations and private grading tests remain in the researcher source checkout.
+
+See [the researcher guide](docs/fresh-computer-study2.md). Build from source with `npm ci`, `npm run compile`, `npm run test:study-standalone`, and `npm run package`. The command-line operator workflow remains available under `evaluation/study2/`.
+
+GitChat retains the internal extension identifier `contextbranch.contextbranch`, command/settings IDs and storage paths so earlier installations update in place and keep existing sessions and saved keys.
 
 ## Repository boundaries
 
-- `src/` and `webview/`: ContextBranch VS Code extension.
+- `src/` and `webview/`: GitChat VS Code extension.
 - `evaluation/study2/`: all Study 2 source materials and control software.
 - `evaluation/study2/private-grader/`: private evaluation source. It is kept
   in this private repository but excluded from participant bundles.
@@ -34,7 +35,7 @@ creation and decomposition controls.
 
 ---
 
-# ContextBranch
+# GitChat
 
 Git-style branching and merging for AI coding chat, inside VS Code.
 
@@ -81,8 +82,8 @@ npm run build
 Then in the new VS Code window:
 
 1. Open a folder.
-2. Click the **ContextBranch** icon in the activity bar.
-3. Run `ContextBranch: Set API Key` from the Command Palette.
+2. Click the **GitChat** icon in the activity bar.
+3. Run `GitChat: Set API Key` from the Command Palette.
 4. Pick a provider (Anthropic / OpenAI / Gemini), paste your key.
 5. Start chatting in the conversation pane.
 6. Click **+ Branch** on any message to fork the conversation.
@@ -92,8 +93,8 @@ Then in the new VS Code window:
 
 This implementation synthesizes three papers:
 
-- **Laban et al. 2025** — *LLMs Get Lost in Multi-Turn Conversation*. Multi-turn LLM performance degrades 39% on average; consolidation (CONCAT) restores it. → ContextBranch consolidates branch conversations at merge time.
-- **Kimm & Tan 2024** — *ChatGraPhT*. Two-agent design (Graph + Meta) for visual reflective dialogue. → ContextBranch uses Coding + Decomposition + Meta agents with discipline about when each speaks.
+- **Laban et al. 2025** — *LLMs Get Lost in Multi-Turn Conversation*. Multi-turn LLM performance degrades 39% on average; consolidation (CONCAT) restores it. → GitChat consolidates branch conversations at merge time.
+- **Kimm & Tan 2024** — *ChatGraPhT*. Two-agent design (Graph + Meta) for visual reflective dialogue. → GitChat uses Coding + Decomposition + Meta agents with discipline about when each speaks.
 - **Chickmagalur & Maaheshwari 2025** — *ContextBranch*. Four primitives (checkpoint, branch, switch, inject) with content-addressable storage. → Direct foundation; this project extends with verified merge, artifact tracking, decomposition, and a VS Code-native UI.
 
 ## Project status

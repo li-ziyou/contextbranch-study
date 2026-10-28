@@ -29,6 +29,8 @@ export class StudyController {
     }
   }
 
+  get runFile(): StudyRunFile { return JSON.parse(JSON.stringify(this.run)); }
+  get runtimePython(): string { return this.run.runtimePython; }
   get condition(): StudyRunFile['condition'] { return this.run.condition; }
   get isContextBranch(): boolean { return this.run.condition === 'contextbranch'; }
   get taskId(): string { return this.run.taskId; }
@@ -87,7 +89,7 @@ export class StudyController {
           tags: ['study-sibling', sibling.id],
         });
         ws.appendMessage(branch.id, 'system',
-          `[study][branch-context] ContextBranch created this isolated state for “${sibling.label}”. ` +
+          `[study][branch-context] GitChat created this isolated state for “${sibling.label}”. ` +
           `It and “${other.label}” start from the same checkpoint because the feature has two ` +
           'cooperating implementation responsibilities. This state keeps its own conversation, code candidate, and test evidence while you work.'
         );
@@ -352,6 +354,8 @@ export class StudyController {
     return {
       active: true,
       runId: this.run.runId,
+      participantId: this.run.participantId,
+      period: this.run.period,
       taskTitle: this.run.manifest.ticket.summary,
       condition: this.run.condition,
       started: Boolean(this.run.startedAt),
@@ -374,7 +378,7 @@ export class StudyController {
 
   private mainContextBranchPlanMessage(): string {
     const labels = this.run.manifest.contextBranch.siblingStates.map(state => `“${state.label}”`).join(' and ');
-    return `[study][main-plan] ContextBranch created two optional sibling states: ${labels}. Each starts from the same checkpoint and keeps its own focused conversation, code candidate, and test evidence.\n\nYou may use either state, both states, neither state, or work directly in main. There is no required order. Integrate a state into main only when it is useful, after reviewing the merge preview.\n\nFinal check: ${this.run.manifest.contextBranch.finalVerification}`;
+    return `[study][main-plan] GitChat created two optional sibling states: ${labels}. Each starts from the same checkpoint and keeps its own focused conversation, code candidate, and test evidence.\n\nYou may use either state, both states, neither state, or work directly in main. There is no required order. Integrate a state into main only when it is useful, after reviewing the merge preview.\n\nFinal check: ${this.run.manifest.contextBranch.finalVerification}`;
   }
 
   private branchTicketMessage(sibling: StudyRunFile['manifest']['contextBranch']['siblingStates'][number]): string {

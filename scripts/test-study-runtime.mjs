@@ -1,0 +1,12 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const root = fs.mkdtempSync(path.join(os.tmpdir(), 'GitChat Python 研究-'));
+const entry = path.join(root, 'runtime.cjs');
+require('esbuild').buildSync({ entryPoints: ['src/study/runtime.ts'], bundle: true, platform: 'node', format: 'cjs', outfile: entry });
+const { ensureStudyRuntime } = require(entry);
+const python = await ensureStudyRuntime(path.join(root, 'managed'), console.log);
+if (process.env.GITHUB_ENV) fs.appendFileSync(process.env.GITHUB_ENV, `STUDY_TEST_PYTHON=${python}\n`);
+console.log(`Isolated study Python and pytest ready: ${python}`);

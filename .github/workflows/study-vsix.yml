@@ -1,0 +1,33 @@
+name: Standalone study VSIX
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  study-package:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run compile
+      - run: node scripts/test-study-runtime.mjs
+      - run: npm run test:study-standalone
+      - run: npm run test:study-setup
+      - run: npm run test:study-ui
+      - run: npm run test:conflict-resolution
+      - run: npm run package
+      - run: node scripts/check-study-vsix.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: study-vsix-${{ matrix.os }}
+          path: gitchat-*.vsix

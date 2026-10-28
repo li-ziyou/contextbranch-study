@@ -62,7 +62,7 @@
 
     #history-svg { display: block; width: 100%; height: 100%; }
   </style>
-  <title>ContextBranch</title>
+  <title>GitChat</title>
 </head>
 <body>
   <div id="app">
@@ -91,8 +91,13 @@
     <!-- ─── Banner ─────────────────────────────────────── -->
     <div class="banner" id="banner" hidden></div>
 
+    <section id="study-setup" class="study-toolbar">
+      <button class="btn-primary" id="study-setup-button">Set up user study</button>
+    </section>
+
     <!-- Shown only in an operator-prepared Study 2 workspace. -->
     <section class="study-toolbar" id="study-toolbar" hidden>
+      <strong id="study-order"></strong>
       <div class="study-task-line">
         <strong id="study-task-title"></strong>
         <span id="study-timer"></span>
@@ -102,6 +107,8 @@
         <button class="btn-secondary" id="study-run-tests" disabled>Run public tests</button>
         <button class="btn-secondary" id="study-integrate" hidden disabled>Integrate this state into main</button>
         <button class="btn-secondary" id="study-finish" disabled>Finish task</button>
+        <button class="btn-secondary" id="study-export">Export research package</button>
+        <button class="btn-secondary" id="study-nasa-tlx" title="Open this task's prefilled questionnaire in your default browser">NASA-TLX</button>
       </div>
     </section>
 
@@ -316,7 +323,7 @@
           <input type="checkbox" id="merge-allow-cascade">
           <span>
             <strong>Allow AI cascading-edit proposals</strong>
-            <small>Let ContextBranch suggest changes to other files that may need updating. Each proposal is still opt-in.</small>
+            <small>Let GitChat suggest changes to other files that may need updating. Each proposal is still opt-in.</small>
           </span>
         </label>
         <div id="merge-preview" hidden>

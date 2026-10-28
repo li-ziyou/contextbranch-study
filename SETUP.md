@@ -1,6 +1,6 @@
 # Setup
 
-Steps to install, build, and run ContextBranch locally.
+Steps to install, build, and run GitChat locally.
 
 ## Prerequisites
 
@@ -36,8 +36,8 @@ npm run watch
 1. Open the `contextbranch/` folder in VS Code.
 2. Press **F5** (or Run → Start Debugging).
 3. A new VS Code window opens — the **Extension Development Host**.
-4. In that new window, **open a folder** (any project folder will work). ContextBranch needs a workspace folder open to store its data.
-5. Click the **ContextBranch** icon in the Activity Bar (left side).
+4. In that new window, **open a folder** (any project folder will work). GitChat needs a workspace folder open to store its data.
+5. Click the **GitChat** icon in the Activity Bar (left side).
 6. The sidebar opens. You'll see a banner asking for an API key.
 
 ## Set your API key
@@ -45,7 +45,7 @@ npm run watch
 In the Extension Development Host window:
 
 1. Open Command Palette: **Cmd/Ctrl+Shift+P**
-2. Run **ContextBranch: Set API Key**
+2. Run **GitChat: Set API Key**
 3. Pick provider (anthropic / openai / gemini)
 4. Paste your API key
 
@@ -63,7 +63,7 @@ The key is stored in VS Code's `SecretStorage` (encrypted, OS-level keychain). N
 
 ## Verified merge: configuring tests
 
-By default ContextBranch auto-detects:
+By default GitChat auto-detects:
 - `npm test` if a `package.json` with `test` script exists
 - `pytest -q` if `pyproject.toml` / `pytest.ini` / `tests/` exists
 - `cargo test --quiet` if `Cargo.toml` exists
@@ -95,7 +95,7 @@ npm run study:prepare -- P017 1 --task-set study2-v2 --provider FIXED_PROVIDER -
 Install the generated `.vsix` on the research machine, then open the
 `workspace` path printed by `study:prepare`. The first prepared period fixes
 the provider, model, and all time and model-resource limits in a local study
-profile. Configure that provider's API key through `ContextBranch: Set API Key`
+profile. Configure that provider's API key through `GitChat: Set API Key`
 on the research machine before the session. Run the second period with the same
 profile. After a participant finishes,
 use `study:collect` and `study:grade`; do not use Reset or the general export
@@ -134,14 +134,14 @@ This produces `contextbranch-0.3.0.vsix` which can be installed in VS Code via:
 
 ## Known limitations
 
-- ContextBranch needs a workspace folder open at activation. If you open a folder *after* activation, reload the window.
+- GitChat needs a workspace folder open at activation. If you open a folder *after* activation, reload the window.
 - The 3-way artifact merge is a simple line-based heuristic. For production it should swap in the `diff3` library. For the study, conflict markers are emitted and the user resolves them.
 - Visual DAG is currently a flat list grouped by status (active vs merged). Cytoscape.js graph view is on the roadmap.
 - The Meta Agent's `observe()` event-trigger is wired only for merge-time consolidation/rebase/consistency. The branch-created and idle observe paths exist as code but aren't surfaced in UI yet — keeps the agent quiet by default, which Kimm & Tan's findings recommend.
 
 ## Troubleshooting
 
-**"No API key configured"** — Run `ContextBranch: Set API Key`.
+**"No API key configured"** — Run `GitChat: Set API Key`.
 
 **"Failed to load provider"** — The stored secret is malformed. Delete and re-set the key.
 

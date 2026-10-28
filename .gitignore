@@ -23,3 +23,6 @@ task-cache/
 .study-runtime/
 .study-builder/
 tmp/
+
+# Generated public-only assets for the standalone study VSIX.
+study-assets/

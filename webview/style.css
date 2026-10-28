@@ -1,5 +1,5 @@
 /*
- * ContextBranch — modern single-column chat UI for VS Code.
+ * GitChat — modern single-column chat UI for VS Code.
  * Uses VS Code CSS vars so it inherits the user's theme.
  */
 
@@ -1682,6 +1682,7 @@ button:disabled {
   background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
 }
 .study-toolbar[hidden] { display: none; }
+#study-order { display: block; margin-bottom: 7px; }
 .study-task-line {
   display: flex;
   justify-content: space-between;
@@ -1690,7 +1691,7 @@ button:disabled {
   margin-bottom: 7px;
 }
 #study-timer { color: var(--vscode-descriptionForeground); white-space: nowrap; }
-.study-toolbar-actions { display: flex; gap: 6px; }
+.study-toolbar-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .study-toolbar-actions button { font-size: 0.8em; padding: 4px 8px; }
 
 /* Merge safety / review controls */
