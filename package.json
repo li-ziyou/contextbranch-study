@@ -2,7 +2,7 @@
   "name": "contextbranch",
   "displayName": "ContextBranch",
   "description": "Git-style branching and merging for AI coding chat",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "publisher": "contextbranch",
   "repository": {
     "type": "git",
@@ -47,8 +47,8 @@
         "title": "ContextBranch: Export Research Package"
       },
       {
-        "command": "contextbranch.openOtherStudyTask",
-        "title": "ContextBranch: Open Other Study Task"
+        "command": "contextbranch.openNasaTlx",
+        "title": "ContextBranch: Open NASA-TLX"
       }
     ],
     "menus": {
@@ -204,6 +204,7 @@
     "study:dry-run": "node evaluation/study2/operator/studyctl.mjs dry-run",
     "study:grade": "python3 evaluation/study2/private-grader/grade_submission.py",
     "test:study-standalone": "node scripts/test-study-standalone.mjs",
+    "test:study-setup": "node scripts/test-study-setup.mjs",
     "test:study-runtime": "node scripts/test-study-runtime.mjs",
     "test:study-vsix": "node scripts/check-study-vsix.mjs"
   },

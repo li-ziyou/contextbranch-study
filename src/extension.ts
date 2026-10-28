@@ -18,7 +18,8 @@ import { LLMProvider, createProvider } from './llm/provider';
 import { ContextBranchView } from './webview/webview-manager';
 import { StudyExport } from './core/types';
 import { StudyController } from './study/controller';
-import { setUpStudy, openOtherStudyTask } from './study/setup';
+import { setUpStudy } from './study/setup';
+import { nasaTlxUrl } from './study/questionnaire';
 import { createSessionResearchPackage } from './study/research-package';
 
 const SECRET_KEY = 'contextbranch.apiKey';
@@ -203,9 +204,12 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('contextbranch.exportResearchPackage', async () => {
       try { await exportResearchPackage(); } catch (error: any) { vscode.window.showErrorMessage(`Research export failed: ${error.message ?? String(error)}`); }
     }),
-    vscode.commands.registerCommand('contextbranch.openOtherStudyTask', async () => {
-      try { const directory = await researchSessionDirectory(); if (directory) await openOtherStudyTask(directory, vscode.workspace.workspaceFolders?.[0]?.uri.fsPath); }
-      catch (error: any) { vscode.window.showErrorMessage(`Could not open the other task: ${error.message ?? String(error)}`); }
+    vscode.commands.registerCommand('contextbranch.openNasaTlx', async () => {
+      try {
+        if (!studyController) { vscode.window.showErrorMessage('Open a prepared study task to fill in its NASA-TLX questionnaire.'); return; }
+        const opened = await vscode.env.openExternal(vscode.Uri.parse(nasaTlxUrl(studyController.runFile)));
+        if (!opened) vscode.window.showErrorMessage('Could not open NASA-TLX in the default browser. Check the default browser settings and try again.');
+      } catch (error: any) { vscode.window.showErrorMessage(`Could not open NASA-TLX: ${error.message ?? String(error)}`); }
     }),
     vscode.commands.registerCommand('contextbranch.open', () => {
       vscode.commands.executeCommand('contextbranch.sidebar.focus');

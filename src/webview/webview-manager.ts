@@ -266,7 +266,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     switch (msg.type) {
       case 'setUpStudy': return void await vscode.commands.executeCommand('contextbranch.setupStudy');
       case 'exportResearchPackage': return void await vscode.commands.executeCommand('contextbranch.exportResearchPackage');
-      case 'openOtherStudyTask': return void await vscode.commands.executeCommand('contextbranch.openOtherStudyTask');
+      case 'openNasaTlx': return void await vscode.commands.executeCommand('contextbranch.openNasaTlx');
       case 'send': return this.handleSend(msg.content, msg.branchId);
       case 'startStudyTask': return this.handleStartStudyTask();
       case 'runStudyTests': return this.handleRunStudyTests();

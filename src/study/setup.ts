@@ -31,15 +31,18 @@ export async function setUpStudy(context: vscode.ExtensionContext, options: {
     return prepareStudySession({ assets, parent: folders[0].fsPath, participantId, group: group as StudySession['group'], runtimePython, environment: { platform: process.platform, arch: process.arch, node: process.versions.node, python: STUDY_PYTHON_VERSION, pytest: STUDY_PYTEST_VERSION } });
   });
   await context.globalState.update('contextbranch.lastStudySession', result.directory);
-  await vscode.window.showInformationMessage(`${participantId} · ${group}: both tasks are ready. Each task has 20 minutes. The timer starts when Start task is pressed.`);
-  await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(path.join(result.directory, result.session.periods[0].workspace)), { forceNewWindow: true });
+  await openStudyTaskWindows(result.directory);
+  void vscode.window.showInformationMessage(`${participantId} · ${group}: both task windows are ready. Complete Task 1 before Task 2. Each timer starts when Start task is pressed.`);
 }
-export async function openOtherStudyTask(sessionDirectory: string, currentRoot?: string): Promise<void> {
+export async function openStudyTaskWindows(sessionDirectory: string): Promise<void> {
   const session = JSON.parse(fs.readFileSync(path.join(sessionDirectory, 'session.json'), 'utf8')) as StudySession;
-  const current = session.periods.find(period => path.resolve(sessionDirectory, period.workspace) === path.resolve(currentRoot ?? ''));
-  const next = session.periods.find(period => period.period !== current?.period) ?? session.periods[0];
-  const root = path.join(sessionDirectory, next.workspace);
-  // Reuse the existing prepared workspace, never prepare over recorded work.
-  if (!fs.existsSync(path.join(root, '.study/run.json'))) throw new Error('The prepared task workspace was not found.');
-  await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(root), { forceNewWindow: true });
+  const roots = [...session.periods].sort((a, b) => b.period - a.period)
+    .map(period => path.join(sessionDirectory, period.workspace));
+  for (const root of roots) {
+    if (!fs.existsSync(path.join(root, '.study/run.json'))) throw new Error('A prepared task workspace was not found.');
+  }
+  // Open Task 1 last so it is in front, with Task 2 already available in its own window.
+  for (const root of roots) {
+    await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(root), { forceNewWindow: true });
+  }
 }

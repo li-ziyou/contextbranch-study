@@ -10,9 +10,11 @@ directories, or participant bundles containing private evaluation material.
 
 ## Standalone user-study VSIX
 
-Install `contextbranch-0.4.0.vsix` in desktop VS Code with **Extensions → Install from VSIX…**. Open the ContextBranch panel and select **Set up user study**. Enter the participant ID, assigned G1–G4, and the researcher OpenRouter key, then choose the session data folder. The extension prepares an isolated Python test environment on first setup; no separate Node.js, Git, or Python installation is required. First setup needs internet access.
+Install `contextbranch-0.4.1.vsix` in desktop VS Code with **Extensions → Install from VSIX…**. Open the ContextBranch panel and select **Set up user study**. Enter the participant ID, assigned G1–G4, and the researcher OpenRouter key, then choose the session data folder. The extension prepares an isolated Python test environment on first setup; no separate Node.js, Git, or Python installation is required. First setup needs internet access.
 
-The first task opens automatically. **Start task** begins its 20-minute timer; **Open other task** opens the second prepared workspace. Existing prepared workspaces can be reopened without creating a replacement session. The key stays in VS Code SecretStorage.
+Both tasks open automatically in separate VS Code windows, with **Task 1 of 2** in front. Each window title and study toolbar shows the participant ID and task order. Complete Task 1 before Task 2; **Start task** begins only that task's 20-minute timer. The key stays in VS Code SecretStorage.
+
+Each task has a **NASA-TLX** button that opens the questionnaire in the default browser with the participant ID and that period's task/condition label prefilled. The button remains available before and after Finish. Download each completed questionnaire CSV separately.
 
 **Export research package** is available before Start, during work, after Finish, and after timeout. The ZIP contains both available periods, recorded conversations and code states, operation/test records, saved workspace code, recovery snapshots of unapplied edits/partial replies/unsaved editor buffers, and original completion ZIPs when present. Each period records its completion status. Exporting never presses Finish, switches branches, or overwrites an earlier export. Screen/audio recordings and survey responses remain separate study materials.
 

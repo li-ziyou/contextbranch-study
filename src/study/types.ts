@@ -118,6 +118,8 @@ export interface StudyArchive {
 export interface StudyUiState {
   active: boolean;
   runId: string;
+  participantId: string;
+  period: 1 | 2;
   taskTitle: string;
   condition: StudyCondition;
   started: boolean;

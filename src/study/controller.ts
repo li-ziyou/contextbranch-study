@@ -354,6 +354,8 @@ export class StudyController {
     return {
       active: true,
       runId: this.run.runId,
+      participantId: this.run.participantId,
+      period: this.run.period,
       taskTitle: this.run.manifest.ticket.summary,
       condition: this.run.condition,
       started: Boolean(this.run.startedAt),

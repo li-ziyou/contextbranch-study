@@ -1,6 +1,6 @@
 # Standalone study VSIX validation
 
-The study feature is tracked in GitHub issue #16 and PR #15. It follows the merged one-line public-test change in PR #14. The installer version is 0.4.0.
+The study feature is tracked in GitHub issue #16 and PR #15. It follows the merged one-line public-test change in PR #14. The current installer version is 0.4.1. Version 0.4.0 established the standalone runtime and export flow; 0.4.1 adds automatic ordered task windows and per-task NASA-TLX access.
 
 ## Executed locally on macOS ARM64
 
@@ -13,6 +13,13 @@ The study feature is tracked in GitHub issue #16 and PR #15. It follows the merg
 - TypeScript checks and existing study merge/conflict checks pass.
 
 The native smoke test is `scripts/vscode-study-smoke.cjs`. Place it under the installed extension directory (for example `.test/index.js`) so its VS Code test API shares the extension's API scope. Launch that installed directory with `--extensionDevelopmentPath`, its `.test` folder with `--extensionTestsPath`, an isolated `--user-data-dir` and `--extensions-dir`, and a newly prepared unstarted workspace. It replaces save/notification dialogs within the test host; no paid model request is made.
+
+## Version 0.4.1 setup checks
+
+- `npm run test:study-setup` drives the actual setup function with native dialogs and runtime provisioning replaced at their boundaries. All G1–G4 sequences open both task roots in separate windows, with Task 1 opened last. Window settings contain participant/order labels, both start times stay null, and an undismissed ready notification does not block setup. Cancellation and missing-workspace behavior are checked.
+- Questionnaire URLs use the live site's `participant` and `label` query fields. Each window gets its own period/task/condition; no credentials or local paths enter the URL. The CSV uses this label as `session_label`.
+- The installed-extension smoke test checks the window title and invokes the actual NASA-TLX command with browser opening intercepted, then exercises the existing unfinished-session export.
+- Completed a native P000/G1 setup using the installed 0.4.1 VSIX. Both separate task windows appeared, Task 1 was in front, and each title and study toolbar displayed its participant/order. The actual NASA-TLX buttons opened the default Chrome browser with P000 and the matching Period 1/Period 2 labels. Both task timers remained unstarted.
 
 ## Cross-platform checks
 

@@ -665,6 +665,7 @@
     }
     const study = state.study;
     toolbar.hidden = false;
+    $('study-order').textContent = `${study.participantId} · Task ${study.period} of 2`;
     $('study-task-title').textContent = study.taskTitle;
     const minutes = Math.floor(study.remainingSeconds / 60);
     const seconds = String(study.remainingSeconds % 60).padStart(2, '0');
@@ -2734,7 +2735,7 @@ function findNextInstanceTime(branchId, instanceIdx) {
   $('btn-stop').addEventListener('click', () => send({ type: 'abortStream', branchId: state.activeBranchId }));
   $('study-setup-button').addEventListener('click', () => send({ type: 'setUpStudy' }));
   $('study-export').addEventListener('click', () => send({ type: 'exportResearchPackage' }));
-  $('study-other-task').addEventListener('click', () => send({ type: 'openOtherStudyTask' }));
+  $('study-nasa-tlx').addEventListener('click', () => send({ type: 'openNasaTlx' }));
   $('study-start').addEventListener('click', () => send({ type: 'startStudyTask' }));
   $('study-run-tests').addEventListener('click', () => send({ type: 'runStudyTests' }));
   $('study-integrate').addEventListener('click', () => send({ type: 'openStudyIntegration' }));

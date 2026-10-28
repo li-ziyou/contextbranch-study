@@ -22,6 +22,7 @@ jobs:
       - run: npm run compile
       - run: node scripts/test-study-runtime.mjs
       - run: npm run test:study-standalone
+      - run: npm run test:study-setup
       - run: npm run test:study-ui
       - run: npm run test:conflict-resolution
       - run: npm run package

@@ -1,10 +1,10 @@
 # 安装一个 VSIX，运行两段用户测试
 
-研究人员使用 `contextbranch-0.4.0.vsix`。支持 Windows、macOS 和 Linux 的 x64/ARM64 桌面 VS Code。首次配置会自动下载隔离的 Python 3.14.0 与 pytest 9.2.0；不要求事先安装 Git、Node 或 Python。首次准备环境和使用 OpenRouter 都需要联网。
+研究人员使用 `contextbranch-0.4.1.vsix`。支持 Windows、macOS 和 Linux 的 x64/ARM64 桌面 VS Code。首次配置会自动下载隔离的 Python 3.14.0 与 pytest 9.2.0；不要求事先安装 Git、Node 或 Python。首次准备环境和使用 OpenRouter 都需要联网。
 
 ## 1. 安装扩展
 
-在桌面 VS Code 中打开扩展页面，点击右上角 `…` → `Install from VSIX…`，选择 `contextbranch-0.4.0.vsix`，然后重新加载窗口。打开 ContextBranch 面板。
+在桌面 VS Code 中打开扩展页面，点击右上角 `…` → `Install from VSIX…`，选择 `contextbranch-0.4.1.vsix`，然后重新加载窗口。打开 ContextBranch 面板。
 
 ## 2. 设置研究会话
 
@@ -15,7 +15,7 @@
 - 研究人员的 OpenRouter API key。已保存该 key 时会复用，修改 key 使用 `ContextBranch: Set API Key`。
 - 研究数据存放文件夹。
 
-扩展自动准备环境、核对内置任务文件，创建两个初始 workspace，然后打开第一个任务。同一次设置得到的两个任务共用一个会话目录；再次设置会创建新目录，不会覆盖此前任务。
+扩展自动准备环境、核对内置任务文件，创建两个初始 workspace，并自动打开两个独立的 VS Code 窗口，Task 1 显示在前面。窗口标题和研究面板均标明参与者编号及 Task 1 of 2 / Task 2 of 2。同一次设置得到的两个任务共用一个会话目录；再次设置会创建新目录，不会覆盖此前任务。
 
 默认固定 OpenRouter 模型 `google/gemini-2.5-flash-lite`，每个任务 1200 秒。模型 ID、分组、任务形式、版本和开始时间均写入会话记录；API key 仅保存在 VS Code SecretStorage 中。
 
@@ -30,7 +30,9 @@
 
 阅读当前 workspace 的 `.study/TASK.md`，点击 `Start task` 才开始计时。点击 `Test A`、`Test B` 或 `Test Main` 查看当前状态的公开测试。需要的 sibling 修改由参与者整合进 main。点击 `Finish task` 完成当前任务；到时仍按现有逻辑自动结束。
 
-`Open other task` 打开已经准备好的另一段任务。它可以重新打开原目录，保留其中的数据。研究人员还可使用命令面板的 `ContextBranch: Open Other Study Task`。
+按标记先完成 Task 1，再切换到已经打开的 Task 2 窗口。打开窗口不会开始计时，每段分别点击 `Start task`。
+
+每个任务窗口的 `NASA-TLX` 按钮会使用系统默认浏览器打开问卷，自动填写当前参与者编号，并显示对应的 Period 1 / Period 2、任务和条件。也可运行 `ContextBranch: Open NASA-TLX`。未点 Finish 或已结束时都可以打开；填写后下载 CSV，按研究流程单独收集。
 
 ## 4. 随时导出研究包
 
