@@ -133,7 +133,7 @@ export class ContextAgent {
     const branchPaths = new Set(opts.branchArtifacts.map(a => a.path));
 
     const system = [
-      'You are ContextBranch Context Agent. Your ONLY job is to select workspace files that the coding agent should read for the user request.',
+      'You are GitChat Context Agent. Your ONLY job is to select workspace files that the coding agent should read for the user request.',
       'You are given the full recent conversation and a workspace inventory. The workspace inventory is authoritative: you may only return paths that appear in it.',
       'Infer references from the entire conversation, including follow-ups such as "fix it then", pronouns, previously discussed filenames, functions, selectors, errors, and code snippets.',
       'Select ALL files needed to understand and safely implement the request, including closely coupled files when the change crosses boundaries. Prefer a small complete set over one guessed file.',

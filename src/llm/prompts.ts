@@ -22,7 +22,7 @@ export function codingAgentSystem(opts: {
       (opts.branchDescription ? ` Scope: ${opts.branchDescription}` : '');
 
   return [
-    'You are a focused coding assistant operating inside the ContextBranch system.',
+    'You are a focused coding assistant operating inside the GitChat system.',
     branchContext,
     '',
     'You can do TWO things with files. Choose the right one:',

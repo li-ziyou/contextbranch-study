@@ -96,7 +96,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
   ) {
     this.studyTestController = vscode.tests.createTestController(
       'contextbranch-study-tests',
-      'ContextBranch Study',
+      'GitChat Study',
     );
     this.studyTestController.createRunProfile(
       'Run current study tests',
@@ -496,7 +496,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
     if (!ws) return;
     const provider = this.getProvider();
     if (!provider) {
-      this.postMessage({ type: 'error', message: 'No API key configured. Run "ContextBranch: Set API Key".' });
+      this.postMessage({ type: 'error', message: 'No API key configured. Run "GitChat: Set API Key".' });
       return;
     }
     const branchId = typeof requestedBranchId === 'string' ? requestedBranchId : ws.activeBranchId;

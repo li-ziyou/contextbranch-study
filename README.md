@@ -1,6 +1,6 @@
-# ContextBranch Study
+# GitChat Study
 
-This repository is the source of truth for the ContextBranch Study 2
+This repository is the source of truth for the GitChat Study 2
 software and its frozen research artifacts. It includes the VS Code extension,
 selectable legacy and v2 FeatureBench-derived task manifests, task-builder contracts, the
 clean grader contract, session materials, and analysis-ready event definitions.
@@ -10,7 +10,7 @@ directories, or participant bundles containing private evaluation material.
 
 ## Standalone user-study VSIX
 
-Install `contextbranch-0.4.1.vsix` in desktop VS Code with **Extensions → Install from VSIX…**. Open the ContextBranch panel and select **Set up user study**. Enter the participant ID, assigned G1–G4, and the researcher OpenRouter key, then choose the session data folder. The extension prepares an isolated Python test environment on first setup; no separate Node.js, Git, or Python installation is required. First setup needs internet access.
+Install `gitchat-0.4.2.vsix` in desktop VS Code with **Extensions → Install from VSIX…**. Open the GitChat panel and select **Set up user study**. Enter the participant ID, assigned G1–G4, and the researcher OpenRouter key, then choose the session data folder. The extension prepares an isolated Python test environment on first setup; no separate Node.js, Git, or Python installation is required. First setup needs internet access.
 
 Both tasks open automatically in separate VS Code windows, with **Task 1 of 2** in front. Each window title and study toolbar shows the participant ID and task order. Complete Task 1 before Task 2; **Start task** begins only that task's 20-minute timer. The key stays in VS Code SecretStorage.
 
@@ -22,9 +22,11 @@ The VSIX includes only study baselines, public tests, tickets and the public run
 
 See [the researcher guide](docs/fresh-computer-study2.md). Build from source with `npm ci`, `npm run compile`, `npm run test:study-standalone`, and `npm run package`. The command-line operator workflow remains available under `evaluation/study2/`.
 
+GitChat retains the internal extension identifier `contextbranch.contextbranch`, command/settings IDs and storage paths so earlier installations update in place and keep existing sessions and saved keys.
+
 ## Repository boundaries
 
-- `src/` and `webview/`: ContextBranch VS Code extension.
+- `src/` and `webview/`: GitChat VS Code extension.
 - `evaluation/study2/`: all Study 2 source materials and control software.
 - `evaluation/study2/private-grader/`: private evaluation source. It is kept
   in this private repository but excluded from participant bundles.
@@ -33,7 +35,7 @@ See [the researcher guide](docs/fresh-computer-study2.md). Build from source wit
 
 ---
 
-# ContextBranch
+# GitChat
 
 Git-style branching and merging for AI coding chat, inside VS Code.
 
@@ -80,8 +82,8 @@ npm run build
 Then in the new VS Code window:
 
 1. Open a folder.
-2. Click the **ContextBranch** icon in the activity bar.
-3. Run `ContextBranch: Set API Key` from the Command Palette.
+2. Click the **GitChat** icon in the activity bar.
+3. Run `GitChat: Set API Key` from the Command Palette.
 4. Pick a provider (Anthropic / OpenAI / Gemini), paste your key.
 5. Start chatting in the conversation pane.
 6. Click **+ Branch** on any message to fork the conversation.
@@ -91,8 +93,8 @@ Then in the new VS Code window:
 
 This implementation synthesizes three papers:
 
-- **Laban et al. 2025** — *LLMs Get Lost in Multi-Turn Conversation*. Multi-turn LLM performance degrades 39% on average; consolidation (CONCAT) restores it. → ContextBranch consolidates branch conversations at merge time.
-- **Kimm & Tan 2024** — *ChatGraPhT*. Two-agent design (Graph + Meta) for visual reflective dialogue. → ContextBranch uses Coding + Decomposition + Meta agents with discipline about when each speaks.
+- **Laban et al. 2025** — *LLMs Get Lost in Multi-Turn Conversation*. Multi-turn LLM performance degrades 39% on average; consolidation (CONCAT) restores it. → GitChat consolidates branch conversations at merge time.
+- **Kimm & Tan 2024** — *ChatGraPhT*. Two-agent design (Graph + Meta) for visual reflective dialogue. → GitChat uses Coding + Decomposition + Meta agents with discipline about when each speaks.
 - **Chickmagalur & Maaheshwari 2025** — *ContextBranch*. Four primitives (checkpoint, branch, switch, inject) with content-addressable storage. → Direct foundation; this project extends with verified merge, artifact tracking, decomposition, and a VS Code-native UI.
 
 ## Project status

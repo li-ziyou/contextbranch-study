@@ -7,6 +7,7 @@ exports.run = async function() {
   const outputDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'gitchat-vsix-smoke-'));
   const extension = vscode.extensions.getExtension('contextbranch.contextbranch');
   assert.ok(extension, 'the installed study VSIX must be discoverable');
+  assert.equal(extension.packageJSON.displayName, 'GitChat');
   await extension.activate();
   const commands = await vscode.commands.getCommands(true);
   for (const id of ['contextbranch.setupStudy', 'contextbranch.exportResearchPackage', 'contextbranch.openNasaTlx']) assert.ok(commands.includes(id), id);
@@ -35,7 +36,7 @@ exports.run = async function() {
     await vscode.commands.executeCommand('contextbranch.openNasaTlx');
     assert.equal(questionnaireUrl.origin + questionnaireUrl.pathname, 'https://li-ziyou.github.io/weighted-nasa-tlx/');
     assert.equal(questionnaireUrl.searchParams.get('participant'), run.participantId);
-    assert.equal(questionnaireUrl.searchParams.get('label'), `Period ${run.period}: ${run.taskId} (${run.condition})`);
+    assert.equal(questionnaireUrl.searchParams.get('label'), `Period ${run.period}: ${run.taskId} (${run.condition === 'linear' ? 'Linear' : 'GitChat'})`);
     await Promise.race([vscode.commands.executeCommand('contextbranch.exportResearchPackage'), new Promise((_, reject) => setTimeout(()=>reject(new Error('UI export command timed out')), 20_000))]);
     assert.ok(fs.existsSync(output));
     assert.equal(document.isDirty, true, 'export must not save unsaved editor text');

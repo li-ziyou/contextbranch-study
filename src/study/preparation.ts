@@ -92,7 +92,7 @@ export function prepareStudySession(options: {
     writeJsonAtomic(path.join(workspace, '.study/task.json'), { schemaVersion: 1, taskId: run.taskId, participantTitle: full.participantTitle, ticket, runner: full.runner, submission: full.submission });
     writeJsonAtomic(path.join(runDirectory, 'run.json'), run);
     writeJsonAtomic(path.join(workspace, '.vscode/settings.json'), {
-      'window.title': `${run.participantId} · Task ${period} of 2 · ${full.participantTitle} · ${run.condition === 'linear' ? 'Linear' : 'ContextBranch'}\${separator}\${appName}`,
+      'window.title': `${run.participantId} · Task ${period} of 2 · ${full.participantTitle} · ${run.condition === 'linear' ? 'Linear' : 'GitChat'}\${separator}\${appName}`,
       'contextbranch.studyMode': true, 'contextbranch.participantId': run.participantId,
       'contextbranch.condition': run.condition, 'contextbranch.model': run.model.id,
       'contextbranch.metaAgentEnabled': false, 'contextbranch.semanticMerge': false,

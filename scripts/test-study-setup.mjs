@@ -59,7 +59,7 @@ try {
       const url = new URL(nasaTlxUrl(run));
       assert.equal(url.origin + url.pathname, 'https://li-ziyou.github.io/weighted-nasa-tlx/');
       assert.equal(url.searchParams.get('participant'), 'P000');
-      assert.equal(url.searchParams.get('label'), `Period ${run.period}: ${run.taskId} (${run.condition})`);
+      assert.equal(url.searchParams.get('label'), `Period ${run.period}: ${run.taskId} (${run.condition === 'linear' ? 'Linear' : 'GitChat'})`);
       assert.deepEqual([...url.searchParams.keys()], ['participant', 'label'], 'no key or local paths may enter the URL');
       return run;
     });

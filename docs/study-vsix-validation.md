@@ -1,6 +1,14 @@
 # Standalone study VSIX validation
 
-The study feature is tracked in GitHub issue #16 and PR #15. It follows the merged one-line public-test change in PR #14. The current installer version is 0.4.1. Version 0.4.0 established the standalone runtime and export flow; 0.4.1 adds automatic ordered task windows and per-task NASA-TLX access.
+The study feature is tracked in GitHub issue #16 and PR #15. It follows the merged one-line public-test change in PR #14. The current installer is `gitchat-0.4.2.vsix`, displayed as GitChat. Version 0.4.0 established the standalone runtime and export flow; 0.4.1 added automatic ordered task windows and per-task NASA-TLX access.
+
+## GitChat 0.4.2
+
+The display name, command titles, sidebar/settings labels, status messages, study guidance and questionnaire labels use GitChat. The internal extension ID `contextbranch.contextbranch`, command/settings IDs, stored-key identity and session schema remain compatible with previous installations. Existing research condition values remain `contextbranch`/`linear`; newly displayed questionnaire labels use GitChat/Linear.
+
+`npm run package` produces `gitchat-<version>.vsix`. Package inspection verifies the GitChat display name and command titles as well as the compatible extension identity. The native smoke test checks the installed display name and questionnaire label in addition to the existing window/export checks.
+
+Locally verified 0.4.2 by upgrading the isolated 0.4.1 test profile: only `contextbranch.contextbranch@0.4.2` remained installed, with display name GitChat. The installed-extension smoke test passed its title, GitChat questionnaire label and unfinished export checks, including preservation of an unsaved buffer. TypeScript, all-group setup, standalone export, study merge/conflict and VSIX integrity checks passed. The separate clean VS Code window used for manual installation was left with zero installed extensions.
 
 ## Executed locally on macOS ARM64
 

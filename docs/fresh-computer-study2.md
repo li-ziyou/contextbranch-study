@@ -1,18 +1,18 @@
 # 安装一个 VSIX，运行两段用户测试
 
-研究人员使用 `contextbranch-0.4.1.vsix`。支持 Windows、macOS 和 Linux 的 x64/ARM64 桌面 VS Code。首次配置会自动下载隔离的 Python 3.14.0 与 pytest 9.2.0；不要求事先安装 Git、Node 或 Python。首次准备环境和使用 OpenRouter 都需要联网。
+研究人员使用 `gitchat-0.4.2.vsix`。支持 Windows、macOS 和 Linux 的 x64/ARM64 桌面 VS Code。首次配置会自动下载隔离的 Python 3.14.0 与 pytest 9.2.0；不要求事先安装 Git、Node 或 Python。首次准备环境和使用 OpenRouter 都需要联网。
 
 ## 1. 安装扩展
 
-在桌面 VS Code 中打开扩展页面，点击右上角 `…` → `Install from VSIX…`，选择 `contextbranch-0.4.1.vsix`，然后重新加载窗口。打开 ContextBranch 面板。
+在桌面 VS Code 中打开扩展页面，点击右上角 `…` → `Install from VSIX…`，选择 `gitchat-0.4.2.vsix`，然后重新加载窗口。打开 GitChat 面板。
 
 ## 2. 设置研究会话
 
-点击 `Set up user study`，也可在命令面板运行 `ContextBranch: Set Up User Study`。依次填写：
+点击 `Set up user study`，也可在命令面板运行 `GitChat: Set Up User Study`。依次填写：
 
 - 参与者编号，例如 P001；P000 留给练习。
 - 已分配的 G1、G2、G3 或 G4。
-- 研究人员的 OpenRouter API key。已保存该 key 时会复用，修改 key 使用 `ContextBranch: Set API Key`。
+- 研究人员的 OpenRouter API key。已保存该 key 时会复用，修改 key 使用 `GitChat: Set API Key`。
 - 研究数据存放文件夹。
 
 扩展自动准备环境、核对内置任务文件，创建两个初始 workspace，并自动打开两个独立的 VS Code 窗口，Task 1 显示在前面。窗口标题和研究面板均标明参与者编号及 Task 1 of 2 / Task 2 of 2。同一次设置得到的两个任务共用一个会话目录；再次设置会创建新目录，不会覆盖此前任务。
@@ -21,10 +21,10 @@
 
 | 组 | 第一个任务 | 第二个任务 |
 |---|---|---|
-| G1 | TreeNode · Linear | Exception Group · ContextBranch |
-| G2 | TreeNode · ContextBranch | Exception Group · Linear |
-| G3 | Exception Group · Linear | TreeNode · ContextBranch |
-| G4 | Exception Group · ContextBranch | TreeNode · Linear |
+| G1 | TreeNode · Linear | Exception Group · GitChat |
+| G2 | TreeNode · GitChat | Exception Group · Linear |
+| G3 | Exception Group · Linear | TreeNode · GitChat |
+| G4 | Exception Group · GitChat | TreeNode · Linear |
 
 ## 3. 执行任务
 
@@ -32,11 +32,11 @@
 
 按标记先完成 Task 1，再切换到已经打开的 Task 2 窗口。打开窗口不会开始计时，每段分别点击 `Start task`。
 
-每个任务窗口的 `NASA-TLX` 按钮会使用系统默认浏览器打开问卷，自动填写当前参与者编号，并显示对应的 Period 1 / Period 2、任务和条件。也可运行 `ContextBranch: Open NASA-TLX`。未点 Finish 或已结束时都可以打开；填写后下载 CSV，按研究流程单独收集。
+每个任务窗口的 `NASA-TLX` 按钮会使用系统默认浏览器打开问卷，自动填写当前参与者编号，并显示对应的 Period 1 / Period 2、任务和条件。也可运行 `GitChat: Open NASA-TLX`。未点 Finish 或已结束时都可以打开；填写后下载 CSV，按研究流程单独收集。
 
 ## 4. 随时导出研究包
 
-点击 `Export research package`，或运行 `ContextBranch: Export Research Package`，选择一个新的 ZIP 文件名。两个任务各自的可用数据会放进同一个包。任务不需要先点 Finish，也不需要先通过测试。
+点击 `Export research package`，或运行 `GitChat: Export Research Package`，选择一个新的 ZIP 文件名。两个任务各自的可用数据会放进同一个包。任务不需要先点 Finish，也不需要先通过测试。
 
 包里包括：
 

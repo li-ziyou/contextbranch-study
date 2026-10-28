@@ -446,7 +446,7 @@ function nasaTlxUrl(run) {
   const base = process.env.WEIGHTED_NASA_TLX_URL ?? 'https://li-ziyou.github.io/weighted-nasa-tlx/';
   const url = new URL(base);
   url.searchParams.set('participant', run.participantId);
-  url.searchParams.set('label', `Period ${run.period}: ${run.taskId} (${run.condition})`);
+  url.searchParams.set('label', `Period ${run.period}: ${run.taskId} (${run.condition === 'linear' ? 'Linear' : 'GitChat'})`);
   return url.toString();
 }
 

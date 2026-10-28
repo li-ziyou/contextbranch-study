@@ -11,6 +11,10 @@ with zipfile.ZipFile(sys.argv[1]) as z:
  allowed=('extension/study-assets/','extension/webview/','extension/media/','extension/dist/')
  assert all(name.startswith(allowed) or name in ['extension/package.json','extension/README.md','extension.vsixmanifest','[Content_Types].xml'] for name in names),names
  index=json.loads(z.read('extension/study-assets/index.json'))
+ metadata=json.loads(z.read('extension/package.json'))
+ assert metadata['displayName']=='GitChat'
+ assert metadata['publisher']+'.'+metadata['name']=='contextbranch.contextbranch', 'Preserve the extension identity for existing installations'
+ assert all(command['title'].startswith('GitChat:') for command in metadata['contributes']['commands'])
  for name,sha in index['files'].items(): assert hashlib.sha256(z.read('extension/study-assets/'+name)).hexdigest()==sha,name
  assert 'assert len(message_failures) >= 1' in z.read('extension/study-assets/tasks/exception-group-matcher/tests/test_integration.py').decode()
- print('VSIX verified: public-only tasks, intact file hashes, merged assertion, no source checkout or research data.')`, `contextbranch-${version}.vsix`], { stdio: 'inherit' });
+ print('GitChat VSIX verified: branding, compatible extension identity, public-only tasks, intact file hashes, merged assertion, no source checkout or research data.')`, `gitchat-${version}.vsix`], { stdio: 'inherit' });

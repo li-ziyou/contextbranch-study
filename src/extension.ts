@@ -54,7 +54,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // 1b. Status bar item — shows the active branch and clicks open the sidebar.
   statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   statusBar.command = 'contextbranch.open';
-  statusBar.tooltip = 'ContextBranch — current branch (click to open sidebar)';
+  statusBar.tooltip = 'GitChat — current branch (click to open sidebar)';
   context.subscriptions.push(statusBar);
   updateStatusBar();
 
@@ -71,7 +71,7 @@ export async function activate(context: vscode.ExtensionContext) {
         view?.pushState();
         updateStatusBar();
         vscode.window.showInformationMessage(
-          `ContextBranch: imported ${n} existing file${n === 1 ? '' : 's'} into main.`
+          `GitChat: imported ${n} existing file${n === 1 ? '' : 's'} into main.`
         );
       }
     } catch { /* non-fatal */ }
@@ -160,7 +160,7 @@ export async function activate(context: vscode.ExtensionContext) {
         studyController?.initialize(workspace);
         void recoverFinishedStudyArchive();
         void focusStudyPanel();
-        vscode.window.showInformationMessage('ContextBranch: workspace ready.');
+        vscode.window.showInformationMessage('GitChat: workspace ready.');
       }
     })
   );
@@ -229,7 +229,7 @@ export async function activate(context: vscode.ExtensionContext) {
       await context.secrets.store(SECRET_KEY, JSON.stringify({ provider: providerName, key }));
       await config.update('provider', providerName, vscode.ConfigurationTarget.Global);
       await setupProvider(context);
-      vscode.window.showInformationMessage(`ContextBranch: ${providerName} key saved.`);
+      vscode.window.showInformationMessage(`GitChat: ${providerName} key saved.`);
       view?.pushState();
     }),
     vscode.commands.registerCommand('contextbranch.exportStudyData', async () => {
@@ -249,7 +249,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }),
     vscode.commands.registerCommand('contextbranch.resetWorkspace', async () => {
       if (studyController) {
-        vscode.window.showErrorMessage('ContextBranch data cannot be reset during a prepared study task.');
+        vscode.window.showErrorMessage('GitChat data cannot be reset during a prepared study task.');
         return;
       }
       if (!storage) {
@@ -257,14 +257,14 @@ export async function activate(context: vscode.ExtensionContext) {
         return;
       }
       const confirm = await vscode.window.showWarningMessage(
-        'Delete ALL ContextBranch data in this workspace? Cannot be undone.',
+        'Delete ALL GitChat data in this workspace? Cannot be undone.',
         { modal: true }, 'Delete', 'Cancel'
       );
       if (confirm !== 'Delete') return;
       storage.reset();
       workspace = new Workspace(storage);
       view?.pushState();
-      vscode.window.showInformationMessage('ContextBranch reset.');
+      vscode.window.showInformationMessage('GitChat reset.');
     }),
   );
 
@@ -291,7 +291,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // 6. First-launch onboarding
   if (!provider) {
     void vscode.window.showInformationMessage(
-      'ContextBranch: set up a user study, or configure an API key for an existing project.',
+      'GitChat: set up a user study, or configure an API key for an existing project.',
       'Set up study', 'Set API Key', 'Later'
     ).then(action => {
       if (action === 'Set up study') void vscode.commands.executeCommand('contextbranch.setupStudy');
@@ -312,21 +312,21 @@ export function deactivate(): void {
 function updateStatusBar(): void {
   if (!statusBar) return;
   if (!workspace) {
-    statusBar.text = '$(git-branch) ContextBranch';
-    statusBar.tooltip = 'ContextBranch — open a folder to start';
+    statusBar.text = '$(git-branch) GitChat';
+    statusBar.tooltip = 'GitChat — open a folder to start';
     statusBar.show();
     return;
   }
   const active = workspace.getBranch(workspace.activeBranchId);
   if (!active) {
-    statusBar.text = '$(git-branch) ContextBranch';
+    statusBar.text = '$(git-branch) GitChat';
     statusBar.show();
     return;
   }
   const isMain = active.id === workspace.mainBranchId;
   const icon = isMain ? '$(git-branch)' : '$(git-pull-request)';
   statusBar.text = `${icon} ${active.name}`;
-  statusBar.tooltip = `ContextBranch: ${active.name} (${active.messageIds.length} messages). Click to open sidebar.`;
+  statusBar.tooltip = `GitChat: ${active.name} (${active.messageIds.length} messages). Click to open sidebar.`;
   statusBar.show();
 }
 
