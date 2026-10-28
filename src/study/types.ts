@@ -71,6 +71,8 @@ export interface StudyRunFile {
   startedAt: string | null;
   /** Shared folder containing one ZIP per completed task in this session. */
   exportDirectory?: string;
+  /** Folder holding both period workspaces for the standalone study. */
+  sessionDirectory?: string;
   timeLimitSeconds: number;
   model: {
     provider: StudyProvider;

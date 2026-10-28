@@ -426,6 +426,7 @@
   // ─── render ───────────────────────────────────────────────────────────
 
   function render() {
+    $('study-setup').hidden = Boolean(state.study);
     // Topbar
     $('active-branch-name').textContent = state.activeBranchName || 'main';
 
@@ -2731,6 +2732,9 @@ function findNextInstanceTime(branchId, instanceIdx) {
 
   $('btn-send').addEventListener('click', sendMessage);
   $('btn-stop').addEventListener('click', () => send({ type: 'abortStream', branchId: state.activeBranchId }));
+  $('study-setup-button').addEventListener('click', () => send({ type: 'setUpStudy' }));
+  $('study-export').addEventListener('click', () => send({ type: 'exportResearchPackage' }));
+  $('study-other-task').addEventListener('click', () => send({ type: 'openOtherStudyTask' }));
   $('study-start').addEventListener('click', () => send({ type: 'startStudyTask' }));
   $('study-run-tests').addEventListener('click', () => send({ type: 'runStudyTests' }));
   $('study-integrate').addEventListener('click', () => send({ type: 'openStudyIntegration' }));

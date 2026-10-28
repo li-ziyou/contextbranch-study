@@ -29,6 +29,8 @@ export class StudyController {
     }
   }
 
+  get runFile(): StudyRunFile { return JSON.parse(JSON.stringify(this.run)); }
+  get runtimePython(): string { return this.run.runtimePython; }
   get condition(): StudyRunFile['condition'] { return this.run.condition; }
   get isContextBranch(): boolean { return this.run.condition === 'contextbranch'; }
   get taskId(): string { return this.run.taskId; }

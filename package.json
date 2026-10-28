@@ -2,7 +2,7 @@
   "name": "contextbranch",
   "displayName": "ContextBranch",
   "description": "Git-style branching and merging for AI coding chat",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "contextbranch",
   "repository": {
     "type": "git",
@@ -37,6 +37,18 @@
       {
         "command": "contextbranch.resetWorkspace",
         "title": "ContextBranch: Reset Workspace (Danger)"
+      },
+      {
+        "command": "contextbranch.setupStudy",
+        "title": "ContextBranch: Set Up User Study"
+      },
+      {
+        "command": "contextbranch.exportResearchPackage",
+        "title": "ContextBranch: Export Research Package"
+      },
+      {
+        "command": "contextbranch.openOtherStudyTask",
+        "title": "ContextBranch: Open Other Study Task"
       }
     ],
     "menus": {
@@ -190,7 +202,10 @@
     "study:preflight": "node evaluation/study2/operator/studyctl.mjs preflight",
     "study:setup-runtime": "node evaluation/study2/operator/studyctl.mjs setup-runtime",
     "study:dry-run": "node evaluation/study2/operator/studyctl.mjs dry-run",
-    "study:grade": "python3 evaluation/study2/private-grader/grade_submission.py"
+    "study:grade": "python3 evaluation/study2/private-grader/grade_submission.py",
+    "test:study-standalone": "node scripts/test-study-standalone.mjs",
+    "test:study-runtime": "node scripts/test-study-runtime.mjs",
+    "test:study-vsix": "node scripts/check-study-vsix.mjs"
   },
   "devDependencies": {
     "@types/archiver": "^6.0.4",

@@ -1,6 +1,6 @@
 # ContextBranch Study
 
-This private repository is the source of truth for the ContextBranch Study 2
+This repository is the source of truth for the ContextBranch Study 2
 software and its frozen research artifacts. It includes the VS Code extension,
 selectable legacy and v2 FeatureBench-derived task manifests, task-builder contracts, the
 clean grader contract, session materials, and analysis-ready event definitions.
@@ -8,20 +8,17 @@ clean grader contract, session materials, and analysis-ready event definitions.
 It does not store participant-identifying data, recordings, API keys, raw run
 directories, or participant bundles containing private evaluation material.
 
-## Study 2 quick start
+## Standalone user-study VSIX
 
-```bash
-npm install
-npm run compile
-npm run study:validate -- --task-set study2-v2
-npm run study:assign -- P017 --task-set study2-v2
-```
+Install `contextbranch-0.4.0.vsix` in desktop VS Code with **Extensions → Install from VSIX…**. Open the ContextBranch panel and select **Set up user study**. Enter the participant ID, assigned G1–G4, and the researcher OpenRouter key, then choose the session data folder. The extension prepares an isolated Python test environment on first setup; no separate Node.js, Git, or Python installation is required. First setup needs internet access.
 
-The participant flow, system boundaries, and implementation sequence are in
-[`evaluation/study2/README.md`](evaluation/study2/README.md). The extension is
-the participant-facing application; the study layer will make it start the
-assigned task deterministically instead of exposing its general-purpose branch
-creation and decomposition controls.
+The first task opens automatically. **Start task** begins its 20-minute timer; **Open other task** opens the second prepared workspace. Existing prepared workspaces can be reopened without creating a replacement session. The key stays in VS Code SecretStorage.
+
+**Export research package** is available before Start, during work, after Finish, and after timeout. The ZIP contains both available periods, recorded conversations and code states, operation/test records, saved workspace code, recovery snapshots of unapplied edits/partial replies/unsaved editor buffers, and original completion ZIPs when present. Each period records its completion status. Exporting never presses Finish, switches branches, or overwrites an earlier export. Screen/audio recordings and survey responses remain separate study materials.
+
+The VSIX includes only study baselines, public tests, tickets and the public runner. Reference implementations and private grading tests remain in the researcher source checkout.
+
+See [the researcher guide](docs/fresh-computer-study2.md). Build from source with `npm ci`, `npm run compile`, `npm run test:study-standalone`, and `npm run package`. The command-line operator workflow remains available under `evaluation/study2/`.
 
 ## Repository boundaries
 

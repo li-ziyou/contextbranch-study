@@ -18,6 +18,8 @@ import { LLMProvider, createProvider } from './llm/provider';
 import { ContextBranchView } from './webview/webview-manager';
 import { StudyExport } from './core/types';
 import { StudyController } from './study/controller';
+import { setUpStudy, openOtherStudyTask } from './study/setup';
+import { createSessionResearchPackage } from './study/research-package';
 
 const SECRET_KEY = 'contextbranch.apiKey';
 
@@ -128,10 +130,6 @@ export async function activate(context: vscode.ExtensionContext) {
     studyController?.initialize(workspace);
     void recoverFinishedStudyArchive();
     void focusStudyPanel();
-  } else {
-    vscode.window.showWarningMessage(
-      'ContextBranch: open a folder first, then reload the window.'
-    );
   }
 
   // 3. Try to set up provider from stored key
@@ -166,8 +164,49 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
+  async function researchSessionDirectory(): Promise<string | undefined> {
+    const run = studyController?.runFile;
+    const directory = run?.sessionDirectory ?? (run?.exportDirectory ? path.dirname(run.exportDirectory) : undefined)
+      ?? context.globalState.get<string>('contextbranch.lastStudySession');
+    if (directory && fs.existsSync(directory)) return directory;
+    const folders = await vscode.window.showOpenDialog({ title: 'Choose the study session folder', canSelectFolders: true, canSelectFiles: false, canSelectMany: false });
+    return folders?.[0]?.fsPath;
+  }
+
+  async function exportResearchPackage(): Promise<void> {
+    const directory = await researchSessionDirectory();
+    if (!directory) return;
+    const participant = studyController?.participantId ?? path.basename(directory).split('_')[0];
+    const target = await vscode.window.showSaveDialog({
+      filters: { 'Research package ZIP': ['zip'] },
+      defaultUri: vscode.Uri.file(path.join(path.dirname(directory), `${participant}_research_${new Date().toISOString().replace(/[-:.]/g, '')}.zip`)),
+    });
+    if (!target) return;
+    // Capture the current window first; the other task keeps its own persisted recovery state.
+    view?.persistStudyRecovery();
+    const result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Exporting the research package', cancellable: false }, () => createSessionResearchPackage(directory, target.fsPath));
+    const warnings = result.periods.reduce((count, period) => count + period.warnings.length + period.missingFiles.length, 0);
+    const action = await vscode.window.showInformationMessage(`Research package exported: ${path.basename(result.filePath)}${warnings ? '. Missing or changed data are listed in the export manifest.' : ''}`, 'Show file');
+    if (action) await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(result.filePath));
+  }
+
   // 5. Commands
   context.subscriptions.push(
+    vscode.commands.registerCommand('contextbranch.setupStudy', async () => {
+      try {
+        await setUpStudy(context, {
+          hasKey: async () => { try { const stored = JSON.parse(await context.secrets.get(SECRET_KEY) ?? '{}'); return stored.provider === 'openrouter' && typeof stored.key === 'string' && Boolean(stored.key.trim()); } catch { return false; } },
+          saveKey: async key => { await context.secrets.store(SECRET_KEY, JSON.stringify({ provider: 'openrouter', key })); await setupProvider(context); view?.pushState(); },
+        });
+      } catch (error: any) { vscode.window.showErrorMessage(`Study setup failed: ${error.message ?? String(error)}`); }
+    }),
+    vscode.commands.registerCommand('contextbranch.exportResearchPackage', async () => {
+      try { await exportResearchPackage(); } catch (error: any) { vscode.window.showErrorMessage(`Research export failed: ${error.message ?? String(error)}`); }
+    }),
+    vscode.commands.registerCommand('contextbranch.openOtherStudyTask', async () => {
+      try { const directory = await researchSessionDirectory(); if (directory) await openOtherStudyTask(directory, vscode.workspace.workspaceFolders?.[0]?.uri.fsPath); }
+      catch (error: any) { vscode.window.showErrorMessage(`Could not open the other task: ${error.message ?? String(error)}`); }
+    }),
     vscode.commands.registerCommand('contextbranch.open', () => {
       vscode.commands.executeCommand('contextbranch.sidebar.focus');
     }),
@@ -190,6 +229,7 @@ export async function activate(context: vscode.ExtensionContext) {
       view?.pushState();
     }),
     vscode.commands.registerCommand('contextbranch.exportStudyData', async () => {
+      if (studyController) { await exportResearchPackage(); return; }
       if (!workspace) {
         vscode.window.showErrorMessage('Open a folder first.');
         return;
@@ -226,6 +266,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   const studyTimer = setInterval(() => {
     if (studyController) {
+      try { view?.persistStudyRecovery(); } catch (error) { console.error('Study recovery snapshot failed', error); }
       void view?.checkStudyTimeout();
       view?.pushState();
     }
@@ -245,18 +286,18 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // 6. First-launch onboarding
   if (!provider) {
-    const action = await vscode.window.showInformationMessage(
-      'ContextBranch: set an API key to get started.',
-      'Set API Key', 'Later'
-    );
-    if (action === 'Set API Key') {
-      vscode.commands.executeCommand('contextbranch.setApiKey');
-    }
+    void vscode.window.showInformationMessage(
+      'ContextBranch: set up a user study, or configure an API key for an existing project.',
+      'Set up study', 'Set API Key', 'Later'
+    ).then(action => {
+      if (action === 'Set up study') void vscode.commands.executeCommand('contextbranch.setupStudy');
+      if (action === 'Set API Key') void vscode.commands.executeCommand('contextbranch.setApiKey');
+    });
   }
 }
 
 export function deactivate(): void {
-  // No-op: storage is already persisted.
+  try { view?.persistStudyRecovery(true); } catch { /* Earlier recovery snapshots remain on disk. */ }
 }
 
 /**
