@@ -182,6 +182,27 @@ export class StudyController {
     return null;
   }
 
+  createParticipantBranch(ws: Workspace, name: string, description?: string): string {
+    if (!this.isContextBranch) throw new Error('Branching is disabled in the Linear condition.');
+    const error = this.actionError();
+    if (error) throw new Error(error);
+    if (typeof name !== 'string' || !name.trim()) throw new Error('Branch name is required.');
+    const parent = ws.getActiveBranch();
+    if (parent.status !== 'active') throw new Error('Switch to an active state before creating a branch.');
+    const responsibility = this.run.manifest.contextBranch.siblingStates.find(sibling => parent.tags?.includes(sibling.id));
+    const branch = ws.createBranch({
+      name: name.trim(), description, parentBranchId: parent.id,
+      tags: ['study-manual', ...(responsibility ? [responsibility.id] : [])],
+    });
+    ws.setBranchStatus(branch.id, 'active');
+    ws.storage.appendTelemetry({
+      type: 'study_state_created', actor: 'participant', runId: this.run.runId,
+      stateId: branch.id, parentStateId: parent.id, stateLabel: branch.name,
+      checkpointId: branch.parentCheckpointId,
+    });
+    return branch.id;
+  }
+
   beginModelCall(ws: Workspace, stateId: string = ws.activeBranchId): string | null {
     const actionError = this.actionError();
     if (actionError) return actionError;
@@ -323,24 +344,28 @@ export class StudyController {
     });
   }
 
-  recordIntegrationOpened(ws: Workspace, sourceStateId: string): void {
+  recordIntegrationOpened(ws: Workspace, sourceStateId: string, targetStateId: string): void {
     ws.storage.appendTelemetry({
       type: 'study_integration_opened', actor: 'participant', runId: this.run.runId,
-      sourceStateId, targetStateId: ws.mainBranchId,
+      sourceStateId, targetStateId,
     });
   }
 
-  recordIntegrationCompleted(ws: Workspace, sourceStateId: string, eventId: string): void {
+  recordIntegrationCompleted(ws: Workspace, sourceStateId: string, targetStateId: string, eventId: string): void {
     ws.storage.appendTelemetry({
       type: 'study_integration_completed', actor: 'participant', runId: this.run.runId,
-      sourceStateId, targetStateId: ws.mainBranchId, eventId,
+      sourceStateId, targetStateId, eventId,
     });
   }
 
   allowsMerge(sourceBranchId: string, targetBranchId: string, ws: Workspace): boolean {
-    if (!this.isContextBranch || targetBranchId !== ws.mainBranchId) return false;
+    if (!this.isContextBranch || sourceBranchId === targetBranchId) return false;
     const source = ws.getBranch(sourceBranchId);
-    return source?.status === 'active' && source.tags?.includes('study-sibling') === true;
+    const target = ws.getBranch(targetBranchId);
+    const studyBranch = (branch: typeof source) => branch?.status === 'active' &&
+      (branch.tags?.includes('study-sibling') === true || branch.tags?.includes('study-manual') === true);
+    return studyBranch(source) && target?.status === 'active' &&
+      (target.id === ws.mainBranchId || studyBranch(target));
   }
 
   uiState(ws: Workspace): StudyUiState {
@@ -366,6 +391,9 @@ export class StudyController {
       modelTokensUsed: this.modelTokensUsed(ws),
       publicTestLabel: this.publicTestSelection(ws).label,
       siblingStateIds: siblings,
+      integratableStateIds: ws.getAllBranches()
+        .filter(branch => this.allowsMerge(branch.id, ws.mainBranchId, ws))
+        .map(branch => branch.id),
     };
   }
 
@@ -378,12 +406,12 @@ export class StudyController {
 
   private mainContextBranchPlanMessage(): string {
     const labels = this.run.manifest.contextBranch.siblingStates.map(state => `“${state.label}”`).join(' and ');
-    return `[study][main-plan] GitChat created two optional sibling states: ${labels}. Each starts from the same checkpoint and keeps its own focused conversation, code candidate, and test evidence.\n\nYou may use either state, both states, neither state, or work directly in main. There is no required order. Integrate a state into main only when it is useful, after reviewing the merge preview.\n\nFinal check: ${this.run.manifest.contextBranch.finalVerification}`;
+    return `[study][main-plan] GitChat created two optional sibling states: ${labels}. Each starts from the same checkpoint and keeps its own focused conversation, code candidate, and test evidence.\n\nYou may use either state, both states, neither state, or work directly in main. You may also create your own branches from the current state using New branch. There is no required order. Merge a state into main or another active branch when useful, after reviewing the merge preview.\n\nFinal check: ${this.run.manifest.contextBranch.finalVerification}`;
   }
 
   private branchTicketMessage(sibling: StudyRunFile['manifest']['contextBranch']['siblingStates'][number]): string {
     const requirements = sibling.ticket.requirements.map(item => `- ${item}`).join('\n');
-    return `[study][branch-ticket] ${sibling.label}\n\nFocus in this state:\n${requirements}\n\nThis state is optional. You may switch states, continue in main, or integrate this state into main after reviewing the merge preview. The final submission is always main.`;
+    return `[study][branch-ticket] ${sibling.label}\n\nFocus in this state:\n${requirements}\n\nThis state is optional. You may switch states, continue in main, or merge this state into main or another active branch after reviewing the merge preview. The final submission is always main.`;
   }
 
   private elapsedSeconds(): number {

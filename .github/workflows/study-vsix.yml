@@ -24,6 +24,7 @@ jobs:
       - run: npm run test:study-standalone
       - run: npm run test:study-setup
       - run: npm run test:study-ui
+      - run: npm run test:study-branches
       - run: npm run test:conflict-resolution
       - run: npm run package
       - run: node scripts/check-study-vsix.mjs

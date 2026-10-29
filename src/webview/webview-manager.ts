@@ -995,10 +995,39 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
 
   // ─── branching ────────────────────────────────────────────────────────────
 
-  private handleCreateBranch(name: string, description?: string, fromMessageId?: string,
-                             parentBranchId?: string, select: boolean = true): void {
-    if (this.getStudyController()) {
-      this.postMessage({ type: 'error', message: 'Study states are created automatically for this task.' });
+  private async handleCreateBranch(name: string, description?: string, fromMessageId?: string,
+                             parentBranchId?: string, select: boolean = true): Promise<void> {
+    const study = this.getStudyController();
+    if (study) {
+      const ws = this.requireWorkspace();
+      if (!ws) return;
+      if (this.studyTestRunningStateId || this.codingRuns.has(ws.activeBranchId) || this.pendingEditsByBranch.has(ws.activeBranchId)) {
+        this.postMessage({ type: 'error', message: 'Finish the current generation or test and review pending edits before creating a branch.' });
+        return;
+      }
+      if (fromMessageId || (parentBranchId && parentBranchId !== ws.activeBranchId)) {
+        this.postMessage({ type: 'error', message: 'Create study branches from the current state.' });
+        return;
+      }
+      try {
+        if (!study.isContextBranch) throw new Error('Branching is disabled in the Linear condition.');
+        const actionError = study.actionError();
+        if (actionError) throw new Error(actionError);
+        if (ws.getActiveBranch().status !== 'active') throw new Error('Switch to an active state before creating a branch.');
+        // Include a saved edit even when its filesystem event has not arrived yet.
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const current = this.authoritativeContents(ws, ws.activeBranchId, root,
+          study.runFile.manifest.submission.allowedProductionPaths);
+        for (const [filePath, content] of current) {
+          const artifact = ws.getArtifacts(ws.activeBranchId).find(item => item.path === filePath);
+          if (artifact?.content !== content) ws.upsertArtifact(ws.activeBranchId, filePath, content);
+        }
+        const branchId = study.createParticipantBranch(ws, name, description);
+        if (select) await this.handleSwitchBranch(branchId, 'participant', 'branch_created');
+        else this.pushState();
+      } catch (error: any) {
+        this.postMessage({ type: 'error', message: error.message ?? String(error) });
+      }
       return;
     }
     if (this.getCondition() === 'linear') {
@@ -1277,9 +1306,10 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       const actionError = study.actionError();
       if (actionError) { this.postMessage({ type: 'error', message: actionError }); return; }
       if (!study.allowsMerge(sourceBranchId, targetBranchId, ws)) {
-        this.postMessage({ type: 'error', message: 'During this study task, only an active automatic sibling state may be integrated into main.' });
+        this.postMessage({ type: 'error', message: 'Choose an active study branch and a different active target.' });
         return;
       }
+      study.recordIntegrationOpened(ws, sourceBranchId, targetBranchId);
     }
     const provider = this.getProvider();
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -1337,7 +1367,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
         return;
       }
       if (!study.allowsMerge(cached.sourceBranchId, cached.targetBranchId, ws)) {
-        this.postMessage({ type: 'error', message: 'During this study task, only an active automatic sibling state may be integrated into main.' });
+        this.postMessage({ type: 'error', message: 'Choose an active study branch and a different active target.' });
         return;
       }
     }
@@ -1401,7 +1431,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
         return;
       }
       if (!study.allowsMerge(manual.sourceBranchId, manual.targetBranchId, ws)) {
-        this.postMessage({ type: 'error', message: 'During this study task, only an active automatic sibling state may be integrated into main.' });
+        this.postMessage({ type: 'error', message: 'Choose an active study branch and a different active target.' });
         return;
       }
     }
@@ -1470,7 +1500,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       await this.getDecorations().dismissAllPreviews();
       this.pendingManualMerge = undefined;
       this.pendingMergePreview = undefined;
-      if (study) study.recordIntegrationCompleted(ws, cached.sourceBranchId, event.id);
+      if (study) study.recordIntegrationCompleted(ws, cached.sourceBranchId, cached.targetBranchId, event.id);
       if (ws.activeBranchId === cached.sourceBranchId) {
         await this.handleSwitchBranch(cached.targetBranchId, 'system', 'merge_finalization');
       }
@@ -1628,7 +1658,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       const actionError = study.actionError();
       if (actionError) { this.postMessage({ type: 'error', message: actionError }); return; }
       if (force || !study.allowsMerge(sourceBranchId, targetBranchId, ws)) {
-        this.postMessage({ type: 'error', message: 'Study integrations are user-initiated sibling-to-main merges; force merge is disabled.' });
+        this.postMessage({ type: 'error', message: 'Choose an active study branch and a different active target. Force merge is disabled.' });
         return;
       }
     }
@@ -1656,7 +1686,7 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       }, cached.preview);
 
       this.pendingMergePreview = undefined;
-      if (study) study.recordIntegrationCompleted(ws, sourceBranchId, event.id);
+      if (study) study.recordIntegrationCompleted(ws, sourceBranchId, targetBranchId, event.id);
       if (ws.activeBranchId === sourceBranchId) {
         await this.handleSwitchBranch(targetBranchId, 'system', 'merge_finalization');
       }
@@ -1949,10 +1979,9 @@ export class ContextBranchView implements vscode.WebviewViewProvider {
       return;
     }
     if (!study.allowsMerge(ws.activeBranchId, ws.mainBranchId, ws)) {
-      this.postMessage({ type: 'error', message: 'Only the active automatic state can be integrated into main.' });
+      this.postMessage({ type: 'error', message: 'Only an active study branch can be integrated into main.' });
       return;
     }
-    study.recordIntegrationOpened(ws, ws.activeBranchId);
     this.postMessage({
       type: 'openStudyIntegration',
       sourceBranchId: ws.activeBranchId,

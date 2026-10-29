@@ -649,6 +649,9 @@
     const studyBlocked = studyActive && (!state.study.started || state.study.finished || state.study.remainingSeconds === 0);
     const activeRun = Boolean(state.branchRuns?.[state.activeBranchId]);
     const activePendingEdits = Array.isArray(state.pendingEdits);
+    $('btn-new-branch').hidden = !studyActive || state.study.condition !== 'contextbranch';
+    $('btn-new-branch').disabled = studyBlocked || activeRun || activePendingEdits || state.studyTestsRunning ||
+      state.branches.find(branch => branch.id === state.activeBranchId)?.status !== 'active';
     $('btn-send').disabled = !state.providerReady || activeRun || activePendingEdits || studyBlocked;
     $('composer-input').placeholder = studyBlocked
       ? (state.study.finished ? 'Task finished.' : 'Start task to enable the assistant.')
@@ -679,7 +682,7 @@
     const activeBranch = state.branches.find((branch) => branch.id === state.activeBranchId);
     const canIntegrate = study.condition === 'contextbranch' && started && !finished &&
       study.remainingSeconds > 0 && activeBranch?.status === 'active' &&
-      study.siblingStateIds.includes(state.activeBranchId);
+      study.integratableStateIds.includes(state.activeBranchId);
     $('study-integrate').hidden = !canIntegrate;
     $('study-integrate').disabled = !canIntegrate;
     const anyRuns = Object.keys(state.branchRuns || {}).length > 0;
@@ -2398,6 +2401,7 @@ function findNextInstanceTime(branchId, instanceIdx) {
     if (previewBtn) previewBtn.disabled = busy;
     if (confirmBtn) confirmBtn.disabled = busy;
     if (forceBtn) forceBtn.disabled = busy;
+    $('merge-target-select').disabled = busy || Boolean(state.manualMergeResolution);
   }
 
   function updateMergeActionButtons() {
@@ -2405,6 +2409,7 @@ function findNextInstanceTime(branchId, instanceIdx) {
     if (!p) return;
 
     const manual = !!state.manualMergeResolution;
+    $('merge-target-select').disabled = manual;
     const accepted = collectAcceptedConflictResolutions();
     const unresolved = (p.verification.artifactConflicts || []).filter((c) => !accepted.includes(c.path));
     const testsFailed = !!(p.verification.testOutput && /FAIL:/i.test(p.verification.testOutput));
@@ -2450,6 +2455,7 @@ function findNextInstanceTime(branchId, instanceIdx) {
   // ─── branch modal ─────────────────────────────────────────────────────
 
   let branchModalFromMessageId = null;
+  $('btn-new-branch').addEventListener('click', () => openBranchModal());
   function openBranchModal(fromMessageId) {
     branchModalFromMessageId = fromMessageId || null;
     $('branch-name').value = '';
@@ -2545,6 +2551,9 @@ function findNextInstanceTime(branchId, instanceIdx) {
   // ─── merge modal ──────────────────────────────────────────────────────
 
   function openMergeModal({ sourceBranchId = state.activeBranchId, targetBranchId = null, studyIntegration = false } = {}) {
+    state.pendingMerge = null;
+    state.pendingMergePreview = null;
+    state.manualMergeResolution = null;
     const source = state.branches.find((branch) => branch.id === sourceBranchId);
     $('merge-source-name').textContent = source?.name || state.activeBranchName;
     const sel = $('merge-target-select');
@@ -2554,27 +2563,17 @@ function findNextInstanceTime(branchId, instanceIdx) {
       : null;
      const cascadeOptIn = $('merge-cascade-optin');
      if (cascadeOptIn) cascadeOptIn.hidden = Boolean(studyIntegration || state.study);
-    if (studyIntegration) {
-      const main = state.branches.find((branch) => branch.id === state.mainBranchId);
-      const option = document.createElement('option');
-      option.value = state.mainBranchId;
-      option.textContent = main?.name || 'main';
-      option.selected = true;
-      sel.appendChild(option);
-      sel.disabled = true;
-      $('merge-preview-btn').textContent = 'Preview integration';
-    } else {
-      sel.disabled = false;
-      $('merge-preview-btn').textContent = 'Preview merge';
-      for (const b of state.branches) {
-        if (b.id === sourceBranchId) continue;
-        if (b.status === 'merged' || b.status === 'abandoned') continue;
-        const o = document.createElement('option');
-        o.value = b.id;
-        o.textContent = b.name;
-        if (b.id === state.mainBranchId) o.selected = true;
-        sel.appendChild(o);
-      }
+    sel.disabled = false;
+    $('merge-preview-btn').textContent = 'Preview merge';
+    for (const b of state.branches) {
+      if (b.id === sourceBranchId) continue;
+      if (b.status === 'merged' || b.status === 'abandoned') continue;
+      if (studyIntegration && b.status !== 'active') continue;
+      const o = document.createElement('option');
+      o.value = b.id;
+      o.textContent = b.name;
+      if (b.id === (targetBranchId || state.mainBranchId)) o.selected = true;
+      sel.appendChild(o);
     }
     if (sel.options.length === 0) {
       showStatus('No valid merge target — only main exists.', 'error');
@@ -2590,6 +2589,16 @@ function findNextInstanceTime(branchId, instanceIdx) {
     setMergeUiBusy(false);
     openModal('modal-merge');
   }
+
+  $('merge-target-select').addEventListener('change', () => {
+    state.pendingMerge = null;
+    state.pendingMergePreview = null;
+    $('merge-preview').hidden = true;
+    $('merge-confirm').hidden = true;
+    $('merge-force').hidden = true;
+    $('merge-finalize-ide').hidden = true;
+    $('merge-preview-btn').hidden = false;
+  });
 
   $('merge-preview-btn').addEventListener('click', () => {
     const target = $('merge-target-select').value;
@@ -2609,6 +2618,7 @@ function findNextInstanceTime(branchId, instanceIdx) {
 
   $('merge-confirm').addEventListener('click', () => {
     if (!state.pendingMerge) return;
+    if ($('merge-target-select').value !== state.pendingMerge.targetBranchId) return;
     setMergeUiBusy(true);
     $('merge-running').hidden = false;
     send({

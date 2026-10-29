@@ -1,6 +1,47 @@
 # Standalone study VSIX validation
 
-The study feature is tracked in GitHub issue #16 and PR #15. It follows the merged one-line public-test change in PR #14. The current installer is `gitchat-0.4.2.vsix`, displayed as GitChat. Version 0.4.0 established the standalone runtime and export flow; 0.4.1 added automatic ordered task windows and per-task NASA-TLX access.
+The study feature is tracked in GitHub issue #16 and PR #15. It follows the merged one-line public-test change in PR #14. The current installer is `gitchat-0.4.4.vsix`, displayed as GitChat. Version 0.4.0 established the standalone runtime and export flow; 0.4.1 added automatic ordered task windows and per-task NASA-TLX access.
+
+## GitChat 0.4.4
+
+Study merges expose a selectable target: main or another active study branch.
+Preview and finalization validate the same source/target, including the manual
+IDE conflict flow. Integration events record the selected target. Changing the
+target clears the previous preview and requires a new review before finalizing.
+
+Behavioral checks exercise a custom branch merging into a sibling and then
+into main, isolation of main until the final merge, selected-target telemetry,
+unavailable targets, mismatched previews, and the shipped target selector.
+TypeScript, branch behavior, study merge controls, conflict parsing, all-group
+setup and standalone checks pass locally.
+
+The installation guide now includes the post-setup Workspace Trust step for
+each task window. Restricted Mode and the Manage → Trust screen were reproduced
+in a separate portable VS Code environment. The normal installation's trusted
+folders were preserved. VS Code 1.144 shares workspace trust across ordinary
+user-data profiles, so isolating only user-data and extensions is insufficient
+for reproducing an unfamiliar computer's trust state.
+
+## GitChat 0.4.3
+
+Issue #17 adds participant-created branches during active GitChat tasks. The
+top bar exposes New branch; the existing selector and view-only State Map list
+the new states. Branches inherit conversation and code, retain A/B test routing
+when created from a responsibility state, and use the existing reviewed
+integration flow to main. Linear tasks retain one state.
+
+`npm run test:study-branches` exercises the shipped webview client and the actual
+message handler/controller: Start/Finish/timeout and busy guards, saved edits
+before watcher delivery, inherited conversations/code, nested isolation,
+A/B/Main tests, conflict review before integration, and participant telemetry.
+TypeScript, all-group standalone/setup, study merge controls, conflict parsing
+and VSIX integrity checks pass locally on macOS ARM64.
+
+The packaged 0.4.3 VSIX also passed the native installed-extension smoke test in
+a separate VS Code profile: command registration, task label, questionnaire
+prefill and unfinished export, with the unsaved buffer preserved and the timer
+unstarted. A fresh task opened under the upgraded installation and initialized
+the new branch-creation guidance.
 
 ## GitChat 0.4.2
 

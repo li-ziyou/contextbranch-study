@@ -130,4 +130,5 @@ export interface StudyUiState {
   modelTokensUsed: number;
   publicTestLabel: string;
   siblingStateIds: string[];
+  integratableStateIds: string[];
 }

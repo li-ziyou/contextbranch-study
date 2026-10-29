@@ -2,7 +2,7 @@
   "name": "contextbranch",
   "displayName": "GitChat",
   "description": "Git-style branching and merging for AI coding chat",
-  "version": "0.4.2",
+  "version": "0.4.4",
   "publisher": "contextbranch",
   "repository": {
     "type": "git",
@@ -193,6 +193,7 @@
     "test:output-guard": "node scripts/test-output-guard.mjs",
     "test:conflict-resolution": "node scripts/test-conflict-resolution.mjs",
     "test:study-ui": "node scripts/test-study-merge-controls.mjs",
+    "test:study-branches": "node scripts/test-study-branches.mjs",
     "study:validate": "node evaluation/study2/operator/studyctl.mjs validate",
     "study:assign": "node evaluation/study2/operator/studyctl.mjs assign",
     "study:build-tasks": "node evaluation/study2/operator/studyctl.mjs build-tasks",
