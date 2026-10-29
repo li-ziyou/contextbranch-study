@@ -17,6 +17,12 @@ A/B/Main tests, conflict review before integration, and participant telemetry.
 TypeScript, all-group standalone/setup, study merge controls, conflict parsing
 and VSIX integrity checks pass locally on macOS ARM64.
 
+The packaged 0.4.3 VSIX also passed the native installed-extension smoke test in
+a separate VS Code profile: command registration, task label, questionnaire
+prefill and unfinished export, with the unsaved buffer preserved and the timer
+unstarted. A fresh task opened under the upgraded installation and initialized
+the new branch-creation guidance.
+
 ## GitChat 0.4.2
 
 The display name, command titles, sidebar/settings labels, status messages, study guidance and questionnaire labels use GitChat. The internal extension ID `contextbranch.contextbranch`, command/settings IDs, stored-key identity and session schema remain compatible with previous installations. Existing research condition values remain `contextbranch`/`linear`; newly displayed questionnaire labels use GitChat/Linear.
