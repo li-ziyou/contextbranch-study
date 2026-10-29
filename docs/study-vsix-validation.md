@@ -1,6 +1,26 @@
 # Standalone study VSIX validation
 
-The study feature is tracked in GitHub issue #16 and PR #15. It follows the merged one-line public-test change in PR #14. The current installer is `gitchat-0.4.3.vsix`, displayed as GitChat. Version 0.4.0 established the standalone runtime and export flow; 0.4.1 added automatic ordered task windows and per-task NASA-TLX access.
+The study feature is tracked in GitHub issue #16 and PR #15. It follows the merged one-line public-test change in PR #14. The current installer is `gitchat-0.4.4.vsix`, displayed as GitChat. Version 0.4.0 established the standalone runtime and export flow; 0.4.1 added automatic ordered task windows and per-task NASA-TLX access.
+
+## GitChat 0.4.4
+
+Study merges expose a selectable target: main or another active study branch.
+Preview and finalization validate the same source/target, including the manual
+IDE conflict flow. Integration events record the selected target. Changing the
+target clears the previous preview and requires a new review before finalizing.
+
+Behavioral checks exercise a custom branch merging into a sibling and then
+into main, isolation of main until the final merge, selected-target telemetry,
+unavailable targets, mismatched previews, and the shipped target selector.
+TypeScript, branch behavior, study merge controls, conflict parsing, all-group
+setup and standalone checks pass locally.
+
+The installation guide now includes the post-setup Workspace Trust step for
+each task window. Restricted Mode and the Manage → Trust screen were reproduced
+in a separate portable VS Code environment. The normal installation's trusted
+folders were preserved. VS Code 1.144 shares workspace trust across ordinary
+user-data profiles, so isolating only user-data and extensions is insufficient
+for reproducing an unfamiliar computer's trust state.
 
 ## GitChat 0.4.3
 

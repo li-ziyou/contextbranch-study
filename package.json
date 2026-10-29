@@ -2,7 +2,7 @@
   "name": "contextbranch",
   "displayName": "GitChat",
   "description": "Git-style branching and merging for AI coding chat",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "publisher": "contextbranch",
   "repository": {
     "type": "git",

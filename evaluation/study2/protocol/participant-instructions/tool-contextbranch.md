@@ -48,15 +48,17 @@ created from `main` runs **Test Main**.
 Full output appears in the **Test Results** panel at the bottom of VS Code.
 Passing a sibling test does not move that work to `main`.
 
-## Bring branch work into main
+## Merge branches
 
 1. Apply or discard pending edits in the branch.
-2. Click **Integrate this state into main** and then **Preview integration**.
+2. Click **Merge branch**, choose `main` or another active branch in the target
+   dropdown, then click **Preview merge**.
 3. Review the changed files and conflict notes.
 4. If needed, review or revise the AI resolution, or use
    **Resolve conflicts in IDE**.
 5. Click **Finalize merge**.
-6. Return to `main` and run **Test Main**.
+6. Continue in the target branch. Before finishing, bring the work you want to
+   submit into `main` and run **Test Main** there.
 
 Integration is optional. The preview does not run **Test Main** for you.
 

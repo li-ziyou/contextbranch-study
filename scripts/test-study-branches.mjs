@@ -55,7 +55,10 @@ try {
   assert.ok(study.uiState(ws).integratableStateIds.includes(branchId));
   assert.equal(study.uiState(ws).siblingStateIds.length, 2);
   assert.equal(study.allowsMerge(branchId, ws.mainBranchId, ws), true);
-  assert.equal(study.allowsMerge(branchId, siblingA.id, ws), false);
+  assert.equal(study.allowsMerge(branchId, siblingA.id, ws), true);
+  assert.equal(study.allowsMerge(branchId, branchId, ws), false);
+  assert.equal(study.allowsMerge(branchId, 'missing', ws), false);
+  assert.equal(study.allowsMerge(ws.mainBranchId, branchId, ws), false, 'main stays the submission root');
   const nested = study.createParticipantBranch(ws, 'Nested alternative');
   ws.switchBranch(nested);
   assert.equal(study.publicTestSelection(ws).command, 'test-a');
@@ -119,6 +122,46 @@ try {
   assert.ok(ws.storage.loadTelemetry().some(event => event.type === 'study_state_switched' && event.reason === 'branch_created'));
   assert.equal(errors.length, 4);
 
+  // Preview and finalize through the real handler into a sibling, then main.
+  const cross = task('branch-merges');
+  cross.study.start(cross.ws);
+  const targetA = cross.ws.getAllBranches().find(branch => branch.tags?.includes('A'));
+  const sourceB = cross.ws.getAllBranches().find(branch => branch.tags?.includes('B'));
+  cross.ws.switchBranch(sourceB.id);
+  const custom = cross.study.createParticipantBranch(cross.ws, 'Custom source');
+  cross.ws.switchBranch(custom);
+  cross.ws.upsertArtifact(custom, 'example.py', 'value = 1\n');
+  const mergeMessages = [];
+  const merger = Object.create(ContextBranchView.prototype);
+  Object.assign(merger, {
+    getStudyController: () => cross.study, getWorkspace: () => cross.ws, getProvider: () => null,
+    codingRuns: new Map(), pendingEditsByBranch: new Map(),
+    getCapture: () => null, getDecorations: view.getDecorations, pushState: () => {},
+    postMessage: message => mergeMessages.push(message),
+  });
+  globalThis.__branchTestHost.workspace.workspaceFolders = [{ uri: { fsPath: cross.root } }];
+  for (const [sourceBranchId, targetBranchId] of [[custom, targetA.id], [targetA.id, cross.ws.mainBranchId]]) {
+    await merger.handleMessage({ type: 'previewMerge', sourceBranchId, targetBranchId });
+    assert.equal(mergeMessages.at(-1).type, 'mergePreview');
+    const wrongTarget = targetBranchId === targetA.id ? cross.ws.mainBranchId : sourceB.id;
+    await merger.handleMessage({ type: 'mergeBranch', sourceBranchId, targetBranchId: wrongTarget, force: false });
+    assert.match(mergeMessages.at(-1).message, /Preview this exact merge/);
+    await merger.handleMessage({ type: 'mergeBranch', sourceBranchId, targetBranchId, force: false });
+    assert.equal(mergeMessages.at(-1).type, 'mergeCompleted');
+    assert.equal(cross.ws.activeBranchId, targetBranchId);
+    assert.equal(cross.ws.getArtifacts(targetBranchId)[0].content, 'value = 1\n');
+    if (targetBranchId === targetA.id) {
+      assert.equal(cross.ws.getArtifacts(cross.ws.mainBranchId)[0].content, 'value = 0\n');
+      assert.equal(cross.study.publicTestSelection(cross.ws).command, 'test-a');
+    }
+  }
+  const integrationEvents = cross.ws.storage.loadTelemetry().filter(event => event.type === 'study_integration_completed');
+  assert.deepEqual(integrationEvents.map(event => event.targetStateId), [targetA.id, cross.ws.mainBranchId]);
+  assert.deepEqual(cross.ws.storage.loadTelemetry().filter(event => event.type === 'study_integration_opened').map(event => event.targetStateId), [targetA.id, cross.ws.mainBranchId]);
+  assert.equal(cross.study.allowsMerge(sourceB.id, targetA.id, cross.ws), false, 'merged targets are unavailable');
+  cross.ws.setBranchStatus(sourceB.id, 'abandoned');
+  assert.equal(cross.study.allowsMerge(custom, sourceB.id, cross.ws), false);
+
   const linear = task('linear', 'linear');
   linear.study.start(linear.ws);
   assert.throws(() => linear.study.createParticipantBranch(linear.ws, 'No'), /Linear/);
@@ -132,11 +175,14 @@ try {
   const elements = new Map(), windowListeners = new Map(), sent = [];
   function element() {
     return {
-      hidden: false, disabled: false, value: '', innerHTML: '', textContent: '', children: [], listeners: {},
+      hidden: false, disabled: false, value: '', textContent: '', children: [], listeners: {}, dataset: {},
+      get innerHTML() { return this._html || ''; },
+      set innerHTML(value) { this._html = value; this.children = []; this.value = ''; },
+      get options() { return this.children; },
       style: { setProperty() {} }, classList: { add() {}, remove() {}, toggle() {} },
       parentElement: { style: {} }, scrollHeight: 0, scrollTop: 0, clientHeight: 0,
       addEventListener(type, listener) { this.listeners[type] = listener; },
-      appendChild(child) { this.children.push(child); return child; },
+      appendChild(child) { this.children.push(child); if (child.selected || !this.value) this.value = child.value || ''; return child; },
       querySelectorAll() { return []; }, querySelector() { return null; }, focus() {}, remove() {},
       setAttribute() {}, getBoundingClientRect() { return { width: 1000, right: 1000 }; },
     };
@@ -166,6 +212,25 @@ try {
     update({ branchRuns: {}, pendingEdits: null, studyTestsRunning: false, ...patch });
     assert.equal(get('btn-new-branch').disabled, true);
   }
+  update({ branchRuns: {}, pendingEdits: null, studyTestsRunning: false, mainBranchId: 'main', branches: [
+    { id: 'custom', name: 'Custom', status: 'active' }, { id: 'main', name: 'main', status: 'active' },
+    { id: 'other', name: 'Other branch', status: 'active' }, { id: 'merged', name: 'Merged', status: 'merged' },
+    { id: 'abandoned', name: 'Abandoned', status: 'abandoned' }, { id: 'draft', name: 'Draft', status: 'draft' },
+  ] });
+  windowListeners.get('message')({ data: { type: 'openStudyIntegration', sourceBranchId: 'custom', targetBranchId: 'main' } });
+  assert.equal(get('merge-target-select').disabled, false);
+  assert.deepEqual(get('merge-target-select').options.map(option => option.value), ['main', 'other']);
+  get('merge-target-select').value = 'other';
+  get('merge-target-select').listeners.change();
+  get('merge-preview-btn').listeners.click();
+  assert.equal(sent.at(-1).targetBranchId, 'other');
+  assert.equal(get('merge-target-select').disabled, true, 'target stays fixed during preview generation');
+  browser.__cb.state.pendingMerge = { sourceBranchId: 'custom', targetBranchId: 'other' };
+  get('merge-target-select').value = 'main';
+  get('merge-target-select').listeners.change();
+  const beforeConfirm = sent.length;
+  get('merge-confirm').listeners.click();
+  assert.equal(sent.length, beforeConfirm, 'changing target requires another preview');
   update({ study: { ...uiStudy, finished: true } });
   assert.equal(get('btn-new-branch').disabled, true);
   update({ study: { ...uiStudy, remainingSeconds: 0 } });
