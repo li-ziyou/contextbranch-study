@@ -1,6 +1,6 @@
 # How to use the ContextBranch tool
 
-You have 21 minutes and 40 seconds after you click **Start task**.
+You have 20 minutes after you click **Start task**.
 
 Use only this VS Code workspace and the supplied assistant. You may send as
 many follow-up messages as you want while time remains. You may accept AI
@@ -10,6 +10,11 @@ After the task starts, you have `main` and two sibling states. Both siblings
 start from the same checkpoint. One focuses on Responsibility A and one on
 Responsibility B. Using either sibling, both siblings, or neither is allowed.
 You may work in any order.
+
+After starting, click **New branch** at the top of GitChat to create a named
+branch from the current state. It starts with that state's conversation and
+code. New branches appear in the state selector and State Map, and may be
+integrated into `main` through the same review flow.
 
 ## Work in a state
 
@@ -37,12 +42,15 @@ The test button follows the active state:
 - B sibling: **Test B**
 - `main`: **Test Main**, which runs A, B, and integration tests
 
+A branch created from an A or B state keeps that state's test suite. A branch
+created from `main` runs **Test Main**.
+
 Full output appears in the **Test Results** panel at the bottom of VS Code.
 Passing a sibling test does not move that work to `main`.
 
-## Bring sibling work into main
+## Bring branch work into main
 
-1. Apply or discard pending edits in the sibling.
+1. Apply or discard pending edits in the branch.
 2. Click **Integrate this state into main** and then **Preview integration**.
 3. Review the changed files and conflict notes.
 4. If needed, review or revise the AI resolution, or use
@@ -56,7 +64,7 @@ Integration is optional. The preview does not run **Test Main** for you.
 
 Return to `main` before finishing. Click **Finish task** when ready. If time
 reaches zero first, the tool submits the current `main` automatically. Work
-left only in a sibling is not submitted. After **Task finished** appears, stop
+left only in another branch is not submitted. After **Task finished** appears, stop
 editing.
 
 ## Tool messages

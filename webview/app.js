@@ -649,6 +649,9 @@
     const studyBlocked = studyActive && (!state.study.started || state.study.finished || state.study.remainingSeconds === 0);
     const activeRun = Boolean(state.branchRuns?.[state.activeBranchId]);
     const activePendingEdits = Array.isArray(state.pendingEdits);
+    $('btn-new-branch').hidden = !studyActive || state.study.condition !== 'contextbranch';
+    $('btn-new-branch').disabled = studyBlocked || activeRun || activePendingEdits || state.studyTestsRunning ||
+      state.branches.find(branch => branch.id === state.activeBranchId)?.status !== 'active';
     $('btn-send').disabled = !state.providerReady || activeRun || activePendingEdits || studyBlocked;
     $('composer-input').placeholder = studyBlocked
       ? (state.study.finished ? 'Task finished.' : 'Start task to enable the assistant.')
@@ -679,7 +682,7 @@
     const activeBranch = state.branches.find((branch) => branch.id === state.activeBranchId);
     const canIntegrate = study.condition === 'contextbranch' && started && !finished &&
       study.remainingSeconds > 0 && activeBranch?.status === 'active' &&
-      study.siblingStateIds.includes(state.activeBranchId);
+      study.integratableStateIds.includes(state.activeBranchId);
     $('study-integrate').hidden = !canIntegrate;
     $('study-integrate').disabled = !canIntegrate;
     const anyRuns = Object.keys(state.branchRuns || {}).length > 0;
@@ -2450,6 +2453,7 @@ function findNextInstanceTime(branchId, instanceIdx) {
   // ─── branch modal ─────────────────────────────────────────────────────
 
   let branchModalFromMessageId = null;
+  $('btn-new-branch').addEventListener('click', () => openBranchModal());
   function openBranchModal(fromMessageId) {
     branchModalFromMessageId = fromMessageId || null;
     $('branch-name').value = '';

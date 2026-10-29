@@ -1,6 +1,21 @@
 # Standalone study VSIX validation
 
-The study feature is tracked in GitHub issue #16 and PR #15. It follows the merged one-line public-test change in PR #14. The current installer is `gitchat-0.4.2.vsix`, displayed as GitChat. Version 0.4.0 established the standalone runtime and export flow; 0.4.1 added automatic ordered task windows and per-task NASA-TLX access.
+The study feature is tracked in GitHub issue #16 and PR #15. It follows the merged one-line public-test change in PR #14. The current installer is `gitchat-0.4.3.vsix`, displayed as GitChat. Version 0.4.0 established the standalone runtime and export flow; 0.4.1 added automatic ordered task windows and per-task NASA-TLX access.
+
+## GitChat 0.4.3
+
+Issue #17 adds participant-created branches during active GitChat tasks. The
+top bar exposes New branch; the existing selector and view-only State Map list
+the new states. Branches inherit conversation and code, retain A/B test routing
+when created from a responsibility state, and use the existing reviewed
+integration flow to main. Linear tasks retain one state.
+
+`npm run test:study-branches` exercises the shipped webview client and the actual
+message handler/controller: Start/Finish/timeout and busy guards, saved edits
+before watcher delivery, inherited conversations/code, nested isolation,
+A/B/Main tests, conflict review before integration, and participant telemetry.
+TypeScript, all-group standalone/setup, study merge controls, conflict parsing
+and VSIX integrity checks pass locally on macOS ARM64.
 
 ## GitChat 0.4.2
 

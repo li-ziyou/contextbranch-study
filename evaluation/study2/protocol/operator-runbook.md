@@ -21,6 +21,10 @@ ContextBranch。任务顺序和条件由系统按参与者编号分配，研究�
 Linear 与 ContextBranch 的完整票据、初始代码、public tests、模型、时间、编辑权限
 和最终评分规则必须相同。唯一实验差异是状态组织：Linear 只有一个 `main`；
 ContextBranch 有 `main` 和两个从同一 checkpoint 创建的可选 sibling states。
+GitChat 0.4.3 起，参与者还可在任务开始后通过 `New branch` 从当前状态创建分支。
+新分支继承当前对话和代码，并通过已有的预览与确认流程整合进 main。
+从 A/B 状态创建的分支继承相应测试；从 main 创建的分支运行完整公开测试。
+创建事件记录 `actor: participant`，与系统预置状态区分。
 
 ## 2. 参与者编号与分配
 

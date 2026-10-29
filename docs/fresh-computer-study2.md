@@ -1,10 +1,10 @@
 # 安装一个 VSIX，运行两段用户测试
 
-研究人员使用 `gitchat-0.4.2.vsix`。支持 Windows、macOS 和 Linux 的 x64/ARM64 桌面 VS Code。首次配置会自动下载隔离的 Python 3.14.0 与 pytest 9.2.0；不要求事先安装 Git、Node 或 Python。首次准备环境和使用 OpenRouter 都需要联网。
+研究人员使用 `gitchat-0.4.3.vsix`。支持 Windows、macOS 和 Linux 的 x64/ARM64 桌面 VS Code。首次配置会自动下载隔离的 Python 3.14.0 与 pytest 9.2.0；不要求事先安装 Git、Node 或 Python。首次准备环境和使用 OpenRouter 都需要联网。
 
 ## 1. 安装扩展
 
-在桌面 VS Code 中打开扩展页面，点击右上角 `…` → `Install from VSIX…`，选择 `gitchat-0.4.2.vsix`，然后重新加载窗口。打开 GitChat 面板。
+在桌面 VS Code 中打开扩展页面，点击右上角 `…` → `Install from VSIX…`，选择 `gitchat-0.4.3.vsix`，然后重新加载窗口。打开 GitChat 面板。
 
 ## 2. 设置研究会话
 
