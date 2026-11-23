@@ -118,6 +118,7 @@ def main() -> int:
             status = 0 if all(item["verified"] for item in goal_results.values()) else 1
             result = {
                 "taskId": config["taskId"],
+                **({"taskVersion": config["taskVersion"]} if "taskVersion" in config else {}),
                 "formId": form_id,
                 "gradedAt": datetime.now(timezone.utc).isoformat(),
                 "cleanPatch": {"status": "applied", "allowedProductionPaths": copied},

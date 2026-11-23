@@ -21,7 +21,7 @@ def test_occupied_name_and_self_link_are_atomic(form_value):
     occupied = form_value("occupied", "taken")
     self_name = form_value("self", "cycle")
     root = Node.from_mapping({occupied: {}})
-    existing, candidate = root.resolve(occupied), Node()
+    existing, candidate = root.children[occupied], Node()
     with pytest.raises(InvalidTreeError):
         root.attach(occupied, candidate)
     with pytest.raises(InvalidTreeError):
@@ -34,7 +34,7 @@ def test_move_keeps_subtree_and_preserves_insertion_order():
     # TN-A2
     first = Node.from_mapping({"moving": {"leaf": {}}})
     second = Node.from_mapping({"before": {}})
-    moving, leaf = first.resolve("moving"), first.resolve("moving/leaf")
+    moving, leaf = first.children["moving"], first.children["moving"].children["leaf"]
     second.attach("after", moving)
     assert tuple(first.children) == ()
     assert tuple(second.children) == ("before", "after")
@@ -45,7 +45,7 @@ def test_move_keeps_subtree_and_preserves_insertion_order():
 def test_replace_with_attached_node_detaches_both_old_locations():
     # TN-A2, TN-A4
     root = Node.from_mapping({"target": {"old_leaf": {}}, "source": {"new_leaf": {}}})
-    source, new_leaf = root.resolve("source"), root.resolve("source/new_leaf")
+    source, new_leaf = root.children["source"], root.children["source"].children["new_leaf"]
     old = root.replace("target", source)
     assert tuple(root.children) == ("target",)
     assert root.children["target"] is source and source.name == "target"
@@ -56,7 +56,7 @@ def test_replace_with_attached_node_detaches_both_old_locations():
 def test_orphan_is_idempotent_and_missing_replace_is_reported():
     # TN-A4
     root = Node.from_mapping({"child": {}})
-    child = root.resolve("child")
+    child = root.children["child"]
     assert child.orphan() is child
     assert child.orphan() is child
     with pytest.raises(NodeNotFoundError):

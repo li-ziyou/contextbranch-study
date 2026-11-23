@@ -1,0 +1,815 @@
+{
+  "sessions": 72,
+  "participant_suite_runs": 144,
+  "control_suite_runs": 32,
+  "source_hashes_verified": 160,
+  "participant_exit_codes": {
+    "1": 128,
+    "2": 12,
+    "124": 2,
+    "0": 2
+  },
+  "new_passes": {
+    "exception-group-matcher/audit.private.test_matcher_integration::test_flattened_pairing_uses_leaf_results_and_original_paths": 7,
+    "tree-node-navigation/audit.private.test_structure_integrity::test_occupied_name_and_self_link_are_atomic": 2,
+    "tree-node-navigation/audit.private.test_structure_integrity::test_move_keeps_subtree_and_preserves_insertion_order": 2,
+    "tree-node-navigation/audit.private.test_structure_integrity::test_orphan_is_idempotent_and_missing_replace_is_reported": 2,
+    "tree-node-navigation/audit.private.test_structure_integrity::test_replace_with_attached_node_detaches_both_old_locations": 1,
+    "exception-group-matcher/audit.private.test_matcher_integration::test_group_consumes_any_shared_matcher_without_leaf_duplication": 1
+  },
+  "regressions": {},
+  "missing_candidate_cases": {},
+  "reference_runs": 8,
+  "alternative_and_defect_controls": [
+    {
+      "form": "F1",
+      "control": "short_circuit_success",
+      "variant": "original",
+      "exit": 1,
+      "failed": [
+        "audit.private.test_matcher_integration::test_flattened_pairing_uses_leaf_results_and_original_paths"
+      ]
+    },
+    {
+      "form": "F1",
+      "control": "short_circuit_success",
+      "variant": "candidate",
+      "exit": 0,
+      "failed": []
+    },
+    {
+      "form": "F1",
+      "control": "extra_predicate_evaluation",
+      "variant": "original",
+      "exit": 1,
+      "failed": [
+        "audit.private.test_leaf_matching::test_predicate_runs_after_type_and_message_and_has_structured_failure"
+      ]
+    },
+    {
+      "form": "F1",
+      "control": "extra_predicate_evaluation",
+      "variant": "candidate",
+      "exit": 0,
+      "failed": []
+    },
+    {
+      "form": "F1",
+      "control": "diagnostic_context",
+      "variant": "original",
+      "exit": 1,
+      "failed": [
+        "audit.private.test_matcher_integration::test_unwrapped_path_preserves_custom_matcher_failure_unchanged"
+      ]
+    },
+    {
+      "form": "F1",
+      "control": "diagnostic_context",
+      "variant": "candidate",
+      "exit": 0,
+      "failed": []
+    },
+    {
+      "form": "F1",
+      "control": "wrong_unwrapped_code",
+      "variant": "original",
+      "exit": 1,
+      "failed": [
+        "audit.public.test_responsibility_b::test_flatten_and_unwrapped_modes_are_explicit",
+        "audit.private.test_group_matching::test_unwrapped_requires_flag_and_exactly_one_matcher"
+      ]
+    },
+    {
+      "form": "F1",
+      "control": "wrong_unwrapped_code",
+      "variant": "candidate",
+      "exit": 1,
+      "failed": [
+        "audit.public.test_responsibility_b::test_flatten_and_unwrapped_modes_are_explicit",
+        "audit.private.test_group_matching::test_unwrapped_requires_flag_and_exactly_one_matcher"
+      ]
+    },
+    {
+      "form": "F1",
+      "control": "always_alternative",
+      "variant": "original",
+      "exit": 1,
+      "failed": [
+        "audit.private.test_group_matching::test_alternative_flag_is_only_set_when_complete_pairing_exists"
+      ]
+    },
+    {
+      "form": "F1",
+      "control": "always_alternative",
+      "variant": "candidate",
+      "exit": 1,
+      "failed": [
+        "audit.private.test_group_matching::test_alternative_flag_is_only_set_when_complete_pairing_exists"
+      ]
+    },
+    {
+      "form": "F2",
+      "control": "short_circuit_success",
+      "variant": "original",
+      "exit": 1,
+      "failed": [
+        "audit.private.test_matcher_integration::test_flattened_pairing_uses_leaf_results_and_original_paths"
+      ]
+    },
+    {
+      "form": "F2",
+      "control": "short_circuit_success",
+      "variant": "candidate",
+      "exit": 0,
+      "failed": []
+    },
+    {
+      "form": "F2",
+      "control": "extra_predicate_evaluation",
+      "variant": "original",
+      "exit": 1,
+      "failed": [
+        "audit.private.test_leaf_matching::test_predicate_runs_after_type_and_message_and_has_structured_failure"
+      ]
+    },
+    {
+      "form": "F2",
+      "control": "extra_predicate_evaluation",
+      "variant": "candidate",
+      "exit": 0,
+      "failed": []
+    },
+    {
+      "form": "F2",
+      "control": "diagnostic_context",
+      "variant": "original",
+      "exit": 1,
+      "failed": [
+        "audit.private.test_matcher_integration::test_unwrapped_path_preserves_custom_matcher_failure_unchanged"
+      ]
+    },
+    {
+      "form": "F2",
+      "control": "diagnostic_context",
+      "variant": "candidate",
+      "exit": 0,
+      "failed": []
+    },
+    {
+      "form": "F2",
+      "control": "wrong_unwrapped_code",
+      "variant": "original",
+      "exit": 1,
+      "failed": [
+        "audit.public.test_responsibility_b::test_flatten_and_unwrapped_modes_are_explicit",
+        "audit.private.test_group_matching::test_unwrapped_requires_flag_and_exactly_one_matcher"
+      ]
+    },
+    {
+      "form": "F2",
+      "control": "wrong_unwrapped_code",
+      "variant": "candidate",
+      "exit": 1,
+      "failed": [
+        "audit.public.test_responsibility_b::test_flatten_and_unwrapped_modes_are_explicit",
+        "audit.private.test_group_matching::test_unwrapped_requires_flag_and_exactly_one_matcher"
+      ]
+    },
+    {
+      "form": "F2",
+      "control": "always_alternative",
+      "variant": "original",
+      "exit": 1,
+      "failed": [
+        "audit.private.test_group_matching::test_alternative_flag_is_only_set_when_complete_pairing_exists"
+      ]
+    },
+    {
+      "form": "F2",
+      "control": "always_alternative",
+      "variant": "candidate",
+      "exit": 1,
+      "failed": [
+        "audit.private.test_group_matching::test_alternative_flag_is_only_set_when_complete_pairing_exists"
+      ]
+    }
+  ],
+  "changed_case_tables": [
+    {
+      "task": "exception-group-matcher",
+      "condition": "contextbranch",
+      "variant": "candidate",
+      "case": "audit.private.test_group_matching::test_alternative_flag_is_only_set_when_complete_pairing_exists",
+      "outcomes": {
+        "failure": 14,
+        "passed": 2
+      },
+      "failure_causes": {
+        "assertion": 12,
+        "other": 1,
+        "missing_api_or_name": 1
+      }
+    },
+    {
+      "task": "exception-group-matcher",
+      "condition": "contextbranch",
+      "variant": "candidate",
+      "case": "audit.private.test_group_matching::test_pairing_is_expected_order_first_unmatched_actual",
+      "outcomes": {
+        "passed": 9,
+        "failure": 7
+      },
+      "failure_causes": {
+        "assertion": 5,
+        "other": 1,
+        "missing_api_or_name": 1
+      }
+    },
+    {
+      "task": "exception-group-matcher",
+      "condition": "contextbranch",
+      "variant": "candidate",
+      "case": "audit.private.test_group_matching::test_unwrapped_requires_flag_and_exactly_one_matcher",
+      "outcomes": {
+        "passed": 7,
+        "failure": 9
+      },
+      "failure_causes": {
+        "assertion": 8,
+        "missing_api_or_name": 1
+      }
+    },
+    {
+      "task": "exception-group-matcher",
+      "condition": "contextbranch",
+      "variant": "candidate",
+      "case": "audit.private.test_leaf_matching::test_predicate_runs_after_type_and_message_and_has_structured_failure",
+      "outcomes": {
+        "passed": 14,
+        "failure": 2
+      },
+      "failure_causes": {
+        "assertion": 1,
+        "missing_api_or_name": 1
+      }
+    },
+    {
+      "task": "exception-group-matcher",
+      "condition": "contextbranch",
+      "variant": "candidate",
+      "case": "audit.private.test_matcher_integration::test_flattened_pairing_uses_leaf_results_and_original_paths",
+      "outcomes": {
+        "passed": 5,
+        "failure": 11
+      },
+      "failure_causes": {
+        "assertion": 9,
+        "other": 1,
+        "missing_api_or_name": 1
+      }
+    },
+    {
+      "task": "exception-group-matcher",
+      "condition": "contextbranch",
+      "variant": "candidate",
+      "case": "audit.private.test_matcher_integration::test_group_consumes_any_shared_matcher_without_leaf_duplication",
+      "outcomes": {
+        "passed": 11,
+        "failure": 5
+      },
+      "failure_causes": {
+        "assertion": 4,
+        "other": 1
+      }
+    },
+    {
+      "task": "exception-group-matcher",
+      "condition": "contextbranch",
+      "variant": "candidate",
+      "case": "audit.private.test_matcher_integration::test_unwrapped_path_preserves_custom_matcher_failure_unchanged",
+      "outcomes": {
+        "passed": 15,
+        "failure": 1
+      },
+      "failure_causes": {
+        "assertion": 1
+      }
+    },
+    {
+      "task": "exception-group-matcher",
+      "condition": "contextbranch",
+      "variant": "original",
+      "case": "audit.private.test_group_matching::test_alternative_flag_is_only_set_when_complete_pairing_exists",
+      "outcomes": {
+        "failure": 14,
+        "passed": 2
+      },
+      "failure_causes": {
+        "assertion": 12,
+        "other": 1,
+        "missing_api_or_name": 1
+      }
+    },
+    {
+      "task": "exception-group-matcher",
+      "condition": "contextbranch",
+      "variant": "original",
+      "case": "audit.private.test_group_matching::test_pairing_is_expected_order_first_unmatched_actual",
+      "outcomes": {
+        "passed": 9,
+        "failure": 7
+      },
+      "failure_causes": {
+        "assertion": 5,
+        "other": 1,
+        "missing_api_or_name": 1
+      }
+    },
+    {
+      "task": "exception-group-matcher",
+      "condition": "contextbranch",
+      "variant": "original",
+      "case": "audit.private.test_group_matching::test_unwrapped_requires_flag_and_exactly_one_matcher",
+      "outcomes": {
+        "passed": 7,
+        "failure": 9
+      },
+      "failure_causes": {
+        "assertion": 8,
+        "missing_api_or_name": 1
+      }
+    },
+    {
+      "task": "exception-group-matcher",
+      "condition": "contextbranch",
+      "variant": "original",
+      "case": "audit.private.test_leaf_matching::test_predicate_runs_after_type_and_message_and_has_structured_failure",
+      "outcomes": {
+        "passed": 14,
+        "failure": 2
+      },
+      "failure_causes": {
+        "assertion": 1,
+        "missing_api_or_name": 1
+      }
+    },
+    {
+      "task": "exception-group-matcher",
+      "condition": "contextbranch",
+      "variant": "original",
+      "case": "audit.private.test_matcher_integration::test_flattened_pairing_uses_leaf_results_and_original_paths",
+      "outcomes": {
+        "failure": 14,
+        "passed": 2
+      },
+      "failure_causes": {
+        "assertion": 12,
+        "other": 1,
+        "missing_api_or_name": 1
+      }
+    },
+    {
+      "task": "exception-group-matcher",
+      "condition": "contextbranch",
+      "variant": "original",
+      "case": "audit.private.test_matcher_integration::test_group_consumes_any_shared_matcher_without_leaf_duplication",
+      "outcomes": {
+        "passed": 11,
+        "failure": 5
+      },
+      "failure_causes": {
+        "assertion": 4,
+        "other": 1
+      }
+    },
+    {
+      "task": "exception-group-matcher",
+      "condition": "contextbranch",
+      "variant": "original",
+      "case": "audit.private.test_matcher_integration::test_unwrapped_path_preserves_custom_matcher_failure_unchanged",
+      "outcomes": {
+        "passed": 15,
+        "failure": 1
+      },
+      "failure_causes": {
+        "assertion": 1
+      }
+    },
+    {
+      "task": "exception-group-matcher",
+      "condition": "linear",
+      "variant": "candidate",
+      "case": "audit.private.test_group_matching::test_alternative_flag_is_only_set_when_complete_pairing_exists",
+      "outcomes": {
+        "failure": 12,
+        "passed": 1
+      },
+      "failure_causes": {
+        "assertion": 11,
+        "missing_api_or_name": 1
+      }
+    },
+    {
+      "task": "exception-group-matcher",
+      "condition": "linear",
+      "variant": "candidate",
+      "case": "audit.private.test_group_matching::test_pairing_is_expected_order_first_unmatched_actual",
+      "outcomes": {
+        "passed": 8,
+        "failure": 5
+      },
+      "failure_causes": {
+        "missing_api_or_name": 1,
+        "assertion": 3,
+        "other": 1
+      }
+    },
+    {
+      "task": "exception-group-matcher",
+      "condition": "linear",
+      "variant": "candidate",
+      "case": "audit.private.test_group_matching::test_unwrapped_requires_flag_and_exactly_one_matcher",
+      "outcomes": {
+        "passed": 8,
+        "failure": 5
+      },
+      "failure_causes": {
+        "assertion": 5
+      }
+    },
+    {
+      "task": "exception-group-matcher",
+      "condition": "linear",
+      "variant": "candidate",
+      "case": "audit.private.test_leaf_matching::test_predicate_runs_after_type_and_message_and_has_structured_failure",
+      "outcomes": {
+        "passed": 12,
+        "failure": 1
+      },
+      "failure_causes": {
+        "assertion": 1
+      }
+    },
+    {
+      "task": "exception-group-matcher",
+      "condition": "linear",
+      "variant": "candidate",
+      "case": "audit.private.test_matcher_integration::test_flattened_pairing_uses_leaf_results_and_original_paths",
+      "outcomes": {
+        "passed": 4,
+        "failure": 9
+      },
+      "failure_causes": {
+        "missing_api_or_name": 1,
+        "assertion": 7,
+        "other": 1
+      }
+    },
+    {
+      "task": "exception-group-matcher",
+      "condition": "linear",
+      "variant": "candidate",
+      "case": "audit.private.test_matcher_integration::test_group_consumes_any_shared_matcher_without_leaf_duplication",
+      "outcomes": {
+        "passed": 10,
+        "failure": 3
+      },
+      "failure_causes": {
+        "missing_api_or_name": 1,
+        "assertion": 1,
+        "other": 1
+      }
+    },
+    {
+      "task": "exception-group-matcher",
+      "condition": "linear",
+      "variant": "candidate",
+      "case": "audit.private.test_matcher_integration::test_unwrapped_path_preserves_custom_matcher_failure_unchanged",
+      "outcomes": {
+        "passed": 9,
+        "failure": 4
+      },
+      "failure_causes": {
+        "assertion": 4
+      }
+    },
+    {
+      "task": "exception-group-matcher",
+      "condition": "linear",
+      "variant": "original",
+      "case": "audit.private.test_group_matching::test_alternative_flag_is_only_set_when_complete_pairing_exists",
+      "outcomes": {
+        "failure": 12,
+        "passed": 1
+      },
+      "failure_causes": {
+        "assertion": 11,
+        "missing_api_or_name": 1
+      }
+    },
+    {
+      "task": "exception-group-matcher",
+      "condition": "linear",
+      "variant": "original",
+      "case": "audit.private.test_group_matching::test_pairing_is_expected_order_first_unmatched_actual",
+      "outcomes": {
+        "passed": 8,
+        "failure": 5
+      },
+      "failure_causes": {
+        "missing_api_or_name": 1,
+        "assertion": 3,
+        "other": 1
+      }
+    },
+    {
+      "task": "exception-group-matcher",
+      "condition": "linear",
+      "variant": "original",
+      "case": "audit.private.test_group_matching::test_unwrapped_requires_flag_and_exactly_one_matcher",
+      "outcomes": {
+        "passed": 8,
+        "failure": 5
+      },
+      "failure_causes": {
+        "assertion": 5
+      }
+    },
+    {
+      "task": "exception-group-matcher",
+      "condition": "linear",
+      "variant": "original",
+      "case": "audit.private.test_leaf_matching::test_predicate_runs_after_type_and_message_and_has_structured_failure",
+      "outcomes": {
+        "passed": 12,
+        "failure": 1
+      },
+      "failure_causes": {
+        "assertion": 1
+      }
+    },
+    {
+      "task": "exception-group-matcher",
+      "condition": "linear",
+      "variant": "original",
+      "case": "audit.private.test_matcher_integration::test_flattened_pairing_uses_leaf_results_and_original_paths",
+      "outcomes": {
+        "failure": 13
+      },
+      "failure_causes": {
+        "assertion": 11,
+        "missing_api_or_name": 1,
+        "other": 1
+      }
+    },
+    {
+      "task": "exception-group-matcher",
+      "condition": "linear",
+      "variant": "original",
+      "case": "audit.private.test_matcher_integration::test_group_consumes_any_shared_matcher_without_leaf_duplication",
+      "outcomes": {
+        "passed": 9,
+        "failure": 4
+      },
+      "failure_causes": {
+        "missing_api_or_name": 1,
+        "assertion": 2,
+        "other": 1
+      }
+    },
+    {
+      "task": "exception-group-matcher",
+      "condition": "linear",
+      "variant": "original",
+      "case": "audit.private.test_matcher_integration::test_unwrapped_path_preserves_custom_matcher_failure_unchanged",
+      "outcomes": {
+        "passed": 9,
+        "failure": 4
+      },
+      "failure_causes": {
+        "assertion": 4
+      }
+    },
+    {
+      "task": "tree-node-navigation",
+      "condition": "contextbranch",
+      "variant": "candidate",
+      "case": "audit.private.test_structure_integrity::test_move_keeps_subtree_and_preserves_insertion_order",
+      "outcomes": {
+        "passed": 17,
+        "failure": 1
+      },
+      "failure_causes": {
+        "assertion": 1
+      }
+    },
+    {
+      "task": "tree-node-navigation",
+      "condition": "contextbranch",
+      "variant": "candidate",
+      "case": "audit.private.test_structure_integrity::test_occupied_name_and_self_link_are_atomic",
+      "outcomes": {
+        "passed": 16,
+        "failure": 2
+      },
+      "failure_causes": {
+        "other": 2
+      }
+    },
+    {
+      "task": "tree-node-navigation",
+      "condition": "contextbranch",
+      "variant": "candidate",
+      "case": "audit.private.test_structure_integrity::test_orphan_is_idempotent_and_missing_replace_is_reported",
+      "outcomes": {
+        "passed": 8,
+        "failure": 10
+      },
+      "failure_causes": {
+        "other": 9,
+        "unimplemented": 1
+      }
+    },
+    {
+      "task": "tree-node-navigation",
+      "condition": "contextbranch",
+      "variant": "candidate",
+      "case": "audit.private.test_structure_integrity::test_replace_with_attached_node_detaches_both_old_locations",
+      "outcomes": {
+        "failure": 10,
+        "passed": 8
+      },
+      "failure_causes": {
+        "assertion": 8,
+        "other": 2
+      }
+    },
+    {
+      "task": "tree-node-navigation",
+      "condition": "contextbranch",
+      "variant": "original",
+      "case": "audit.private.test_structure_integrity::test_move_keeps_subtree_and_preserves_insertion_order",
+      "outcomes": {
+        "passed": 16,
+        "failure": 2
+      },
+      "failure_causes": {
+        "unimplemented": 1,
+        "assertion": 1
+      }
+    },
+    {
+      "task": "tree-node-navigation",
+      "condition": "contextbranch",
+      "variant": "original",
+      "case": "audit.private.test_structure_integrity::test_occupied_name_and_self_link_are_atomic",
+      "outcomes": {
+        "passed": 15,
+        "failure": 3
+      },
+      "failure_causes": {
+        "unimplemented": 1,
+        "other": 2
+      }
+    },
+    {
+      "task": "tree-node-navigation",
+      "condition": "contextbranch",
+      "variant": "original",
+      "case": "audit.private.test_structure_integrity::test_orphan_is_idempotent_and_missing_replace_is_reported",
+      "outcomes": {
+        "passed": 7,
+        "failure": 11
+      },
+      "failure_causes": {
+        "unimplemented": 2,
+        "other": 9
+      }
+    },
+    {
+      "task": "tree-node-navigation",
+      "condition": "contextbranch",
+      "variant": "original",
+      "case": "audit.private.test_structure_integrity::test_replace_with_attached_node_detaches_both_old_locations",
+      "outcomes": {
+        "failure": 10,
+        "passed": 8
+      },
+      "failure_causes": {
+        "assertion": 7,
+        "unimplemented": 1,
+        "other": 2
+      }
+    },
+    {
+      "task": "tree-node-navigation",
+      "condition": "linear",
+      "variant": "candidate",
+      "case": "audit.private.test_structure_integrity::test_move_keeps_subtree_and_preserves_insertion_order",
+      "outcomes": {
+        "passed": 18
+      },
+      "failure_causes": {}
+    },
+    {
+      "task": "tree-node-navigation",
+      "condition": "linear",
+      "variant": "candidate",
+      "case": "audit.private.test_structure_integrity::test_occupied_name_and_self_link_are_atomic",
+      "outcomes": {
+        "passed": 12,
+        "failure": 6
+      },
+      "failure_causes": {
+        "other": 6
+      }
+    },
+    {
+      "task": "tree-node-navigation",
+      "condition": "linear",
+      "variant": "candidate",
+      "case": "audit.private.test_structure_integrity::test_orphan_is_idempotent_and_missing_replace_is_reported",
+      "outcomes": {
+        "passed": 11,
+        "failure": 7
+      },
+      "failure_causes": {
+        "unimplemented": 1,
+        "other": 6
+      }
+    },
+    {
+      "task": "tree-node-navigation",
+      "condition": "linear",
+      "variant": "candidate",
+      "case": "audit.private.test_structure_integrity::test_replace_with_attached_node_detaches_both_old_locations",
+      "outcomes": {
+        "failure": 11,
+        "passed": 7
+      },
+      "failure_causes": {
+        "assertion": 9,
+        "unimplemented": 1,
+        "other": 1
+      }
+    },
+    {
+      "task": "tree-node-navigation",
+      "condition": "linear",
+      "variant": "original",
+      "case": "audit.private.test_structure_integrity::test_move_keeps_subtree_and_preserves_insertion_order",
+      "outcomes": {
+        "passed": 17,
+        "failure": 1
+      },
+      "failure_causes": {
+        "syntax": 1
+      }
+    },
+    {
+      "task": "tree-node-navigation",
+      "condition": "linear",
+      "variant": "original",
+      "case": "audit.private.test_structure_integrity::test_occupied_name_and_self_link_are_atomic",
+      "outcomes": {
+        "passed": 11,
+        "failure": 7
+      },
+      "failure_causes": {
+        "other": 6,
+        "syntax": 1
+      }
+    },
+    {
+      "task": "tree-node-navigation",
+      "condition": "linear",
+      "variant": "original",
+      "case": "audit.private.test_structure_integrity::test_orphan_is_idempotent_and_missing_replace_is_reported",
+      "outcomes": {
+        "passed": 10,
+        "failure": 8
+      },
+      "failure_causes": {
+        "unimplemented": 1,
+        "other": 6,
+        "syntax": 1
+      }
+    },
+    {
+      "task": "tree-node-navigation",
+      "condition": "linear",
+      "variant": "original",
+      "case": "audit.private.test_structure_integrity::test_replace_with_attached_node_detaches_both_old_locations",
+      "outcomes": {
+        "failure": 12,
+        "passed": 6
+      },
+      "failure_causes": {
+        "assertion": 9,
+        "unimplemented": 1,
+        "syntax": 1,
+        "other": 1
+      }
+    }
+  ]
+}

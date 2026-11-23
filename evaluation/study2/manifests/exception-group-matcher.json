@@ -8,7 +8,11 @@
     "datasetUrl": "https://huggingface.co/datasets/LiberCoders/FeatureBench",
     "sourceRepository": "pytest-dev/pytest",
     "sourceCommit": "68016f0effe59cd91120112f5170fdd057dba1d9",
-    "derivedBehaviour": ["leaf exception matching", "nested exception-group pairing", "structured match evidence"],
+    "derivedBehaviour": [
+      "leaf exception matching",
+      "nested exception-group pairing",
+      "structured match evidence"
+    ],
     "construction": "The local baseline and tests are newly authored from a pinned behavioral theme; upstream F2P/P2P results are provenance evidence only."
   },
   "assets": {
@@ -68,12 +72,20 @@
     "network": "not-required"
   },
   "submission": {
-    "allowedProductionPaths": ["exception_matcher/leaf.py", "exception_matcher/groups.py"],
+    "allowedProductionPaths": [
+      "exception_matcher/leaf.py",
+      "exception_matcher/groups.py"
+    ],
     "finalState": "main"
   },
   "privateGrader": {
     "mode": "fresh-clean-baseline",
     "outcome": "verified-feature-delivery",
-    "hiddenGoals": ["leaf_matching", "group_matching", "matcher_integration"]
-  }
+    "hiddenGoals": [
+      "leaf_matching",
+      "group_matching",
+      "matcher_integration"
+    ]
+  },
+  "taskVersion": "2026-11-23.1"
 }

@@ -1,0 +1,52 @@
+{
+  "taskVersion": "2026-11-23.1",
+  "previousSourceRevision": "3187de61bee64f078900332e6b9c50d47257aa59",
+  "historicalAuditSourceRevision": "3fc391665b427e52997c705c79b5ddeef2375cca",
+  "tasks": {
+    "tree-node-navigation": {
+      "files": {
+        "manifests/tree-node-navigation.json": "fcc1f76fbf6896b006f679c746fa05ba169cc6cc975768556fba373f46eb38e1",
+        "private-grader/checks/tree-node-navigation/conftest.py": "2a98adaf1b108aeb1cd4bc71d868d28e564b2369f83cb7cbf1ff0b4dc62036e0",
+        "private-grader/checks/tree-node-navigation/test_path_navigation.py": "fb3cc137dbd056203b6e46ba1836e0d9db6d882979739e788ad5936e981485cd",
+        "private-grader/checks/tree-node-navigation/test_structure_integrity.py": "44bab648e4c53f2036b7c8f2fc442661a56be9848e2823738d86f54fef133bab",
+        "private-grader/checks/tree-node-navigation/test_tree_integration.py": "473d56f3915efcea38eb33cf6d62f99fac34ed9d2bbc399a984b503e6b8dc838",
+        "public-tests/tree-node-navigation/conftest.py": "8d81c19d08e5cb02bda0f080fa957e1957f5c493bd0c0c62c61fc23f0053e987",
+        "public-tests/tree-node-navigation/test_integration.py": "2bee1b2cd89a62de2fc6235f350aa6836e316e0164d2967a56fcb061cdd0d75d",
+        "public-tests/tree-node-navigation/test_responsibility_a.py": "fd8058507c1121702ff226ae2458fc6f6209df77ec3337225709b1992ac9fb24",
+        "public-tests/tree-node-navigation/test_responsibility_b.py": "63d92db9f148cb0e844cd3839ba087fdc546322ea5ddbbbecdcd3e0d63f0920a",
+        "task-assets/tree-node-navigation/baseline/branching_tree/__init__.py": "25b0e1111d432e6db31fd7c8dd451064bce5b780f6789d71b9c5efbee51cc846",
+        "task-assets/tree-node-navigation/baseline/branching_tree/model.py": "bd41b87a7299e9855b746be8c6c2df4e6948be41ffd2979442a53905ed581d8b",
+        "task-assets/tree-node-navigation/baseline/branching_tree/navigation.py": "7bca5c368364a0ec858a3108c378a3bd3189b808fe5f4982e84d2d49488f1422",
+        "task-assets/tree-node-navigation/baseline/branching_tree/structure.py": "59e4299975e78d589602da28cd16bd17cf4f5e0b561a2147252d95ff3873624c",
+        "task-assets/tree-node-navigation/reference/branching_tree/navigation.py": "fd43e5ac0d8178689a4205a0c80265318069a79cdfcca6399eb29adeb34b2ec4",
+        "task-assets/tree-node-navigation/reference/branching_tree/structure.py": "ae0766ad0a8505b7e90c06e0f14e54fb043217bd8de776da00375d7f13ecd21c",
+        "tasks/tree-node-navigation/branch-a.md": "9849448827b488f65b11b86f54cbde5c61df988c66ece92a3c8b91dbbfb773db",
+        "tasks/tree-node-navigation/branch-b.md": "dd55e9dec0764540fb6e041ab3d81ca4e8c22773586d83c927d5620efadb4c32",
+        "tasks/tree-node-navigation/main-ticket.md": "2f316987707d0c90eb1e701f7e56f1ecb57f353d2f05fd4b589198c662129423"
+      }
+    },
+    "exception-group-matcher": {
+      "files": {
+        "manifests/exception-group-matcher.json": "0fc7b294f78db77ba3a85756b3bf77f34d081d52e877297d9d775b8f7a7f689d",
+        "private-grader/checks/exception-group-matcher/conftest.py": "2a98adaf1b108aeb1cd4bc71d868d28e564b2369f83cb7cbf1ff0b4dc62036e0",
+        "private-grader/checks/exception-group-matcher/test_group_matching.py": "f5727099ae92932350c6bceb4e674f0c0aeeee5cded70b475b828abe658ca9a7",
+        "private-grader/checks/exception-group-matcher/test_leaf_matching.py": "8f18bf1e042e58c007b06146e174782f0214babc8d55eeb7530ccd24b452ccf7",
+        "private-grader/checks/exception-group-matcher/test_matcher_integration.py": "1d15bb98e30ef66de7aeea1c10e647c88299286734fabfdeb1a550e623f53032",
+        "public-tests/exception-group-matcher/conftest.py": "8d81c19d08e5cb02bda0f080fa957e1957f5c493bd0c0c62c61fc23f0053e987",
+        "public-tests/exception-group-matcher/test_integration.py": "edee7f76ff7b9ad261d2fafba189136cb4642e3394c0984d800a053a62a3cc5d",
+        "public-tests/exception-group-matcher/test_responsibility_a.py": "2e7fcc75111166f4e297be2038c1f1b679d47d7c4f544be2ef8ac4d8aeac133f",
+        "public-tests/exception-group-matcher/test_responsibility_b.py": "2eb5d0e588beaa0f678bd394305d3291009325181acac9ace23cf7b26c4740c8",
+        "task-assets/exception-group-matcher/baseline/exception_matcher/__init__.py": "c5f942b9b86f826d7e5154043e209ac3ba3bf53871a38b9cf8c577a6740b554c",
+        "task-assets/exception-group-matcher/baseline/exception_matcher/api.py": "c1ec4ca40dee417bdbc3005679d50f138e4155a754fa716a977478570a687679",
+        "task-assets/exception-group-matcher/baseline/exception_matcher/contracts.py": "3b669cc40d5d2e059885ca810986ad8dcd5db3323a8fa2d0006b58093ea715a2",
+        "task-assets/exception-group-matcher/baseline/exception_matcher/groups.py": "43dcb4abeaecb7e6751ddd9497be988039cb64dbea77741fe3d0b01d0bf5160c",
+        "task-assets/exception-group-matcher/baseline/exception_matcher/leaf.py": "dc879df17a96a60553606d5558e0b2667f14fb873283db94dbe770dab0938922",
+        "task-assets/exception-group-matcher/reference/exception_matcher/groups.py": "e56037df4f352386b45018a675654f88ed47559c7117c481cd7ccf9969e04b7a",
+        "task-assets/exception-group-matcher/reference/exception_matcher/leaf.py": "03c2d08b9c8ebb2789e5bc63b5de5caa2360114708f4baf3cfbdfb8692d0d568",
+        "tasks/exception-group-matcher/branch-a.md": "a883ccf78aa20b9b562171677677168f0d57e765cd41d646d11b93376f67497a",
+        "tasks/exception-group-matcher/branch-b.md": "73e5cb0337883a6a7db8c3e80744bc3f7f1ece6db4d006ea6cae904b97d5ae11",
+        "tasks/exception-group-matcher/main-ticket.md": "228096b83bdf2213d1c806c259d3434059ee7aa9d707740670455fc5ad4d71d4"
+      }
+    }
+  }
+}

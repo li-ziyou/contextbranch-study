@@ -1,0 +1,216 @@
+{
+  "taskVersion": "2026-11-23.1",
+  "verifiedRuns": 30,
+  "historicalBundleDifferences": [
+    "Runtime conftest compatibility shims are not copied into source",
+    "Merged PR #14 public evidence-count correction is retained"
+  ],
+  "runs": [
+    {
+      "task": "tree-node-navigation",
+      "form": "F1",
+      "control": "reference",
+      "exit": 0,
+      "caseCount": 30
+    },
+    {
+      "task": "tree-node-navigation",
+      "form": "F1",
+      "control": "baseline",
+      "exit": 1,
+      "caseCount": 30
+    },
+    {
+      "task": "tree-node-navigation",
+      "form": "F1",
+      "control": "A_only",
+      "exit": 1,
+      "caseCount": 30
+    },
+    {
+      "task": "tree-node-navigation",
+      "form": "F1",
+      "control": "A_independent",
+      "exit": 0,
+      "caseCount": 11
+    },
+    {
+      "task": "tree-node-navigation",
+      "form": "F1",
+      "control": "B_only",
+      "exit": 1,
+      "caseCount": 30
+    },
+    {
+      "task": "tree-node-navigation",
+      "form": "F1",
+      "control": "B_independent",
+      "exit": 0,
+      "caseCount": 12
+    },
+    {
+      "task": "tree-node-navigation",
+      "form": "F1",
+      "control": "clean_grader_reference",
+      "exit": 0,
+      "taskVersion": "2026-11-23.1"
+    },
+    {
+      "task": "tree-node-navigation",
+      "form": "F2",
+      "control": "reference",
+      "exit": 0,
+      "caseCount": 30
+    },
+    {
+      "task": "tree-node-navigation",
+      "form": "F2",
+      "control": "baseline",
+      "exit": 1,
+      "caseCount": 30
+    },
+    {
+      "task": "tree-node-navigation",
+      "form": "F2",
+      "control": "A_only",
+      "exit": 1,
+      "caseCount": 30
+    },
+    {
+      "task": "tree-node-navigation",
+      "form": "F2",
+      "control": "A_independent",
+      "exit": 0,
+      "caseCount": 11
+    },
+    {
+      "task": "tree-node-navigation",
+      "form": "F2",
+      "control": "B_only",
+      "exit": 1,
+      "caseCount": 30
+    },
+    {
+      "task": "tree-node-navigation",
+      "form": "F2",
+      "control": "B_independent",
+      "exit": 0,
+      "caseCount": 12
+    },
+    {
+      "task": "tree-node-navigation",
+      "form": "F2",
+      "control": "clean_grader_reference",
+      "exit": 0,
+      "taskVersion": "2026-11-23.1"
+    },
+    {
+      "task": "tree-node-navigation",
+      "control": "changed_asset_rejected",
+      "exit": 1
+    },
+    {
+      "task": "exception-group-matcher",
+      "form": "F1",
+      "control": "reference",
+      "exit": 0,
+      "caseCount": 39
+    },
+    {
+      "task": "exception-group-matcher",
+      "form": "F1",
+      "control": "baseline",
+      "exit": 1,
+      "caseCount": 39
+    },
+    {
+      "task": "exception-group-matcher",
+      "form": "F1",
+      "control": "A_only",
+      "exit": 1,
+      "caseCount": 39
+    },
+    {
+      "task": "exception-group-matcher",
+      "form": "F1",
+      "control": "A_independent",
+      "exit": 0,
+      "caseCount": 15
+    },
+    {
+      "task": "exception-group-matcher",
+      "form": "F1",
+      "control": "B_only",
+      "exit": 1,
+      "caseCount": 39
+    },
+    {
+      "task": "exception-group-matcher",
+      "form": "F1",
+      "control": "B_independent",
+      "exit": 0,
+      "caseCount": 17
+    },
+    {
+      "task": "exception-group-matcher",
+      "form": "F1",
+      "control": "clean_grader_reference",
+      "exit": 0,
+      "taskVersion": "2026-11-23.1"
+    },
+    {
+      "task": "exception-group-matcher",
+      "form": "F2",
+      "control": "reference",
+      "exit": 0,
+      "caseCount": 39
+    },
+    {
+      "task": "exception-group-matcher",
+      "form": "F2",
+      "control": "baseline",
+      "exit": 1,
+      "caseCount": 39
+    },
+    {
+      "task": "exception-group-matcher",
+      "form": "F2",
+      "control": "A_only",
+      "exit": 1,
+      "caseCount": 39
+    },
+    {
+      "task": "exception-group-matcher",
+      "form": "F2",
+      "control": "A_independent",
+      "exit": 0,
+      "caseCount": 15
+    },
+    {
+      "task": "exception-group-matcher",
+      "form": "F2",
+      "control": "B_only",
+      "exit": 1,
+      "caseCount": 39
+    },
+    {
+      "task": "exception-group-matcher",
+      "form": "F2",
+      "control": "B_independent",
+      "exit": 0,
+      "caseCount": 17
+    },
+    {
+      "task": "exception-group-matcher",
+      "form": "F2",
+      "control": "clean_grader_reference",
+      "exit": 0,
+      "taskVersion": "2026-11-23.1"
+    },
+    {
+      "task": "exception-group-matcher",
+      "control": "changed_asset_rejected",
+      "exit": 1
+    }
+  ]
+}

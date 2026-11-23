@@ -41,8 +41,8 @@ def test_flattened_pairing_uses_leaf_results_and_original_paths():
     matcher = GroupMatcher([RecordingMatcher("left", left_seen), RecordingMatcher("right", right_seen)], flatten=True)
     actual = ExceptionGroup("outer", [ExceptionGroup("nested", [ValueError("right")]), ValueError("left")])
     assert matcher.match(actual).matched
-    assert [str(item) for item in left_seen] == ["right", "left"]
-    assert [str(item) for item in right_seen] == ["right", "left"]
+    assert any(item is actual.exceptions[1] for item in left_seen)
+    assert any(item is actual.exceptions[0].exceptions[0] for item in right_seen)
 
 
 def test_unwrapped_path_preserves_custom_matcher_failure_unchanged():
