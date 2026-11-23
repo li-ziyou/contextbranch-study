@@ -8,7 +8,11 @@
     "datasetUrl": "https://huggingface.co/datasets/LiberCoders/FeatureBench",
     "sourceRepository": "pydata/xarray",
     "sourceCommit": "97f3a7465a66638f68129581b658853a3992dd89",
-    "derivedBehaviour": ["tree structural integrity", "path navigation", "live structure-navigation integration"],
+    "derivedBehaviour": [
+      "tree structural integrity",
+      "path navigation",
+      "live structure-navigation integration"
+    ],
     "construction": "The local baseline and tests are newly authored from a pinned behavioral theme; upstream F2P/P2P results are provenance evidence only."
   },
   "assets": {
@@ -70,12 +74,20 @@
     "network": "not-required"
   },
   "submission": {
-    "allowedProductionPaths": ["branching_tree/structure.py", "branching_tree/navigation.py"],
+    "allowedProductionPaths": [
+      "branching_tree/structure.py",
+      "branching_tree/navigation.py"
+    ],
     "finalState": "main"
   },
   "privateGrader": {
     "mode": "fresh-clean-baseline",
     "outcome": "verified-feature-delivery",
-    "hiddenGoals": ["structure_integrity", "path_navigation", "tree_integration"]
-  }
+    "hiddenGoals": [
+      "structure_integrity",
+      "path_navigation",
+      "tree_integration"
+    ]
+  },
+  "taskVersion": "2026-11-23.1"
 }

@@ -11,6 +11,7 @@ without exposing reference repairs or hidden tests to participants.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -94,6 +95,7 @@ def public_manifest(manifest: dict) -> dict:
     return {
         "schemaVersion": manifest["schemaVersion"],
         "taskId": manifest["taskId"],
+        **({"taskVersion": manifest["taskVersion"]} if "taskVersion" in manifest else {}),
         "participantTitle": manifest["participantTitle"],
         "ticket": manifest["ticket"],
         "runner": manifest["runner"],
@@ -105,6 +107,7 @@ def private_grading_config(manifest: dict) -> dict:
     goals = manifest["privateGrader"]["hiddenGoals"]
     return {
         "taskId": manifest["taskId"],
+        **({"taskVersion": manifest["taskVersion"]} if "taskVersion" in manifest else {}),
         "allowedProductionPaths": manifest["submission"]["allowedProductionPaths"],
         "runtime": manifest["runner"]["runtime"],
         "hiddenGoals": goals,
@@ -128,6 +131,15 @@ def remove_python_caches(root: Path) -> None:
 
 
 def build_one(manifest: dict, output: Path) -> Path:
+    version = manifest.get("taskVersion")
+    if version:
+        if not all(character.isalnum() or character in ".-" for character in version):
+            raise ValueError("Invalid taskVersion")
+        release = json.loads((STUDY_ROOT / "test-versions" / f"{version}.json").read_text())
+        for relative, expected in release["tasks"][manifest["taskId"]]["files"].items():
+            file = (STUDY_ROOT / relative).resolve()
+            if not file.is_relative_to(STUDY_ROOT) or hashlib.sha256(file.read_bytes()).hexdigest() != expected:
+                raise RuntimeError(f"Frozen task asset changed: {relative}. Create a new task version.")
     task_root = output / manifest["taskId"]
     if task_root.exists():
         shutil.rmtree(task_root)

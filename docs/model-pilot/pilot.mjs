@@ -113,8 +113,8 @@ try {
     for (const model of models) if (!available.has(model)) throw new Error(`Model is absent from gateway catalog: ${model}`);
     const contexts = values.context ?? ['history', 'compact'];
     if (contexts.some(context => !['history', 'compact'].includes(context))) throw new Error('Unknown context variant.');
-    const grading = option('grading', 'proposed');
-    if (!['original', 'candidate', 'minimal', 'proposed'].includes(grading)) throw new Error('Unknown grading variant.');
+    const grading = option('grading', 'source');
+    if (!['source', 'original', 'candidate', 'minimal', 'proposed'].includes(grading)) throw new Error('Unknown grading variant.');
     const turns = Number(option('turns', '3'));
     const repeats = Number(option('repeats', '2'));
     const maxTokens = Number(option('max-tokens', '16384'));
@@ -137,6 +137,7 @@ try {
       for (const task of tasks) for (const side of sides) for (const form of forms) {
         const root = fs.mkdtempSync(path.join(temporary, 'case-'));
         const privateRoot = path.join(source, 'participant-bundles', task, 'private');
+        const taskVersion = readJson(path.join(source, 'participant-bundles', task, 'participant/.study/task.json')).taskVersion ?? 'unversioned';
         fs.cpSync(path.join(privateRoot, 'mutation'), root, { recursive: true });
         fs.cpSync(path.join(source, 'participant-bundles', task, 'participant/tests'), path.join(root, 'tests'), { recursive: true });
         const allowed = readJson(path.join(privateRoot, 'grading.json')).allowedProductionPaths;
@@ -148,7 +149,7 @@ try {
           'bundle = Path(folder).parent.parent',
           'tests = {label + "/" + p.name: p.read_text() for label, directory in (("private", Path(folder)), ("public", bundle / "participant/tests")) for p in directory.glob("*.py")}',
           'builders = {"candidate": candidate_tests, "minimal": minimal_tests, "proposed": proposed_tests}',
-          'tests = builders[variant](task, tests) if variant != "original" else tests',
+          'tests = builders[variant](task, tests) if variant not in ("original", "source") else tests',
           'Path(target).mkdir()',
           'for name, text in tests.items():',
           '    destination = Path(target) if name.startswith("private/") else Path(target).parent / "tests"',
@@ -184,7 +185,7 @@ try {
           try {
             response = await request('chat/completions', { model, messages, max_tokens: maxTokens, stream: false, fallbacks: [] });
           } catch (error) {
-            fs.appendFileSync(output, JSON.stringify({ model, context, repeat, task, side, form, turn, status: 'provider_error', error: error.message }) + '\n');
+            fs.appendFileSync(output, JSON.stringify({ model, context, repeat, task, taskVersion, side, form, turn, status: 'provider_error', error: error.message }) + '\n');
             break;
           }
           const modelLatencyMs = Date.now() - start;
@@ -194,7 +195,7 @@ try {
           if (choice?.finish_reason === 'stop' && typeof text === 'string') applied = applyReply(text, files(), owned);
           if (applied.accepted) for (const [name, content] of Object.entries(applied.files)) fs.writeFileSync(path.join(root, name), content);
           const result = check();
-          fs.appendFileSync(output, JSON.stringify({ model, returnedModel: response.model, context, repeat, task, side, form, turn,
+          fs.appendFileSync(output, JSON.stringify({ model, returnedModel: response.model, context, repeat, task, taskVersion, side, form, turn,
             finishReason: choice?.finish_reason, accepted: applied.accepted, rejection: applied.reason,
             scopeProposals: applied.outside ?? 0, exitCode: result.code, modelLatencyMs, turnLatencyMs: Date.now() - start,
             usage: response.usage, inputChars: JSON.stringify(messages).length, outputChars: typeof text === 'string' ? text.length : 0 }) + '\n');
@@ -210,7 +211,7 @@ try {
           'exception-group-matcher': { A: 'test_leaf_matching.py', B: 'test_group_matching.py' },
         }[task][side];
         const finalGrade = check(`grading/${privateSuite}`);
-        fs.appendFileSync(output, JSON.stringify({ model, context, repeat, task, side, form,
+        fs.appendFileSync(output, JSON.stringify({ model, context, repeat, task, taskVersion, side, form,
           phase: 'final_private_evaluation', grading, exitCode: finalGrade.code }) + '\n');
         fs.rmSync(root, { recursive: true, force: true });
       }

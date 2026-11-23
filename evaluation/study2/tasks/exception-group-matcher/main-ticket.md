@@ -92,6 +92,19 @@ Responsibility A and keeps its useful failure information.
 
 ## Run Tests
 
+For ordinary, unwrapped input, `allow_unwrapped` must be enabled and exactly one
+expected matcher must be present. Delegate to that matcher and return its result,
+including failure details. Otherwise return `EXPECTED_GROUP`.
+
+For pairing, the greedy result and the possibility of a complete alternative
+are separate outputs. Expected `[any ValueError, ValueError("x")]` against
+`[ValueError("x"), ValueError("y")]` produces `matched=False` and
+`possible_alternative_pairing=True`: greedy uses `x` too early, but assigning
+`y` to the first matcher and `x` to the second succeeds. Expected
+`[ValueError, TypeError]` against two `ValueError` instances has no complete
+alternative, so both fields are false. A successful pairing need not evaluate
+all remaining matcher/exception combinations.
+
 Run either the focused tests or the complete public suite:
 
 ```bash

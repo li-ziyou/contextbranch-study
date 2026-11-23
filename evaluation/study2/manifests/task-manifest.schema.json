@@ -9,6 +9,7 @@
   "properties": {
     "schemaVersion": { "const": 1 },
     "taskId": { "type": "string" },
+    "taskVersion": { "type": "string", "minLength": 1 },
     "participantTitle": { "type": "string" },
     "provenance": {
       "type": "object",
